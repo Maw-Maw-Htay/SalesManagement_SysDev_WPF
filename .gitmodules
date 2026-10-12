@@ -1,0 +1,4 @@
+[submodule "SalesManagement_SysDev"]
+	path = SalesManagement_SysDev
+	url = https://github.com/Maw-Maw-Htay/SalesManagement_SysDev.git
+	branch = main
