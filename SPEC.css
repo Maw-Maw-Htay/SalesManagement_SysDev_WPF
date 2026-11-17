@@ -1,0 +1,112 @@
+:root {
+  --ink: #172233;
+  --muted: #637188;
+  --line: #d9e2ed;
+  --paper: #f5f8fc;
+  --white: #ffffff;
+  --navy: #10243e;
+  --blue: #2e6bff;
+  --blue-soft: #eaf0ff;
+  --orange: #ef8b45;
+  --shadow: 0 16px 40px rgba(28, 51, 82, 0.08);
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  color: var(--ink);
+  background: var(--paper);
+  font-family: Inter, "Segoe UI", Arial, "Noto Sans", "BIZ UDPGothic", "Yu Gothic UI", "Yu Gothic", Meiryo, sans-serif;
+  font-size: 16px;
+  line-height: 1.7;
+  letter-spacing: 0;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: var(--blue); }
+a:hover { color: #164dc9; }
+.shell { width: min(1220px, calc(100% - 56px)); margin: 0 auto; }
+.skip-link { position: fixed; z-index: 20; top: -100px; left: 20px; padding: 8px 14px; color: #fff; background: var(--navy); border-radius: 0 0 8px 8px; }
+.skip-link:focus { top: 0; }
+
+.doc-header { position: sticky; z-index: 10; top: 0; background: rgba(245, 248, 252, 0.94); border-bottom: 1px solid var(--line); backdrop-filter: blur(14px); }
+.header-inner { display: flex; min-height: 66px; align-items: center; justify-content: space-between; gap: 20px; }
+.brand { display: inline-flex; align-items: center; gap: 11px; color: var(--navy); font-weight: 800; text-decoration: none; }
+.brand-mark { display: grid; width: 42px; height: 28px; color: #fff; background: var(--blue); border-radius: 7px; place-items: center; font-size: 0.66rem; letter-spacing: 0.08em; }
+.source-link { color: var(--muted); font-size: 0.85rem; }
+
+.hero { padding: 82px 0 72px; border-bottom: 1px solid var(--line); }
+.eyebrow { margin: 0 0 10px; color: var(--blue); font-size: 0.76rem; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; }
+h1, h2, h3 { color: var(--navy); line-height: 1.3; }
+h1 { max-width: 850px; margin: 0 0 24px; font-size: clamp(2.7rem, 6vw, 5.6rem); letter-spacing: -0.035em; }
+h2 { margin: 0; font-size: clamp(1.7rem, 3vw, 2.5rem); letter-spacing: -0.02em; }
+h3 { margin: 34px 0 12px; font-size: 1.2rem; }
+p, li, th, td { overflow-wrap: anywhere; }
+.hero-intro { max-width: 760px; margin: 0 0 24px; color: #405067; font-size: 1.08rem; }
+.hero-meta { display: flex; flex-wrap: wrap; gap: 8px 22px; color: var(--muted); font-size: 0.86rem; }
+
+.layout { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 64px; padding: 54px 0 100px; }
+.toc { position: sticky; top: 92px; align-self: start; }
+.toc-title { margin: 0 0 12px; color: var(--muted); font-size: 0.72rem; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; }
+.toc ol { margin: 0; padding: 0; list-style: none; counter-reset: toc; }
+.toc li { border-top: 1px solid var(--line); counter-increment: toc; }
+.toc a { display: block; padding: 9px 0; color: var(--muted); font-size: 0.84rem; text-decoration: none; }
+.toc a::before { content: counter(toc, decimal-leading-zero) "  "; color: var(--orange); font-weight: 800; }
+.toc a:hover { color: var(--blue); }
+.doc-section { scroll-margin-top: 86px; padding: 0 0 56px; }
+.doc-section + .doc-section { padding-top: 56px; border-top: 1px solid var(--line); }
+.section-heading { display: flex; gap: 18px; align-items: flex-start; margin-bottom: 28px; }
+.section-heading > span { padding-top: 7px; color: var(--orange); font-size: 0.82rem; font-weight: 800; letter-spacing: 0.08em; }
+.content p { max-width: 850px; margin: 0 0 16px; }
+.content ul, .content ol { max-width: 900px; margin: 0 0 20px; padding-left: 1.45rem; }
+.content li { margin: 6px 0; padding-left: 4px; }
+.content li::marker { color: var(--blue); }
+
+.table-wrap { margin: 24px 0; overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); }
+table { width: 100%; min-width: 620px; border-collapse: collapse; background: var(--white); }
+th, td { padding: 13px 16px; text-align: left; border-bottom: 1px solid var(--line); }
+th { color: #fff; background: var(--navy); font-size: 0.84rem; font-weight: 700; }
+td { color: #3d4d63; font-size: 0.93rem; }
+tr:last-child td { border-bottom: 0; }
+tbody tr:nth-child(even) { background: #f8faff; }
+
+.role-card { margin: 18px 0; padding: 22px 26px; background: var(--white); border: 1px solid var(--line); border-left: 4px solid var(--blue); border-radius: 12px; box-shadow: var(--shadow); }
+.role-card h3 { margin: 0 0 10px; font-size: 1.15rem; }
+.role-card ul { margin-bottom: 12px; }
+.role-card p { margin-bottom: 0; color: var(--muted); font-size: 0.92rem; }
+.release-list { display: grid; gap: 10px; padding-left: 0 !important; list-style: none; counter-reset: release; }
+.release-list li { display: grid; grid-template-columns: 42px 1fr; gap: 14px; align-items: center; margin: 0; padding: 15px 18px; background: var(--white); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 20px rgba(28, 51, 82, 0.05); }
+.release-list strong { color: var(--blue); font-size: 0.8rem; }
+
+.doc-footer { color: #bdcbe0; background: var(--navy); }
+.doc-footer .shell { display: flex; min-height: 72px; align-items: center; justify-content: space-between; gap: 18px; font-size: 0.82rem; }
+.doc-footer a { color: #d9e6ff; }
+
+@media (max-width: 900px) {
+  .layout { grid-template-columns: 1fr; gap: 0; }
+  .toc { position: static; margin-bottom: 40px; padding: 18px; background: var(--white); border: 1px solid var(--line); border-radius: 12px; }
+  .toc ol { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 24px; }
+}
+
+@media (max-width: 640px) {
+  .shell { width: min(100% - 32px, 560px); }
+  .header-inner { min-height: 58px; }
+  .brand span:last-child { font-size: 0.86rem; }
+  .source-link { font-size: 0.75rem; }
+  .hero { padding: 54px 0 48px; }
+  h1 { font-size: 3rem; }
+  .layout { padding-top: 34px; }
+  .toc ol { grid-template-columns: 1fr; }
+  .role-card { padding: 20px; }
+  .doc-footer .shell { align-items: flex-start; flex-direction: column; justify-content: center; padding-top: 14px; padding-bottom: 14px; }
+}
+
+@media print {
+  .doc-header, .toc, .skip-link, .source-link { display: none; }
+  body { background: #fff; }
+  .shell { width: auto; }
+  .hero { padding: 20mm 0; }
+  .doc-section, .role-card, .table-wrap, .release-list li { break-inside: avoid; box-shadow: none; }
+}

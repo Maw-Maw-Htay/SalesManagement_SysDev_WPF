@@ -1,0 +1,116 @@
+<Window x:Class="SalesManagement_SysDev.F_HattyuDetail"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="発注詳細" Width="880" Height="700" MinWidth="720" MinHeight="540" MaxWidth="1200" MaxHeight="900"
+        WindowStartupLocation="CenterOwner" WindowStyle="None" ResizeMode="CanResize" AllowsTransparency="True"
+        Background="Transparent" ShowInTaskbar="False">
+    <Border Background="{StaticResource ThemeSurface}" BorderBrush="{StaticResource ThemeBorder}" BorderThickness="1" CornerRadius="8">
+        <Grid>
+            <Grid.RowDefinitions><RowDefinition Height="58" /><RowDefinition Height="*" /><RowDefinition Height="68" /></Grid.RowDefinitions>
+            <Border Background="{StaticResource ThemePrimary}" CornerRadius="8,8,0,0" Padding="22,0">
+                <DockPanel VerticalAlignment="Center">
+                    <Button DockPanel.Dock="Right" Content="×" Click="Close_Click" Width="34" Height="34" Background="Transparent" Foreground="White" BorderBrush="Transparent" FontSize="21" />
+                    <TextBlock Text="発注詳細" Foreground="White" FontSize="19" FontWeight="Bold" />
+                    <TextBlock Text="{Binding Order.Code}" Foreground="#D8E5F7" FontSize="14" Margin="12,3,0,0" />
+                    <TextBlock Text="{Binding Order.ProgressLabel}" Foreground="White" FontSize="13" Margin="12,4,0,0" />
+                </DockPanel>
+            </Border>
+            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                <StackPanel Margin="20">
+                    <Grid Margin="0,0,0,12">
+                        <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition /></Grid.ColumnDefinitions>
+                        <Border Background="{StaticResource ThemeSurface}" BorderBrush="{StaticResource ThemeBorder}" BorderThickness="1" CornerRadius="8" Padding="16" Margin="0,0,7,0">
+                            <Grid>
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="120" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                                <TextBlock Text="発注情報" Grid.ColumnSpan="2" FontSize="15" FontWeight="SemiBold" Foreground="{StaticResource ThemeText}" Margin="0,0,0,10" />
+                                <TextBlock Grid.Row="1" Text="発注日" Foreground="{StaticResource ThemeSecondaryText}" Margin="0,5" />
+                                <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding Order.OrderDate, StringFormat={}{0:yyyy/MM/dd}}" Foreground="{StaticResource ThemeText}" Margin="0,5" />
+                                <TextBlock Grid.Row="2" Text="仕入先" Foreground="{StaticResource ThemeSecondaryText}" Margin="0,5" />
+                                <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding Order.MakerName}" ToolTip="{Binding Order.MakerName}" Foreground="{StaticResource ThemeText}" Margin="0,5" TextTrimming="CharacterEllipsis" />
+                                <TextBlock Grid.Row="3" Text="発注担当者" Foreground="{StaticResource ThemeSecondaryText}" Margin="0,5" />
+                                <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding Order.EmployeeName}" Foreground="{StaticResource ThemeText}" Margin="0,5" />
+                                <TextBlock Grid.Row="4" Text="担当者の現営業所" Foreground="{StaticResource ThemeSecondaryText}" Margin="0,5" />
+                                <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding OfficeName}" Foreground="{StaticResource ThemeText}" Margin="0,5" TextWrapping="Wrap" />
+                            </Grid>
+                        </Border>
+                        <Border Grid.Column="1" Background="{StaticResource ThemeSurface}" BorderBrush="{StaticResource ThemeBorder}" BorderThickness="1" CornerRadius="8" Padding="16" Margin="7,0,0,0">
+                            <Grid>
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="120" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                                <TextBlock Text="発注・入庫状況" Grid.ColumnSpan="2" FontSize="15" FontWeight="SemiBold" Foreground="{StaticResource ThemeText}" Margin="0,0,0,10" />
+                                <TextBlock Grid.Row="1" Text="入庫状況" Foreground="{StaticResource ThemeSecondaryText}" Margin="0,5" />
+                                <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding Order.ProgressLabel}" Foreground="{StaticResource ThemeText}" FontWeight="SemiBold" Margin="0,5" />
+                                <TextBlock Grid.Row="2" Text="発注数量" Foreground="{StaticResource ThemeSecondaryText}" Margin="0,5" />
+                                <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding OrderedQuantityText}" Foreground="{StaticResource ThemeText}" Margin="0,5" />
+                                <TextBlock Grid.Row="3" Text="入庫済 / 未入庫" Foreground="{StaticResource ThemeSecondaryText}" Margin="0,5" />
+                                <TextBlock Grid.Row="3" Grid.Column="1" Foreground="{StaticResource ThemeText}" Margin="0,5">
+                                    <Run Text="{Binding ReceivedQuantityText, Mode=OneWay}" /><Run Text=" / " /><Run Text="{Binding RemainingQuantityText, Mode=OneWay}" />
+                                </TextBlock>
+                            </Grid>
+                        </Border>
+                    </Grid>
+                    <Border Background="{StaticResource ThemeSubtle}" BorderBrush="{StaticResource ThemeBorder}" BorderThickness="1" CornerRadius="8" Padding="12" Margin="0,0,0,12">
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="130" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                            <TextBlock Text="管理状態" Foreground="{StaticResource ThemeSecondaryText}" Margin="0,3" />
+                            <TextBlock Grid.Column="1" Text="{Binding Order.ManagementLabel}" Foreground="{StaticResource ThemeText}" FontWeight="SemiBold" Margin="0,3" />
+                            <TextBlock Grid.Row="1" Text="非表示理由" Foreground="{StaticResource ThemeSecondaryText}" Margin="0,3" Visibility="{Binding HasHiddenReason, Converter={StaticResource BooleanVisibility}}" />
+                            <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding Order.HiddenReason}" Foreground="{StaticResource ThemeText}" Margin="0,3" TextWrapping="Wrap"
+                                       Visibility="{Binding HasHiddenReason, Converter={StaticResource BooleanVisibility}}" />
+                        </Grid>
+                    </Border>
+                    <DockPanel Margin="0,0,0,8">
+                        <TextBlock Text="発注明細" FontSize="16" FontWeight="SemiBold" Foreground="{StaticResource ThemeText}" />
+                        <TextBlock DockPanel.Dock="Right" Text="{Binding Order.ProductLineCount, StringFormat=登録明細 {0:N0} 行}" Foreground="{StaticResource ThemeSecondaryText}" FontSize="12" />
+                    </DockPanel>
+                    <DataGrid ItemsSource="{Binding Lines}" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" CanUserDeleteRows="False"
+                              HeadersVisibility="Column" RowHeight="42" ColumnHeaderHeight="38" EnableRowVirtualization="True"
+                              VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="商品コード" Binding="{Binding ProductCode}" Width="120" />
+                            <DataGridTextColumn Header="商品名" Binding="{Binding ProductName}" Width="*" ElementStyle="{StaticResource TableText}" />
+                            <DataGridTextColumn Header="発注数量" Binding="{Binding OrderedQuantity, StringFormat={}{0:N0}}" Width="92" ElementStyle="{StaticResource TableNumber}" />
+                            <DataGridTextColumn Header="入庫済数量" Binding="{Binding ReceivedQuantity, StringFormat={}{0:N0}}" Width="100" ElementStyle="{StaticResource TableNumber}" />
+                            <DataGridTextColumn Header="未入庫数量" Binding="{Binding RemainingQuantity, StringFormat={}{0:N0}}" Width="100" ElementStyle="{StaticResource TableNumber}" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+                    <TextBlock Text="仕入単価・金額・納品予定日・備考は未記録です。" Foreground="{StaticResource ThemeSecondaryText}" TextWrapping="Wrap" FontSize="12" Margin="0,8,0,0" />
+                    <TextBlock Text="関連入庫" FontSize="16" FontWeight="SemiBold" Margin="0,16,0,6" />
+                    <TextBlock Text="関連入庫はありません。" Foreground="{StaticResource ThemeSecondaryText}" Margin="0,0,0,6">
+                        <TextBlock.Style><Style TargetType="TextBlock">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers><DataTrigger Binding="{Binding Receipts.Count}" Value="0"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers>
+                        </Style></TextBlock.Style>
+                    </TextBlock>
+                    <DataGrid ItemsSource="{Binding Receipts}" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False"
+                              HeadersVisibility="Column" RowHeight="37" ColumnHeaderHeight="33" MaxHeight="255"
+                              ScrollViewer.VerticalScrollBarVisibility="Auto">
+                        <DataGrid.Style><Style TargetType="DataGrid" BasedOn="{StaticResource {x:Type DataGrid}}">
+                            <Style.Triggers><DataTrigger Binding="{Binding Receipts.Count}" Value="0"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger></Style.Triggers>
+                        </Style></DataGrid.Style>
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="入庫番号" Binding="{Binding Code}" Width="105" ElementStyle="{StaticResource TableText}" />
+                            <DataGridTextColumn Header="入庫日" Binding="{Binding Date, StringFormat={}{0:yyyy/MM/dd}}" Width="107" ElementStyle="{StaticResource TableText}" />
+                            <DataGridTextColumn Header="入庫数量" Binding="{Binding Quantity, StringFormat={}{0:N0}}" Width="88" ElementStyle="{StaticResource TableNumber}" />
+                            <DataGridTextColumn Header="入庫担当者" Binding="{Binding EmployeeName}" Width="*" ElementStyle="{StaticResource TableText}" />
+                            <DataGridTextColumn Header="入庫状況" Binding="{Binding Status}" Width="130" ElementStyle="{StaticResource TableText}" />
+                            <DataGridTemplateColumn Header="詳細" Width="67"><DataGridTemplateColumn.CellTemplate><DataTemplate>
+                                <Button Content="詳細" Click="Receipt_Click" Height="28" Padding="6,0" />
+                            </DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </StackPanel>
+            </ScrollViewer>
+            <Border Grid.Row="2" BorderBrush="{StaticResource ThemeBorder}" BorderThickness="0,1,0,0" Padding="20,0">
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Right">
+                    <Button Content="非表示にする" Click="Hide_Click" IsEnabled="{Binding CanHide}" Visibility="{Binding CanHide, Converter={StaticResource BooleanVisibility}}"
+                            Background="{StaticResource ThemeDanger}" Foreground="White" BorderBrush="{StaticResource ThemeDanger}" Height="38" Margin="0,0,8,0" />
+                    <Button Content="発注書印刷" Click="Print_Click" Height="38" Margin="0,0,8,0" />
+                    <Button Content="閉じる" Click="Close_Click" IsCancel="True" MinWidth="100" Height="38" />
+                </StackPanel>
+            </Border>
+        </Grid>
+    </Border>
+</Window>

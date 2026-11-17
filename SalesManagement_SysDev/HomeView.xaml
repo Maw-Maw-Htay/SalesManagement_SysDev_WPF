@@ -1,0 +1,45 @@
+<UserControl x:Class="SalesManagement_SysDev.HomeView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:SalesManagement_SysDev"
+             Background="{StaticResource ThemeCanvas}" Style="{StaticResource {x:Type UserControl}}">
+    <UserControl.Resources>
+        <Style x:Key="HomeTile" TargetType="Button" BasedOn="{StaticResource ThemeButton}">
+            <Setter Property="Height" Value="Auto" /><Setter Property="MinHeight" Value="176" />
+            <Setter Property="Width" Value="300" /><Setter Property="Margin" Value="0,0,16,16" />
+            <Setter Property="Padding" Value="24" /><Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="VerticalContentAlignment" Value="Top" />
+        </Style>
+    </UserControl.Resources>
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="24">
+            <TextBlock Text="ホーム" Style="{StaticResource TypographyPageTitle}" />
+            <Border Style="{StaticResource SectionCard}" Margin="0,24,0,24">
+                <StackPanel>
+                    <TextBlock Text="{Binding Greeting}" Style="{StaticResource TypographySection}" TextWrapping="Wrap" />
+                    <TextBlock Text="今日の業務を、ここからはじめましょう。" Style="{StaticResource PageSubtitle}" />
+                    <WrapPanel Margin="0,24,0,0">
+                        <Border Background="{StaticResource ThemePaleBlue}" CornerRadius="6" Padding="12,6" Margin="0,0,8,8"><TextBlock Text="{Binding OfficeName}" Foreground="{StaticResource ThemePrimary}" /></Border>
+                        <Border Background="{StaticResource ThemeCanvas}" CornerRadius="6" Padding="12,6" Margin="0,0,0,8"><TextBlock Text="{Binding Role}" Foreground="{StaticResource ThemeSecondaryText}" /></Border>
+                    </WrapPanel>
+                </StackPanel>
+            </Border>
+            <TextBlock Text="業務ショートカット" Style="{StaticResource CardHeading}" />
+            <WrapPanel Margin="0,0,-16,8">
+                <Button Style="{StaticResource HomeTile}" Command="{Binding NavigateCommand}" CommandParameter="受注管理" AutomationProperties.Name="受注管理を開く" Visibility="{Binding CanManageOrders, Converter={StaticResource BooleanVisibility}}">
+                    <StackPanel><local:LucideIcon Data="{StaticResource IconOrder}" Width="24" Height="24" Stroke="{StaticResource ThemeAccent}" HorizontalAlignment="Left" Margin="0,0,0,16" /><TextBlock Text="受注管理" Style="{StaticResource TypographySection}" /><TextBlock Text="受注の検索・登録・詳細確認" Style="{StaticResource PageSubtitle}" FontSize="13" /></StackPanel>
+                </Button>
+                <Button Style="{StaticResource HomeTile}" Command="{Binding NavigateCommand}" CommandParameter="商品管理" AutomationProperties.Name="商品管理を開く" Visibility="{Binding CanViewMaster, Converter={StaticResource BooleanVisibility}}">
+                    <StackPanel><local:LucideIcon Data="{StaticResource IconProduct}" Width="24" Height="24" Stroke="{StaticResource ThemeAccent}" HorizontalAlignment="Left" Margin="0,0,0,16" /><TextBlock Text="商品管理" Style="{StaticResource TypographySection}" /><TextBlock Text="商品・価格・分類の確認" Style="{StaticResource PageSubtitle}" FontSize="13" /></StackPanel>
+                </Button>
+                <Button Style="{StaticResource HomeTile}" Command="{Binding NavigateCommand}" CommandParameter="顧客管理" AutomationProperties.Name="顧客管理を開く" Visibility="{Binding CanViewMaster, Converter={StaticResource BooleanVisibility}}">
+                    <StackPanel><local:LucideIcon Data="{StaticResource IconCustomer}" Width="24" Height="24" Stroke="{StaticResource ThemeAccent}" HorizontalAlignment="Left" Margin="0,0,0,16" /><TextBlock Text="顧客管理" Style="{StaticResource TypographySection}" /><TextBlock Text="顧客・連絡先・営業所の確認" Style="{StaticResource PageSubtitle}" FontSize="13" /></StackPanel>
+                </Button>
+                <Button Style="{StaticResource HomeTile}" Command="{Binding NavigateCommand}" CommandParameter="在庫管理" AutomationProperties.Name="在庫管理を開く" Visibility="{Binding CanViewInventory, Converter={StaticResource BooleanVisibility}}">
+                    <StackPanel><local:LucideIcon Data="{StaticResource IconInventory}" Width="24" Height="24" Stroke="{StaticResource ThemeAccent}" HorizontalAlignment="Left" Margin="0,0,0,16" /><TextBlock Text="在庫管理" Style="{StaticResource TypographySection}" /><TextBlock Text="在庫数・安全在庫・発注推奨の確認" Style="{StaticResource PageSubtitle}" FontSize="13" /></StackPanel>
+                </Button>
+            </WrapPanel>
+            <TextBlock Text="左のサイドバーから各業務画面やアカウント設定へ移動できます。" Style="{StaticResource PageSubtitle}" FontSize="12" />
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

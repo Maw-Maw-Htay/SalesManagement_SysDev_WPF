@@ -7,7 +7,31 @@
 *.suo
 *.pdb
 *.cache
+*.rsuser
+*.sln.docstates
+*.binlog
+TestResults/
 
 # Local tooling and temporary files
+/.tmp/
 *.tmp
 *.log
+
+# Local settings and secrets
+.env
+.env.*
+!.env.example
+!.env.template
+appsettings.[Ll]ocal.json
+appsettings.*.[Ll]ocal.json
+*.publishsettings
+*.pfx
+*.p12
+
+# Local SQL Server files and backups
+*.mdf
+*.ndf
+*.ldf
+*.bak
+*.trn
+*.bacpac

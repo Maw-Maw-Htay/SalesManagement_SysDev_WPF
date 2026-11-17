@@ -1,0 +1,76 @@
+<Window x:Class="SalesManagement_SysDev.F_OrderHide"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:SalesManagement_SysDev"
+        Title="受注を非表示" Width="460" MinWidth="420" SizeToContent="Height"
+        WindowStyle="None" ResizeMode="NoResize" WindowStartupLocation="CenterOwner"
+        AllowsTransparency="True" Background="Transparent" ShowInTaskbar="False"
+        Style="{StaticResource {x:Type Window}}">
+    <Window.InputBindings><KeyBinding Key="Escape" Command="{Binding CloseCommand}" /></Window.InputBindings>
+    <Window.Resources>
+        <Style x:Key="HideFeedback" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12" /><Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="Margin" Value="0,6,0,0" /><Setter Property="Foreground" Value="{StaticResource ThemeDanger}" />
+            <Setter Property="AutomationProperties.LiveSetting" Value="Polite" />
+            <Style.Triggers><Trigger Property="Text" Value=""><Setter Property="Visibility" Value="Collapsed" /></Trigger></Style.Triggers>
+        </Style>
+    </Window.Resources>
+    <Border Background="{StaticResource ThemeSurface}" CornerRadius="8" BorderBrush="{StaticResource ThemeBorder}" BorderThickness="1">
+        <Grid x:Name="RootLayout" KeyboardNavigation.TabNavigation="Cycle">
+            <Grid.RowDefinitions><RowDefinition Height="52" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+            <Border x:Name="Header" Background="{StaticResource ThemePrimary}" CornerRadius="7,7,0,0" Padding="20,0,10,0" MouseLeftButtonDown="HeaderMouseDown">
+                <Grid>
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                    <local:LucideIcon Data="{StaticResource IconEyeOff}" Width="18" Height="18" Stroke="White" Margin="0,0,10,0" />
+                    <TextBlock Grid.Column="1" Text="受注を非表示" FontSize="16" FontWeight="SemiBold" Foreground="White" VerticalAlignment="Center" />
+                    <Button x:Name="CloseButton" Grid.Column="2" Command="{Binding CloseCommand}" Style="{StaticResource ThemeIconButton}" ToolTip="閉じる (Esc)" AutomationProperties.Name="閉じる">
+                        <local:LucideIcon Data="{StaticResource IconX}" Width="16" Height="16" Stroke="White" />
+                    </Button>
+                </Grid>
+            </Border>
+            <ScrollViewer x:Name="BodyScroller" Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <StackPanel Margin="20">
+                    <TextBlock Text="{Binding ConfirmationMessage}" FontSize="14" TextWrapping="Wrap" LineHeight="21" />
+                    <Border Background="{StaticResource ThemeCanvas}" CornerRadius="6" Padding="12,8" Margin="0,10,0,0">
+                        <TextBlock Text="{Binding TargetText}" FontSize="13" FontWeight="SemiBold" TextWrapping="Wrap" />
+                    </Border>
+                    <TextBlock Text="非表示にした受注は、非表示一覧から再表示できます。" FontSize="12" Foreground="{StaticResource ThemeSecondaryText}" TextWrapping="Wrap" Margin="0,6,0,2" />
+                    <TextBlock Text="再表示は管理者が実行できます。データは削除されません。" FontSize="12" Foreground="{StaticResource ThemeSecondaryText}" TextWrapping="Wrap" Margin="0,0,0,10" />
+                    <Label Target="{Binding ElementName=ReasonInput}" Padding="0" FontSize="13" Margin="0,0,0,6">
+                        <TextBlock><Run Text="非表示理由" /><Run Text=" *" Foreground="{StaticResource ThemeDanger}" /></TextBlock>
+                    </Label>
+                    <Grid>
+                        <TextBox x:Name="ReasonInput" Text="{Binding Reason, UpdateSourceTrigger=PropertyChanged}"
+                                 IsEnabled="{Binding CanEdit}" Height="80" FontSize="14" TextWrapping="Wrap" AcceptsReturn="True"
+                                 VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                                 InputMethod.IsInputMethodEnabled="True" AutomationProperties.Name="非表示理由" AutomationProperties.HelpText="必須。複数行で入力できます。" />
+                        <TextBlock Text="例：重複登録のため非表示にする" FontSize="14" Foreground="{StaticResource ThemeSecondaryText}" Margin="10,7" IsHitTestVisible="False" TextWrapping="Wrap">
+                            <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Visibility" Value="Collapsed" /><Style.Triggers><DataTrigger Binding="{Binding Reason}" Value=""><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers></Style></TextBlock.Style>
+                        </TextBlock>
+                    </Grid>
+                    <TextBlock x:Name="ReasonValidation" Text="{Binding ReasonError}" Style="{StaticResource HideFeedback}" />
+                    <TextBlock x:Name="ResultFeedback" Text="{Binding Feedback}">
+                        <TextBlock.Style><Style TargetType="TextBlock" BasedOn="{StaticResource HideFeedback}">
+                            <Setter Property="FontSize" Value="13" /><Setter Property="Foreground" Value="{StaticResource ThemeSuccessText}" />
+                            <Style.Triggers><DataTrigger Binding="{Binding HasFailures}" Value="True"><Setter Property="Foreground" Value="{StaticResource ThemeDanger}" /></DataTrigger></Style.Triggers>
+                        </Style></TextBlock.Style>
+                    </TextBlock>
+                    <TextBlock Text="{Binding FailureDetails}" Style="{StaticResource HideFeedback}" />
+                </StackPanel>
+            </ScrollViewer>
+            <Border x:Name="Footer" Grid.Row="2" Padding="20,10" BorderBrush="{StaticResource ThemeBorder}" BorderThickness="0,1,0,0">
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button x:Name="CancelButton" Content="{Binding CloseLabel}" Command="{Binding CloseCommand}" Width="110" Height="38"
+                            FontSize="14" FontWeight="Normal" BorderBrush="{StaticResource ThemeInputBorder}" Margin="0,0,10,0" />
+                    <Button x:Name="HideButton" Command="{Binding HideCommand}" Width="140" Height="38" Padding="8,0" FontSize="14" FontWeight="SemiBold"
+                            Background="{StaticResource ThemeSurface}" BorderBrush="{StaticResource ThemeDangerBorder}" Foreground="{StaticResource ThemeDangerText}">
+                        <StackPanel Orientation="Horizontal">
+                            <local:LucideIcon Data="{StaticResource IconEyeOff}" Width="16" Height="16" Margin="0,0,7,0" Stroke="{StaticResource ThemeDangerText}" />
+                            <TextBlock Text="{Binding ConfirmLabel}" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
+            </Border>
+        </Grid>
+    </Border>
+</Window>

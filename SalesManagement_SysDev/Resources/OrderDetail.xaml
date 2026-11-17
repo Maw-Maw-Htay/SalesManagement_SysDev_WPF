@@ -1,0 +1,171 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:local="clr-namespace:SalesManagement_SysDev">
+    <BooleanToVisibilityConverter x:Key="DetailBooleanVisibility" />
+    <Style x:Key="DetailCompactAction" TargetType="Button" BasedOn="{StaticResource ThemeButton}"><Setter Property="Height" Value="30" /><Setter Property="FontSize" Value="12" /><Setter Property="Padding" Value="8,3" /></Style>
+    <Style x:Key="DetailCompactPrimary" TargetType="Button" BasedOn="{StaticResource DetailCompactAction}"><Setter Property="Background" Value="{StaticResource ThemePrimary}" /><Setter Property="BorderBrush" Value="{StaticResource ThemePrimary}" /><Setter Property="Foreground" Value="White" /></Style>
+    <Style x:Key="DetailCompactSecondary" TargetType="Button" BasedOn="{StaticResource DetailCompactAction}"><Setter Property="Background" Value="{StaticResource ThemeSurface}" /><Setter Property="Foreground" Value="{StaticResource ThemePrimary}" /><Setter Property="BorderBrush" Value="{StaticResource ThemePrimary}" /></Style>
+    <Style x:Key="DetailTableHeader" TargetType="DataGridColumnHeader" BasedOn="{StaticResource {x:Type DataGridColumnHeader}}">
+        <Setter Property="Background" Value="{StaticResource ThemePaleBlue}" /><Setter Property="FontSize" Value="11" /><Setter Property="FontWeight" Value="SemiBold" /><Setter Property="Padding" Value="4,3" /><Setter Property="HorizontalContentAlignment" Value="Right" />
+    </Style>
+    <Style x:Key="DetailTableHeaderLeft" TargetType="DataGridColumnHeader" BasedOn="{StaticResource DetailTableHeader}"><Setter Property="HorizontalContentAlignment" Value="Left" /></Style>
+    <Style x:Key="DetailHistoryCell" TargetType="TextBlock"><Setter Property="FontSize" Value="11" /><Setter Property="Margin" Value="6,4" /><Setter Property="TextWrapping" Value="Wrap" /></Style>
+    <GeometryGroup x:Key="DetailPrintIcon">
+        <PathGeometry Figures="M6 9V3h12v6 M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2 M18 12h.01" />
+        <RectangleGeometry Rect="6,14,12,8" RadiusX="1" RadiusY="1" />
+    </GeometryGroup>
+    <Style x:Key="DetailItemNumber" TargetType="TextBlock" BasedOn="{StaticResource TableNumber}">
+        <Setter Property="FontSize" Value="11" /><Setter Property="Margin" Value="4,0" />
+        <Setter Property="TextWrapping" Value="Wrap" /><Setter Property="TextTrimming" Value="None" />
+    </Style>
+    <Style x:Key="DetailItemHeader" TargetType="TextBlock" BasedOn="{StaticResource DetailItemNumber}">
+        <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style x:Key="DetailTableText" TargetType="TextBlock" BasedOn="{StaticResource DetailItemNumber}"><Setter Property="Margin" Value="4,6" /></Style>
+    <Style x:Key="DetailTableTextLeft" TargetType="TextBlock" BasedOn="{StaticResource DetailTableText}"><Setter Property="TextAlignment" Value="Left" /></Style>
+    <Style x:Key="DetailInfoField" TargetType="HeaderedContentControl">
+        <Setter Property="MinHeight" Value="22" />
+        <Setter Property="ContentTemplate"><Setter.Value><DataTemplate><TextBlock Text="{Binding}" TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource ThemeText}" Margin="0,2" /></DataTemplate></Setter.Value></Setter>
+        <Setter Property="Template">
+            <Setter.Value><ControlTemplate TargetType="HeaderedContentControl">
+                <Grid>
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="92" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                    <TextBlock Text="{TemplateBinding Header}" FontSize="11" Foreground="{StaticResource ThemeSecondaryText}" Margin="0,2,8,2" />
+                    <ContentPresenter Grid.Column="1" Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}" />
+                </Grid>
+            </ControlTemplate></Setter.Value>
+        </Setter>
+    </Style>
+    <Style x:Key="DetailFieldLabel" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="FontWeight" Value="{StaticResource TypographyMedium}" />
+        <Setter Property="Foreground" Value="{StaticResource ThemeSecondaryText}" />
+        <Setter Property="VerticalAlignment" Value="Top" />
+        <Setter Property="Margin" Value="0,4,12,4" />
+    </Style>
+    <Style x:Key="DetailFieldValue" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="14" />
+        <Setter Property="FontWeight" Value="{StaticResource TypographyRegular}" />
+        <Setter Property="Foreground" Value="{StaticResource ThemeText}" />
+        <Setter Property="HorizontalAlignment" Value="Stretch" />
+        <Setter Property="VerticalAlignment" Value="Top" />
+        <Setter Property="TextAlignment" Value="Left" />
+        <Setter Property="TextWrapping" Value="Wrap" />
+        <Setter Property="Margin" Value="0,4,0,4" />
+    </Style>
+    <Style x:Key="DetailAuditText" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="Foreground" Value="{StaticResource ThemeSecondaryText}" />
+        <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style x:Key="DetailRoundingNotice" TargetType="TextBlock" BasedOn="{StaticResource DetailAuditText}">
+        <Setter Property="Margin" Value="0,6,0,0" />
+        <Style.Triggers>
+            <Trigger Property="Text" Value=""><Setter Property="Visibility" Value="Collapsed" /></Trigger>
+        </Style.Triggers>
+    </Style>
+    <DataTemplate x:Key="DetailStatusBadge">
+        <Border CornerRadius="12" Padding="9,3" HorizontalAlignment="Left" VerticalAlignment="Center">
+            <Border.Style>
+                <Style TargetType="Border">
+                    <Setter Property="Background" Value="{StaticResource ThemeSubtle}" />
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding Tone}" Value="Success"><Setter Property="Background" Value="{StaticResource ThemeSuccessSurface}" /></DataTrigger>
+                        <DataTrigger Binding="{Binding Tone}" Value="Warning"><Setter Property="Background" Value="{StaticResource ThemeWarningSurface}" /></DataTrigger>
+                        <DataTrigger Binding="{Binding Tone}" Value="Danger"><Setter Property="Background" Value="{StaticResource ThemeDangerSurface}" /></DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </Border.Style>
+            <TextBlock Text="{Binding Text}" FontSize="12" FontWeight="{StaticResource TypographyMedium}">
+                <TextBlock.Style>
+                    <Style TargetType="TextBlock">
+                        <Setter Property="Foreground" Value="{StaticResource ThemeSecondaryText}" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding Tone}" Value="Success"><Setter Property="Foreground" Value="{StaticResource ThemeSuccessText}" /></DataTrigger>
+                            <DataTrigger Binding="{Binding Tone}" Value="Warning"><Setter Property="Foreground" Value="{StaticResource ThemeWarningText}" /></DataTrigger>
+                            <DataTrigger Binding="{Binding Tone}" Value="Danger"><Setter Property="Foreground" Value="{StaticResource ThemeDangerText}" /></DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </TextBlock.Style>
+            </TextBlock>
+        </Border>
+    </DataTemplate>
+    <DataTemplate x:Key="DetailAuditItem">
+        <Border BorderBrush="{StaticResource ThemeBorder}" BorderThickness="0,0,0,1" Padding="0,12">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="28" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <local:LucideIcon Width="16" Height="16" VerticalAlignment="Top" Margin="0,2,0,0" Stroke="{Binding Display.OperationForeground}">
+                    <local:LucideIcon.Style>
+                        <Style TargetType="local:LucideIcon" BasedOn="{StaticResource {x:Type local:LucideIcon}}">
+                            <Setter Property="Data" Value="{StaticResource IconHistory}" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding Display.Operation}" Value="新規受注登録"><Setter Property="Data" Value="{StaticResource IconPlus}" /></DataTrigger>
+                                <DataTrigger Binding="{Binding Display.Operation}" Value="受注確定"><Setter Property="Data" Value="{StaticResource IconCheckCircle}" /></DataTrigger>
+                                <DataTrigger Binding="{Binding Display.Operation}" Value="受注非表示"><Setter Property="Data" Value="{StaticResource IconHidden}" /></DataTrigger>
+                                <DataTrigger Binding="{Binding Display.Operation}" Value="受注管理更新"><Setter Property="Data" Value="{StaticResource IconEdit}" /></DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </local:LucideIcon.Style>
+                </local:LucideIcon>
+                <StackPanel Grid.Column="1">
+                    <Grid Margin="0,0,0,4">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="{Binding OperationName}" FontSize="13" FontWeight="{StaticResource TypographySemiBold}" Foreground="{StaticResource ThemeText}" TextWrapping="Wrap" />
+                        <TextBlock Grid.Column="1" Text="{Binding Timestamp}" Style="{StaticResource DetailAuditText}" Margin="12,0,0,0" />
+                    </Grid>
+                    <TextBlock Text="{Binding ChangeSummary}" FontSize="13" Foreground="{StaticResource ThemeText}" TextWrapping="Wrap" Margin="0,3,0,4" />
+                    <WrapPanel>
+                        <TextBlock Text="実行担当者：" Style="{StaticResource DetailAuditText}" /><TextBlock Text="{Binding Actor}" Style="{StaticResource DetailAuditText}" Margin="0,0,18,0" />
+                        <TextBlock Text="営業所：" Style="{StaticResource DetailAuditText}" /><TextBlock Text="{Binding Office}" Style="{StaticResource DetailAuditText}" />
+                    </WrapPanel>
+                    <Button Content="{Binding ExpandLabel}" Command="{Binding ToggleDetailsCommand}" HorizontalAlignment="Left" Padding="8,4" Margin="0,8,0,0" FontSize="12" AutomationProperties.Name="監査履歴の変更詳細を表示または非表示" />
+                    <Border Visibility="{Binding ExpandedDetailsVisibility}" Background="{StaticResource ThemeCanvas}" BorderBrush="{StaticResource ThemeBorder}" BorderThickness="1" CornerRadius="6" Padding="12" Margin="0,8,0,0">
+                        <StackPanel>
+                            <TextBlock Text="記録された変更" FontSize="13" FontWeight="SemiBold" Margin="0,0,0,6" />
+                            <ItemsControl ItemsSource="{Binding Comparisons}">
+                                <ItemsControl.ItemTemplate><DataTemplate>
+                                    <Grid MinHeight="30" Margin="0,1">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="145" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                        <TextBlock Text="{Binding Field}" FontSize="12" Foreground="{StaticResource ThemeSecondaryText}" Margin="4" TextWrapping="Wrap" />
+                                        <TextBlock Grid.Column="1" Text="{Binding Before}" FontSize="12" Margin="4" TextWrapping="Wrap" />
+                                        <Border Grid.Column="2" CornerRadius="4" Padding="3,0">
+                                            <Border.Style><Style TargetType="Border"><Setter Property="Background" Value="Transparent" /><Style.Triggers><DataTrigger Binding="{Binding Changed}" Value="True"><Setter Property="Background" Value="{StaticResource ThemePaleBlue}" /></DataTrigger></Style.Triggers></Style></Border.Style>
+                                            <TextBlock Text="{Binding After}" FontSize="12" Margin="4" TextWrapping="Wrap" />
+                                        </Border>
+                                    </Grid>
+                                </DataTemplate></ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <StackPanel Visibility="{Binding HasProductChanges, Converter={StaticResource DetailBooleanVisibility}}" Margin="0,10,0,0">
+                                <TextBlock Text="商品別変更" FontSize="13" FontWeight="SemiBold" Margin="0,0,0,4" />
+                                <ItemsControl ItemsSource="{Binding ProductChanges}">
+                                    <ItemsControl.ItemTemplate><DataTemplate>
+                                        <Border BorderBrush="{StaticResource ThemeBorder}" BorderThickness="0,0,0,1" Padding="0,6">
+                                            <StackPanel>
+                                                <TextBlock Text="{Binding Product}" FontSize="12" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                                <TextBlock Text="{Binding ChangeKind}" FontSize="12" Foreground="{StaticResource ThemeSecondaryText}" />
+                                                <TextBlock Text="{Binding BeforeQuantity, StringFormat='数量：{0}'}" FontSize="12" TextWrapping="Wrap" />
+                                                <TextBlock Text="{Binding AfterQuantity, StringFormat='変更後：{0}'}" FontSize="12" TextWrapping="Wrap" />
+                                                <TextBlock Text="{Binding BeforeAmount, StringFormat='記録金額（前）：{0}'}" FontSize="12" TextWrapping="Wrap" />
+                                                <TextBlock Text="{Binding AfterAmount, StringFormat='記録金額（後）：{0}'}" FontSize="12" TextWrapping="Wrap" />
+                                                <TextBlock Text="{Binding UnitPrice, StringFormat='記録金額から算出した単価：{0}'}" FontSize="12" Foreground="{StaticResource ThemeSecondaryText}" TextWrapping="Wrap" />
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate></ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                            <Expander Header="記録された操作説明" Margin="0,10,0,0">
+                                <TextBlock Text="{Binding RecordedDetails}" Style="{StaticResource DetailAuditText}" Foreground="{StaticResource ThemeText}" Margin="4,8,4,0" xml:space="preserve" />
+                            </Expander>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </Grid>
+        </Border>
+    </DataTemplate>
+</ResourceDictionary>

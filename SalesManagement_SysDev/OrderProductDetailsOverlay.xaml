@@ -1,0 +1,27 @@
+<UserControl x:Class="SalesManagement_SysDev.OrderProductDetailsOverlay"
+ xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+ Visibility="{Binding IsProductDetailsVisible, Converter={StaticResource BooleanVisibility}}"
+ IsHitTestVisible="{Binding IsProductDetailsVisible}" KeyboardNavigation.TabNavigation="Cycle">
+ <Grid Background="#66061A3D">
+  <Border Width="420" MaxWidth="{Binding ActualWidth, RelativeSource={RelativeSource AncestorType=UserControl}}"
+          MaxHeight="{Binding ActualHeight, RelativeSource={RelativeSource AncestorType=UserControl}}"
+          HorizontalAlignment="Center" VerticalAlignment="Center" Background="{StaticResource ThemeSurface}"
+          BorderBrush="{StaticResource ThemeBorder}" BorderThickness="1" CornerRadius="6">
+   <Grid>
+    <Grid.RowDefinitions><RowDefinition Height="42"/><RowDefinition Height="*"/><RowDefinition Height="50"/></Grid.RowDefinitions>
+    <Border Background="{StaticResource ThemePrimary}" Padding="16,0"><TextBlock Text="商品詳細" Foreground="White" FontWeight="SemiBold" VerticalAlignment="Center"/></Border>
+    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+     <StackPanel Margin="18,14">
+      <TextBlock Text="商品コード" Style="{StaticResource FormLabel}"/><TextBlock Text="{Binding ProductDetails.ProductCode}" TextWrapping="Wrap" Margin="0,0,0,10"/>
+      <TextBlock Text="商品名" Style="{StaticResource FormLabel}"/><TextBlock Text="{Binding ProductDetails.ProductName}" TextWrapping="Wrap" FontWeight="SemiBold" Margin="0,0,0,10"/>
+      <TextBlock Text="カテゴリー" Style="{StaticResource FormLabel}"/><TextBlock Text="{Binding ProductDetails.CategoryName}" TextWrapping="Wrap" Margin="0,0,0,10"/>
+      <TextBlock Text="単価" Style="{StaticResource FormLabel}"/><TextBlock Text="{Binding ProductDetails.UnitPrice, StringFormat='¥{0:N0}'}" FontWeight="SemiBold"/>
+     </StackPanel>
+    </ScrollViewer>
+    <Border Grid.Row="2" BorderBrush="{StaticResource ThemeBorder}" BorderThickness="0,1,0,0" Padding="12,6">
+     <Button x:Name="CloseProductDetailsButton" Content="閉じる" Command="{Binding CloseProductDetailsCommand}" Style="{StaticResource ThemePrimaryButton}" Width="90" Height="38" HorizontalAlignment="Right"/>
+    </Border>
+   </Grid>
+  </Border>
+ </Grid>
+</UserControl>

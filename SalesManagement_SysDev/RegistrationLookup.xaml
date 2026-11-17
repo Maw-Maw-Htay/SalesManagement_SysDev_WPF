@@ -1,0 +1,49 @@
+<UserControl x:Class="SalesManagement_SysDev.RegistrationLookup"
+             x:Name="LookupRoot"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:SalesManagement_SysDev"
+             Style="{StaticResource {x:Type UserControl}}">
+    <Grid>
+        <Border x:Name="InputFrame" Height="40" CornerRadius="6" BorderThickness="1" Background="{StaticResource ThemeSurface}">
+            <Border.Style>
+                <Style TargetType="Border">
+                    <Setter Property="BorderBrush" Value="{StaticResource ThemeInputBorder}" />
+                    <Style.Triggers>
+                        <Trigger Property="IsKeyboardFocusWithin" Value="True"><Setter Property="BorderBrush" Value="{StaticResource ThemeAccent}" /></Trigger>
+                        <DataTrigger Binding="{Binding Invalid, ElementName=LookupRoot}" Value="True"><Setter Property="BorderBrush" Value="{StaticResource ThemeDanger}" /></DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </Border.Style>
+            <Grid>
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="36" /></Grid.ColumnDefinitions>
+                <TextBox x:Name="QueryInput" Text="{Binding Text, ElementName=LookupRoot, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                         AutomationProperties.Name="{Binding AccessibleName, ElementName=LookupRoot}"
+                         BorderThickness="0" Background="Transparent" Height="Auto" Padding="10,4" FontSize="14"
+                         TextChanged="QueryChanged" GotKeyboardFocus="InputFocused" PreviewKeyDown="InputKeyDown" />
+                <TextBlock Text="{Binding Placeholder, ElementName=LookupRoot}" Margin="10,0" Foreground="{StaticResource ThemeSecondaryText}"
+                           VerticalAlignment="Center" TextTrimming="CharacterEllipsis" IsHitTestVisible="False">
+                    <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Visibility" Value="Collapsed" /><Style.Triggers><DataTrigger Binding="{Binding Text, ElementName=LookupRoot}" Value=""><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers></Style></TextBlock.Style>
+                </TextBlock>
+                <Button Grid.Column="1" Style="{StaticResource ThemeIconButton}" Focusable="False" Click="ToggleSuggestions"
+                        ToolTip="候補を表示" AutomationProperties.Name="候補を表示">
+                    <local:LucideIcon Data="{StaticResource IconChevronDown}" Width="16" Height="16" />
+                </Button>
+            </Grid>
+        </Border>
+        <Popup x:Name="SuggestionsPopup" PlacementTarget="{Binding ElementName=InputFrame}" Placement="Bottom" StaysOpen="False" AllowsTransparency="True">
+            <Border Background="{StaticResource ThemeSurface}" BorderBrush="{StaticResource ThemeInputBorder}" BorderThickness="1" CornerRadius="6"
+                    Width="{Binding ActualWidth, ElementName=InputFrame}" Margin="0,4,0,0" Padding="4">
+                <Grid>
+                    <ListBox x:Name="SuggestionList" ItemsSource="{Binding ItemsSource, ElementName=LookupRoot}"
+                             ItemTemplate="{Binding SuggestionTemplate, ElementName=LookupRoot}" MaxHeight="220" BorderThickness="0"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled" HorizontalContentAlignment="Stretch"
+                             PreviewMouseLeftButtonUp="SuggestionClicked" PreviewKeyDown="SuggestionKeyDown" IsTextSearchEnabled="False" />
+                    <TextBlock Text="一致する登録済みデータがありません" Foreground="{StaticResource ThemeSecondaryText}" FontSize="12" Margin="8,12" TextWrapping="Wrap">
+                        <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Visibility" Value="Collapsed" /><Style.Triggers><DataTrigger Binding="{Binding HasItems, ElementName=SuggestionList}" Value="False"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers></Style></TextBlock.Style>
+                    </TextBlock>
+                </Grid>
+            </Border>
+        </Popup>
+    </Grid>
+</UserControl>

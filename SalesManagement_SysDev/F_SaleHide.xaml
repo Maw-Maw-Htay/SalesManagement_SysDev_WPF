@@ -1,0 +1,43 @@
+<Window x:Class="SalesManagement_SysDev.F_SaleHide"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="売上を非表示にする" WindowStyle="None" ResizeMode="NoResize" AllowsTransparency="True"
+        Background="Transparent" ShowInTaskbar="False" WindowStartupLocation="CenterOwner"
+        FontFamily="{StaticResource TypographyFontFamily}" FontSize="14">
+    <Border Background="{StaticResource ThemeSurface}" BorderBrush="{StaticResource ThemeBorder}" BorderThickness="1" CornerRadius="10" ClipToBounds="True">
+        <Grid>
+            <Grid.RowDefinitions><RowDefinition Height="60" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+            <Border Background="{StaticResource ThemePrimary}" Padding="20,8">
+                <TextBlock Text="売上を非表示にする" FontSize="18" FontWeight="SemiBold" Foreground="White" VerticalAlignment="Center" />
+            </Border>
+            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <StackPanel Margin="22,18">
+                    <TextBlock Text="この売上情報を非表示にしますか？" FontSize="16" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,0,0,12" />
+                    <Border Background="{StaticResource ThemeCanvas}" CornerRadius="6" Padding="12">
+                        <StackPanel>
+                            <TextBlock Text="{Binding Sale.Code, StringFormat={}売上番号：{0}}" Margin="0,2" />
+                            <TextBlock Text="{Binding Sale.SaleDate, StringFormat={}売上日：{0:yyyy/MM/dd}}" Margin="0,2" />
+                            <TextBlock Text="{Binding Sale.CustomerName, StringFormat={}顧客名：{0}}" TextWrapping="Wrap" Margin="0,2" />
+                            <TextBlock Text="{Binding Sale.AmountText, StringFormat={}売上金額：{0}}" Margin="0,2" />
+                        </StackPanel>
+                    </Border>
+                    <TextBlock Text="非表示理由 *" FontWeight="SemiBold" Margin="0,16,0,6" />
+                    <TextBox Text="{Binding Reason, UpdateSourceTrigger=PropertyChanged}" MaxLength="500" MinHeight="82" Padding="10" AcceptsReturn="True"
+                             TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" BorderBrush="{StaticResource ThemeInputBorder}"
+                             ToolTip="非表示の理由を入力してください。" />
+                    <TextBlock Text="{Binding ValidationMessage}" Foreground="{StaticResource ThemeDangerText}" FontSize="12" Margin="0,5,0,0" />
+                    <Border Background="#FFF7ED" BorderBrush="#FED7AA" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,12,0,0">
+                        <TextBlock Text="売上データは削除されません。非表示にしても受注・出荷・在庫は変更されません。" Foreground="#9A3412" TextWrapping="Wrap" />
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+            <Border Grid.Row="2" BorderBrush="{StaticResource ThemeBorder}" BorderThickness="0,1,0,0" Padding="18,10">
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button Content="キャンセル" IsCancel="True" MinWidth="90" Padding="14,7" Margin="0,0,8,0" />
+                    <Button Content="非表示にする" Command="{Binding ConfirmCommand}" IsDefault="True" IsEnabled="{Binding CanConfirm}"
+                            MinWidth="130" Padding="14,7" Background="{StaticResource ThemeDanger}" Foreground="White" BorderBrush="{StaticResource ThemeDanger}" />
+                </StackPanel>
+            </Border>
+        </Grid>
+    </Border>
+</Window>
