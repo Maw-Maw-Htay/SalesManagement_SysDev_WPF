@@ -201,7 +201,7 @@
                     <DockPanel>
                         <StackPanel x:Name="ReceiptActions" DockPanel.Dock="Right" Orientation="Horizontal">
                             <TextBlock Text="{Binding ReceiptSelectionText}" Foreground="{StaticResource ThemeSecondaryText}" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                            <Button Content="選択を確定" Click="ConfirmSelected_Click" IsEnabled="{Binding CanConfirmReceipt}"
+                            <Button Content="{Binding ReceiptSelectionAction}" Click="ConfirmSelected_Click" IsEnabled="{Binding CanConfirmReceipt}"
                                     Style="{StaticResource ThemePrimaryButton}" Height="32" Padding="9,2"/>
                         </StackPanel>
                         <WrapPanel VerticalAlignment="Center">
@@ -238,7 +238,9 @@
                         <DataGridTextColumn Header="関連発注番号" Binding="{Binding ReferenceCode}" Width="105" ElementStyle="{StaticResource MovementCell}"/>
                         <DataGridTextColumn Header="仕入先名" Binding="{Binding PartnerDisplay}" Width="1.35*" MinWidth="115" ElementStyle="{StaticResource MovementCell}"/>
                         <DataGridTextColumn Header="入庫日" Binding="{Binding MovementDateText}" Width="94" ElementStyle="{StaticResource MovementCell}"/>
-                        <DataGridTextColumn Header="明細数" Binding="{Binding Data.LineCount, StringFormat=N0}" Width="58"
+                        <DataGridTextColumn Header="商品" Binding="{Binding ReceiptProductNames}" Width="1.15*" MinWidth="105"
+                                            CanUserSort="False" ElementStyle="{StaticResource MovementCell}"/>
+                        <DataGridTextColumn Header="発注数量" Binding="{Binding OrderedQuantityText}" Width="74"
                                             HeaderStyle="{StaticResource OrderRightHeader}" ElementStyle="{StaticResource TableNumber}"/>
                         <DataGridTextColumn Header="入庫数量" Binding="{Binding QuantityText}" Width="74"
                                             HeaderStyle="{StaticResource OrderRightHeader}" ElementStyle="{StaticResource TableNumber}"/>

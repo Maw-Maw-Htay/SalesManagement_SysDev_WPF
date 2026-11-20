@@ -16,13 +16,42 @@
                     <TextBlock Text="{Binding TargetText}" Foreground="{StaticResource ThemeText}" TextWrapping="Wrap" />
                 </Border>
                 <DataGrid ItemsSource="{Binding Lines}" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False"
-                          HeadersVisibility="Column" GridLinesVisibility="Horizontal" RowHeight="34" ColumnHeaderHeight="34" MaxHeight="180">
+                          HeadersVisibility="Column" GridLinesVisibility="Horizontal" RowHeight="34" ColumnHeaderHeight="34" MaxHeight="180"
+                          Visibility="{Binding HasStoredLines, Converter={StaticResource BooleanVisibility}}">
                     <DataGrid.Columns>
                         <DataGridTextColumn Header="商品コード" Binding="{Binding ProductCode}" Width="110" />
                         <DataGridTextColumn Header="商品名" Binding="{Binding ProductName}" Width="*" />
                         <DataGridTextColumn Header="数量" Binding="{Binding QuantityText}" Width="78" />
                     </DataGrid.Columns>
                 </DataGrid>
+                <StackPanel Visibility="{Binding IsAwaitingReceipt, Converter={StaticResource BooleanVisibility}}"
+                            IsEnabled="{Binding CanEditReceipt}">
+                    <DockPanel LastChildFill="False" Margin="0,0,0,8">
+                        <TextBlock Text="入庫日" VerticalAlignment="Center" Margin="0,0,12,0" />
+                        <DatePicker Width="150" SelectedDate="{Binding ReceiptDate}" DateValidationError="ReceiptDate_ValidationError"
+                                    AutomationProperties.Name="実際の入庫日" />
+                    </DockPanel>
+                    <DataGrid ItemsSource="{Binding ReceiptEntries}" AutoGenerateColumns="False" IsReadOnly="True"
+                              CanUserAddRows="False" HeadersVisibility="Column" GridLinesVisibility="Horizontal"
+                              RowHeight="42" ColumnHeaderHeight="34" MaxHeight="230">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="商品コード" Binding="{Binding ProductCode}" Width="105" />
+                            <DataGridTextColumn Header="商品名" Binding="{Binding ProductName}" Width="*" MinWidth="120"
+                                                ElementStyle="{StaticResource TableText}" />
+                            <DataGridTextColumn Header="発注数量" Binding="{Binding OrderedQuantity, StringFormat=N0}" Width="81"
+                                                ElementStyle="{StaticResource TableNumber}" />
+                            <DataGridTemplateColumn Header="実入庫数量" Width="105">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <TextBox Text="{Binding QuantityText, UpdateSourceTrigger=PropertyChanged}" MaxLength="10"
+                                                 Height="32" Margin="5,0" VerticalAlignment="Center" TextAlignment="Right"
+                                                 AutomationProperties.Name="{Binding ProductName, StringFormat={}{0}の実入庫数量}" />
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </StackPanel>
                 <Border Background="{StaticResource ThemeWarningSurface}" CornerRadius="6" Padding="10" Margin="0,12,0,0">
                     <TextBlock Text="{Binding ImpactText}" Foreground="{StaticResource ThemeWarningText}" TextWrapping="Wrap" FontSize="12" />
                 </Border>

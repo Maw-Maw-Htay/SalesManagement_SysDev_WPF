@@ -92,7 +92,7 @@ public partial class WarehouseMovementManagementView : UserControl
             nameof(WarehouseMovementRow.ReferenceCode) => r => r.ReferenceId,
             nameof(WarehouseMovementRow.PartnerDisplay) => r => r.PartnerDisplay,
             nameof(WarehouseMovementRow.MovementDateText) => r => r.MovementDate,
-            "Data.LineCount" => r => r.LineCount,
+            nameof(WarehouseMovementRow.OrderedQuantityText) => r => r.OrderedQuantity,
             nameof(WarehouseMovementRow.QuantityText) => r => r.Quantity,
             nameof(WarehouseMovementRow.BusinessStatusLabel) => r => r.BusinessState,
             _ => r => r.Id
@@ -115,7 +115,7 @@ public partial class WarehouseMovementManagementView : UserControl
         isOpeningDetail = true;
         try
         {
-            var detail = await Task.Run(() => WarehousingService.LoadDetail(selection.Data.Id, includePurchase: false));
+            var detail = await Task.Run(() => LoadInboundDetail(selection.Data, includePurchase: false));
             if (!IsLoaded || !viewModel.CanConfirmReceipt || !ReferenceEquals(selection, viewModel.SelectedReceipt)) return;
             if (detail == null || !detail.Record.IsUnconfirmed || detail.Record.ManagementFlag != WarehousingService.ActiveFlag)
             {
@@ -137,7 +137,7 @@ public partial class WarehouseMovementManagementView : UserControl
     private async void Detail_Click(object sender, RoutedEventArgs e)
     {
         e.Handled = true;
-        if (sender is Button { Tag: WarehouseMovementRow row }) await OpenDetailAsync(row.Data.Id);
+        if (sender is Button { Tag: WarehouseMovementRow row }) await OpenDetailAsync(row.Data);
     }
 
     private async void MovementsGrid_MouseDoubleClick(object sender, MouseButtonEventArgs e)
@@ -145,21 +145,22 @@ public partial class WarehouseMovementManagementView : UserControl
         if (e.ChangedButton != MouseButton.Left || e.OriginalSource is not DependencyObject source || FindAncestor<ButtonBase>(source) != null) return;
         if (ItemsControl.ContainerFromElement(MovementsGrid, source) is not DataGridRow { Item: WarehouseMovementRow row }) return;
         e.Handled = true;
-        await OpenDetailAsync(row.Data.Id);
+        await OpenDetailAsync(row.Data);
     }
 
-    private async Task OpenDetailAsync(int id)
+    private async Task OpenDetailAsync(WarehouseMovementRecord row)
     {
         if (isOpeningDetail) return;
         isOpeningDetail = true;
         var history = viewModel.ShowingInboundHistory;
         try
         {
-            var detail = await Task.Run(() => WarehousingService.LoadDetail(id));
+            var detail = await Task.Run(() => LoadInboundDetail(row, includePurchase: true));
             if (!IsLoaded) return;
             if (detail == null)
             {
                 F_OrderNotice.Show(Window.GetWindow(this), "詳細を表示できません", "対象の入庫が見つからないか、参照範囲外です。", OrderNoticeKind.Warning);
+                await viewModel.LoadAsync();
                 return;
             }
             var dialog = new F_WarehouseMovementDetail(detail, readOnly: history || viewModel.ShowingInboundHistory) { Owner = Window.GetWindow(this) };
@@ -168,6 +169,10 @@ public partial class WarehouseMovementManagementView : UserControl
         catch (Exception ex) { if (IsLoaded) ShowLoadError(ex); }
         finally { isOpeningDetail = false; }
     }
+
+    private static WarehouseMovementDetail? LoadInboundDetail(WarehouseMovementRecord row, bool includePurchase) =>
+        row.IsAwaitingReceipt ? WarehousingService.LoadAwaitingReceipt(row.ReferenceId)
+            : WarehousingService.LoadDetail(row.Id, includePurchase);
 
     private void ShowLoadError(Exception ex)
     {

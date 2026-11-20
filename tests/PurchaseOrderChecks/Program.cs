@@ -63,6 +63,22 @@ internal static class Program
             "An over-receipt cannot offset a shortage on another product");
         Check(PurchaseProgress.Classify([(5, 5), (5, 1)], 2) == PurchaseReceiptStatus.Partial,
             "Each product must be fully received to complete the purchase");
+
+        var released = Order(5, 0, ordered: 8, received: 0);
+        var draft = released with { ConfirmationState = PurchaseOrderService.RegisteredState };
+        var legacy = released with { ConfirmationState = 0 };
+        var linkedReceipt = legacy with { HasRelatedReceipt = true, HasPendingReceipt = true };
+        var hiddenReceipt = legacy with { HasRelatedReceipt = true };
+        var waiting = new PurchaseOrderSearchCriteria("", null, null, null, null, PurchaseProgressFilter.Waiting);
+        Check(draft.ProgressLabel == "発注未確定" && legacy.ProgressLabel == "発注未確定"
+            && !PurchaseOrderFilter.Matches(legacy, waiting, PurchaseManagementTab.Visible, true),
+            "new drafts and unlinked legacy orders are not displayed or filtered as waiting for receiving");
+        Check(released.ProgressLabel == "入庫待ち" && linkedReceipt.ProgressLabel == "入庫待ち"
+            && hiddenReceipt.ProgressLabel == "入庫要確認" && !hiddenReceipt.IsAwaitingConfirmation,
+            "only released orders and visible pending receipts report waiting for receiving");
+        Check(new PurchaseOrderDetailViewModel(new(legacy, []), canHide: false, canConfirm: true).CanConfirm
+            && !new PurchaseOrderDetailViewModel(new(hiddenReceipt, []), canHide: false, canConfirm: true).CanConfirm,
+            "an authorized user can explicitly confirm an unlinked legacy order only");
     }
 
     private static void CheckSearch()
@@ -175,25 +191,7 @@ internal static class Program
             model.SelectTab(PurchaseManagementTab.Visible);
             Check(model.ShowSearchError && model.Rows.Count == 0 && !model.CanExport, "Invalid date ranges clear the results and disable export");
 
-            var registerModel = (PurchaseOrderRegisterViewModel)New(typeof(PurchaseOrderRegisterViewModel), false);
-            var item = new PurchaseProductOption(1, 1, "", "商品", "仕入先", 5, 3, 0);
-            registerModel.SelectedMaker = new PurchaseMakerOption(1, "仕入先");
-            registerModel.SelectedProduct = item;
-            registerModel.AddSelectedLine();
-            registerModel.Lines[0].QuantityText = "0";
-            Check(!registerModel.CanRegister, "Registration blocks invalid direct line editing");
-            registerModel.Lines[0].QuantityText = "27";
-            Check(registerModel.CanRegister && registerModel.TotalQuantity == 27, "Edited line quantity updates the registration total");
-            registerModel.RemoveLineCommand.Execute(registerModel.Lines[0]);
-            registerModel.UndoRemoveCommand.Execute(null);
-            Check(registerModel.Lines.Count == 1 && registerModel.TotalQuantity == 27, "Undo restores the same line and quantity");
-            registerModel.RemoveLineCommand.Execute(registerModel.Lines[0]);
-            var register = (Window)New(typeof(F_HattyuRegister), registerModel);
-            register.Owner = host;
-            register.Show();
-            Pump();
-            Check(Descendants<DataGrid>(register).Single().IsReadOnly, "Registration entry loads with a controlled line template");
-            register.Close();
+            CheckPurchaseRegistrationScreen(host);
 
             var purchase = new PurchaseOrderDetail(orders[0], Enumerable.Range(1, 44)
                 .Select(i => new PurchaseOrderLineRecord(i, i, $"P-{i:0000}", "試験商品", 1, 0, 5, 1)).ToArray())
@@ -232,6 +230,125 @@ internal static class Program
             Check(!readOnly.CanConfirm && !readOnly.CanHide, "Linked history detail cannot mutate inventory or visibility");
         }
         finally { host.Close(); app.Shutdown(); }
+    }
+
+    private static void CheckPurchaseRegistrationScreen(Window host)
+    {
+        var first = new PurchaseMakerOption(1, "同名の試験仕入先");
+        var other = new PurchaseMakerOption(2, "同名の試験仕入先");
+        var empty = new PurchaseMakerOption(3, "商品なし");
+        var zeroStock = new PurchaseProductOption(10, first.Id, "", "在庫なし商品", first.Name, 0, 3, 0);
+        var secondProduct = new PurchaseProductOption(11, first.Id, "", "追加商品", first.Name, 5, 3, 0);
+        var unknownStock = new PurchaseProductOption(12, other.Id, "", "残高未登録商品", other.Name, null, 3, 0);
+        var catalog = new PurchaseCatalog([first, other, empty], [zeroStock, secondProduct, unknownStock]);
+
+        var model = (PurchaseOrderRegisterViewModel)New(typeof(PurchaseOrderRegisterViewModel), (Func<PurchaseCatalog>)(() => catalog));
+        var register = (Window)New(typeof(F_HattyuRegister), model);
+        register.Owner = host;
+        register.Show();
+        try
+        {
+            for (var attempt = 0; model.IsLoading && attempt < 40; attempt++) Pump();
+            var maker = (ComboBox)register.FindName("MakerPicker");
+            var product = (ComboBox)register.FindName("ProductPicker");
+            var save = (Button)register.FindName("RegisterButton");
+            bool HintVisible(string text) => Descendants<TextBlock>(register).Any(block => block.Text == text && block.IsVisible);
+            void SelectMaker(PurchaseMakerOption option) => maker.SetCurrentValue(ComboBox.SelectedItemProperty, option);
+            void SelectProduct(PurchaseProductOption option) => product.SetCurrentValue(ComboBox.SelectedItemProperty, option);
+
+            Check(!model.IsLoading && maker.IsEnabled && !product.IsEnabled && !save.IsEnabled
+                && model.SelectedProduct == null && model.Lines.Count == 0,
+                "new registration starts with supplier enabled and product and save disabled");
+            SelectMaker(first);
+            Check(product.IsEnabled && product.IsEditable && product.IsTextSearchEnabled
+                && product.Items.Cast<PurchaseProductOption>().SequenceEqual([zeroStock, secondProduct]),
+                "supplier A shows only its products and keeps name search");
+            product.Text = "前の検索入力";
+            SelectMaker(other);
+            Check(product.Items.Cast<PurchaseProductOption>().SequenceEqual([unknownStock]) && product.Text.Length == 0,
+                "supplier B filters by ID despite the same display name and clears prior product input");
+            model.SelectedProduct = zeroStock;
+            Check(model.SelectedProduct == null && !model.CanAddLine, "a stale product selection from another supplier is rejected");
+            SelectProduct(unknownStock);
+            Check(model.CanAddLine && model.InventoryReferenceText.Contains("現在庫 未登録") && !model.IsBelowReorderPoint,
+                "missing stock is displayed as unknown and remains eligible");
+            SelectMaker(empty);
+            Check(!product.IsEnabled && !model.CanAddLine && HintVisible("選択した仕入先に登録されている商品がありません。"),
+                "a supplier with no eligible products shows the empty state");
+            SelectMaker(first);
+            SelectMaker(other);
+            SelectMaker(first);
+            Check(product.Items.Cast<PurchaseProductOption>().SequenceEqual([zeroStock, secondProduct]),
+                "rapid supplier switching ends with the current supplier's catalog");
+
+            SelectProduct(zeroStock);
+            Check(model.CanAddLine && model.InventoryReferenceText.Contains("現在庫 0"), "a product with zero stock is selectable");
+            model.QuantityText = "9";
+            model.AddLineCommand.Execute(null);
+            Check(model.IsMakerLocked && !maker.IsEnabled && ReferenceEquals(maker.SelectedItem, first) && product.IsEnabled
+                && model.Lines.Single().Quantity == 9 && HintVisible("商品が追加されているため、仕入先は変更できません。"),
+                "first line locks the visible supplier, preserving its quantity and product access");
+            model.SelectedMaker = other;
+            model.SelectedMaker = null;
+            SelectMaker(other);
+            Pump();
+            Check(model.SelectedMaker == first && ReferenceEquals(maker.SelectedItem, first),
+                "programmatic changes cannot replace the locked supplier");
+            SelectProduct(zeroStock);
+            Check(!model.CanAddLine, "adding the same product twice remains blocked");
+            SelectProduct(secondProduct);
+            model.QuantityText = "2";
+            model.AddLineCommand.Execute(null);
+            Check(model.Lines.Count == 2 && !maker.IsEnabled, "adding another eligible product keeps the supplier locked");
+
+            var firstLine = model.Lines[0];
+            firstLine.QuantityText = "0";
+            Check(!save.IsEnabled, "registration blocks invalid direct line editing");
+            firstLine.QuantityText = "27";
+            Check(save.IsEnabled && model.TotalQuantity == 29, "edited line quantity updates the total");
+            model.RemoveLineCommand.Execute(firstLine);
+            Check(!maker.IsEnabled && model.Lines.Count == 1, "removing one of two lines keeps the supplier locked");
+            var remaining = model.Lines.Single();
+            model.RemoveLineCommand.Execute(remaining);
+            Check(maker.IsEnabled && ReferenceEquals(maker.SelectedItem, first) && !save.IsEnabled
+                && !HintVisible("商品が追加されているため、仕入先は変更できません。"),
+                "removing the last line unlocks the supplier and keeps its selection");
+            model.UndoRemoveCommand.Execute(null);
+            Check(!maker.IsEnabled && model.Lines.Single() == remaining && model.TotalQuantity == 2,
+                "Undo restores the same line and quantity and relocks the supplier");
+            model.RemoveLineCommand.Execute(remaining);
+            SelectMaker(other);
+            Check(!model.CanUndoRemove && product.Items.Cast<PurchaseProductOption>().SequenceEqual([unknownStock]),
+                "switching an empty draft cannot undo a product from the old supplier");
+
+            SelectProduct(unknownStock);
+            model.AddLineCommand.Execute(null);
+            var clear = Descendants<Button>(register).Single(button => Equals(button.Content, "すべて削除"));
+            void AnswerClear(bool confirmed)
+            {
+                F_OrderNotice? notice = null;
+                var response = register.Dispatcher.InvokeAsync(() =>
+                {
+                    notice = register.OwnedWindows.OfType<F_OrderNotice>().SingleOrDefault(window => window.IsVisible);
+                    if (notice != null) notice.DialogResult = confirmed;
+                }, DispatcherPriority.Background);
+                clear.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                response.Abort();
+                Check(notice != null, "clearing all lines opens a confirmation dialog");
+            }
+            AnswerClear(false);
+            Check(model.Lines.Count == 1 && !maker.IsEnabled, "canceling clear-all keeps the draft and supplier lock");
+            AnswerClear(true);
+            Check(model.Lines.Count == 0 && maker.IsEnabled && ReferenceEquals(maker.SelectedItem, other),
+                "confirming clear-all unlocks the current supplier");
+            Check(Descendants<DataGrid>(register).Single().IsReadOnly, "registration keeps its controlled line template");
+        }
+        finally
+        {
+            typeof(PurchaseOrderRegisterViewModel).GetMethod("ClearLines", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .Invoke(model, null);
+            register.Close();
+        }
     }
 
     private static Application CreateApplication()
@@ -298,7 +415,8 @@ internal static class Program
     }
 
     private static PurchaseOrderRecord Order(int id, int flag, int ordered, int received) =>
-        new(id, new DateTime(2026, 10, 20), 1, "メーカー", 10, "物流担当者", flag, null, 1, ordered, received);
+        new(id, new DateTime(2026, 10, 20), 1, "メーカー", 10, "物流担当者", flag, null, 1, ordered, received)
+        { ConfirmationState = PurchaseOrderService.ConfirmedState };
 
     private static MEmployee Employee(string role) => new()
     {

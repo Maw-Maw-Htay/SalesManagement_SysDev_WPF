@@ -285,7 +285,7 @@
                     <TextBlock Text="{Binding Feedback}" Foreground="{StaticResource OrderDanger}" FontSize="12" VerticalAlignment="Center" TextWrapping="Wrap" />
                 </DockPanel>
 
-                <DataGrid x:Name="InventoryGrid" Grid.Row="1" ItemsSource="{Binding Rows}" AutoGenerateColumns="False"
+                <DataGrid x:Name="InventoryGrid" Grid.Row="1" ItemsSource="{Binding Rows, NotifyOnTargetUpdated=True}" AutoGenerateColumns="False"
                           IsReadOnly="True" CanUserAddRows="False" CanUserDeleteRows="False" FrozenColumnCount="2"
                           SelectionMode="Single" SelectionUnit="FullRow" HeadersVisibility="Column" GridLinesVisibility="Horizontal"
                           RowHeight="36" ColumnHeaderHeight="33" AlternationCount="2"
@@ -295,7 +295,7 @@
                           EnableRowVirtualization="True" EnableColumnVirtualization="True"
                           VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
                           ScrollViewer.CanContentScroll="True" ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.HorizontalScrollBarVisibility="Auto"
-                          Sorting="InventoryGrid_Sorting" MouseDoubleClick="InventoryGrid_DoubleClick">
+                          TargetUpdated="InventoryGrid_RowsUpdated" Sorting="InventoryGrid_Sorting" MouseDoubleClick="InventoryGrid_DoubleClick">
                     <DataGrid.Columns>
                         <DataGridTemplateColumn Header="選択" Width="39" MinWidth="39" CanUserResize="False" CanUserSort="False">
                             <DataGridTemplateColumn.CellTemplate><DataTemplate>

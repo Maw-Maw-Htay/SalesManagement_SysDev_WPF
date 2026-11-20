@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 
 namespace SalesManagement_SysDev;
@@ -62,6 +63,19 @@ public partial class F_HattyuRegister : Window
         bypassDiscardPrompt = F_OrderNotice.Confirm(this, "未保存の発注", "登録前の発注明細を破棄しますか？",
             "破棄する", "入力に戻る", destructive: true);
         e.Cancel = !bypassDiscardPrompt;
+    }
+
+    private void Maker_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (IsLoaded && viewModel.CanChangeMaker)
+            ProductPicker.Text = "";
+    }
+
+    private void ClearLines_Click(object sender, RoutedEventArgs e)
+    {
+        if (viewModel.CanClearLines && F_OrderNotice.Confirm(this, "発注明細をすべて削除しますか？",
+            "すべての商品を削除すると、仕入先を変更できるようになります。", "すべて削除", destructive: true))
+            viewModel.ClearLines();
     }
 
     private void QuantityUp_Click(object sender, RoutedEventArgs e) => StepQuantity(1);

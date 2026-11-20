@@ -1,4 +1,3 @@
-using System.Collections.ObjectModel;
 using System.IO;
 using System.Windows.Threading;
 
@@ -16,8 +15,9 @@ public sealed class InventoryManagementViewModel : ViewModelBase
     private InventorySort sort;
     private bool descending, isFiltersExpanded, isLoading, isExporting, queryPending, summaryNeeded = true;
     private int currentPage = 1, pageSize = 20, matchCount;
+    private IReadOnlyList<InventoryRowData> rows = [];
 
-    public ObservableCollection<InventoryRowData> Rows { get; } = [];
+    public IReadOnlyList<InventoryRowData> Rows { get => rows; private set => Set(ref rows, value); }
     public string QuickSearch { get => quickSearch; set { if (Set(ref quickSearch, value ?? "")) ScheduleSearch(); } }
     public string CodeFilter { get => codeFilter; set { if (Set(ref codeFilter, value)) ScheduleSearch(); } }
     public string NameFilter { get => nameFilter; set { if (Set(ref nameFilter, value)) ScheduleSearch(); } }
@@ -156,8 +156,7 @@ public sealed class InventoryManagementViewModel : ViewModelBase
             displayedFilters = filters;
             matchCount = result.MatchCount;
             currentPage = result.Number;
-            Rows.Clear();
-            foreach (var row in result.Rows) Rows.Add(row);
+            Rows = result.Rows;
         }
         catch (OperationCanceledException) when (next.IsCancellationRequested) { }
         catch (UnauthorizedAccessException ex) when (ReferenceEquals(request, next) && !next.IsCancellationRequested)
@@ -191,7 +190,7 @@ public sealed class InventoryManagementViewModel : ViewModelBase
 
     private void ClearPage(string message)
     {
-        Rows.Clear();
+        Rows = [];
         displayedFilters = null;
         matchCount = 0;
         currentPage = 1;

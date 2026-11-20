@@ -1,12 +1,13 @@
-using System.Collections.Specialized;
 using System.ComponentModel;
 using System.IO;
 using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
 using Microsoft.Win32;
 
 namespace SalesManagement_SysDev;
@@ -20,12 +21,20 @@ public partial class InventoryManagementView : UserControl
     {
         InitializeComponent();
         DataContext = viewModel;
-        viewModel.Rows.CollectionChanged += (_, e) =>
-        {
-            if (e.Action == NotifyCollectionChangedAction.Add && e.NewStartingIndex == 0)
-                InventoryGrid.ScrollIntoView(e.NewItems![0]);
-        };
         UpdateTabs(null);
+    }
+
+    private void InventoryGrid_RowsUpdated(object sender, DataTransferEventArgs e)
+    {
+        if (e.Property != ItemsControl.ItemsSourceProperty
+            || InventoryGrid.ItemsSource is not IReadOnlyList<InventoryRowData> { Count: > 0 } page) return;
+
+        // Row containers can still belong to the previous page while the binding is being applied.
+        _ = Dispatcher.InvokeAsync(() =>
+        {
+            if (InventoryGrid.IsLoaded && ReferenceEquals(InventoryGrid.ItemsSource, page))
+                InventoryGrid.ScrollIntoView(page[0]);
+        }, DispatcherPriority.Loaded);
     }
 
     private async void InventoryView_Loaded(object sender, RoutedEventArgs e) => await ViewModel.LoadAsync();

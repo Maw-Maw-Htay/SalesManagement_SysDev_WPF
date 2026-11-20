@@ -31,6 +31,8 @@ internal static partial class Program
     private static void CheckReceivingUi(bool render)
     {
         var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+        var previousContext = SynchronizationContext.Current;
+        SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(app.Dispatcher));
         AppSession.Employee = Employee("管理者");
         try
         {
@@ -128,9 +130,67 @@ internal static partial class Program
             Check(!confirmationVm.CanConfirm, "confirmation cannot be submitted again while processing");
             confirmationVm.IsProcessing = false;
             confirm.Close();
+
+            var waitingRecord = records[1] with
+            {
+                Id = 0, MovementDate = null, EmployeeId = null, EmployeeName = "未設定",
+                BusinessState = WarehousingService.UnconfirmedState, ManagementFlag = WarehousingService.ActiveFlag,
+                Quantity = 0, OrderedQuantity = 10, IsAwaitingReceipt = true
+            };
+            var pending = ReceiptDetail(waitingRecord);
+            var purchaseOrder = pending.RelatedPurchase!;
+            var waiting = pending with
+            {
+                Lines = [pending.Lines.Single() with { Quantity = 0, IsAwaitingQuantity = true }],
+                RelatedPurchase = purchaseOrder with
+                {
+                    Order = purchaseOrder.Order with { ConfirmationState = PurchaseOrderService.ConfirmedState, ReceivedQuantity = 0 },
+                    Lines = [purchaseOrder.Lines.Single() with { ReceivedQuantity = 0 }]
+                }
+            };
+            var waitingDetail = new F_WarehouseMovementDetail(waiting) { Owner = host };
+            waitingDetail.Show();
+            waitingDetail.UpdateLayout();
+            var waitingVm = (WarehouseMovementDetailViewModel)waitingDetail.DataContext;
+            Check(waitingVm.CanConfirm && waitingVm.ConfirmActionLabel == "入庫確認" && waitingVm.ReceiptLines.Single().OrderedText == "10"
+                && waitingVm.ReceiptLines.Single().Line.QuantityText == "未入力",
+                "waiting detail distinguishes ordered quantity from the missing actual count");
+            if (render) SaveReceivingPreview(waitingDetail, "receiving-awaiting-detail");
+            waitingDetail.Close();
+
+            var actualDialog = new F_WarehouseMovementConfirm(waiting) { Owner = host };
+            actualDialog.Show();
+            actualDialog.UpdateLayout();
+            var actualVm = (WarehouseMovementConfirmViewModel)actualDialog.DataContext;
+            var entryGrid = ReceivingVisuals(actualDialog).OfType<DataGrid>().Single(grid => grid.IsVisible);
+            Check(entryGrid.Columns.Single(column => Equals(column.Header, "商品名")).ActualWidth >= 120,
+                "confirmation preserves space for product names");
+            var quantityInput = ReceivingVisuals(actualDialog).OfType<TextBox>().Single(text =>
+                System.Windows.Automation.AutomationProperties.GetName(text) == "試験部品の実入庫数量");
+            Check(quantityInput.Text == "" && quantityInput.IsEnabled && !actualVm.CanConfirm,
+                "awaiting receipt opens an enabled blank input and cannot post by default");
+            quantityInput.Text = "9";
+            Check(!actualVm.CanConfirm, "partial delivery cannot be submitted from the new confirmation dialog");
+            quantityInput.Text = "10";
+            Check(actualVm.CanConfirm && actualVm.ActualReceiptLines.Single() == new WarehouseMovementLineInput(3, 10),
+                "the confirmation button uses the operator-entered quantity for the real product");
+            actualVm.ReceiptDate = null;
+            Check(!actualVm.CanConfirm, "the actual receipt date is required");
+            actualVm.ReceiptDate = DateTime.Today;
+            if (render)
+            {
+                actualDialog.UpdateLayout();
+                SaveReceivingPreview(actualDialog, "receiving-actual-confirmation");
+            }
+            actualDialog.Close();
             host.Close();
         }
-        finally { AppSession.Employee = null; app.Shutdown(); }
+        finally
+        {
+            AppSession.Employee = null;
+            app.Shutdown();
+            SynchronizationContext.SetSynchronizationContext(previousContext);
+        }
     }
 
     private static void CheckReceivingRead()
