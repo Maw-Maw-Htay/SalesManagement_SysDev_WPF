@@ -7,10 +7,15 @@ namespace SalesManagement_SysDev;
 public enum OrderStatusTab { All, Pending, Confirmed, Hidden, History }
 
 public sealed record OrderLineView(int ProductId, string ProductCode, string ProductName, int Quantity, decimal? UnitPrice,
-    decimal? LineTotal, int? CurrentStock)
+    decimal? LineTotal, int? CurrentStock, bool StockLookupFailed = false, int Number = 0)
 {
     public string ProductLabel => $"{ProductCode} / {ProductName}";
-    public string Availability => CurrentStock is null ? "在庫未登録" : CurrentStock >= Quantity ? "在庫あり" : "在庫不足";
+    public string CurrentStockText => StockLookupFailed ? "照会失敗" : CurrentStock?.ToString("N0") ?? "未登録";
+    public string Availability => StockLookupFailed ? "照会失敗"
+        : CurrentStock is null ? "在庫未登録"
+        : CurrentStock == 0 ? "在庫0"
+        : CurrentStock < Quantity ? "在庫不足"
+        : "在庫あり";
 }
 
 public sealed record OrderDetailView(int OrderId, string CustomerName, string CustomerPhone, string CustomerAddress,
@@ -233,10 +238,21 @@ public sealed class ChumonManagementViewModel : ViewModelBase
                 var baseLines = db.TOrderDetails.AsNoTracking()
                     .Where(x => x.OrId == c.OrId && products.Contains(x.PrId) && (x.OrQuantity != 0 || x.OrTotalPrice != 0m)).ToList()
                     .GroupBy(x => x.PrId).ToDictionary(g => g.Key, g => g.ToList());
-                var stocks = db.TStocks.AsNoTracking().Where(x => products.Contains(x.PrId) && x.StFlag == 0)
-                    .GroupBy(x => x.PrId).ToDictionary(g => g.Key, g => (int?)g.Sum(s => s.StQuantity));
+                var stockLookupFailed = false;
+                Dictionary<int, int?> stocks;
+                try
+                {
+                    stocks = db.TStocks.AsNoTracking().Where(x => products.Contains(x.PrId) && x.StFlag == 0)
+                        .GroupBy(x => x.PrId).ToDictionary(g => g.Key, g => (int?)g.Sum(s => s.StQuantity));
+                }
+                catch
+                {
+                    // Keep order details available while clearly distinguishing a failed stock lookup from no stock row.
+                    stocks = new Dictionary<int, int?>();
+                    stockLookupFailed = true;
+                }
                 var lineCounts = c.TChumonDetails.GroupBy(x => x.PrId).ToDictionary(g => g.Key, g => g.Count());
-                var lines = c.TChumonDetails.Select(line =>
+                var lines = c.TChumonDetails.Select((line, index) =>
                 {
                     var historical = baseLines.GetValueOrDefault(line.PrId);
                     var historicalQuantity = historical?.Sum(x => x.OrQuantity) ?? 0;
@@ -245,7 +261,7 @@ public sealed class ChumonManagementViewModel : ViewModelBase
                     decimal? unit = canMatchHistoricalAmount && historicalQuantity > 0 ? historicalTotal / historicalQuantity : null;
                     decimal? total = canMatchHistoricalAmount ? historicalTotal : null;
                     return new OrderLineView(line.PrId, line.Pr.PrJcode ?? $"P-{line.PrId:000000}", line.Pr.PrName,
-                        line.ChQuantity, unit, total, stocks.GetValueOrDefault(line.PrId));
+                        line.ChQuantity, unit, total, stockLookupFailed ? null : stocks.GetValueOrDefault(line.PrId), stockLookupFailed, index + 1);
                 }).ToList();
                 var orderTotal = baseLines.Values.SelectMany(x => x).Sum(x => x.OrTotalPrice);
                 return new OrderDetailView(c.ChId, c.Cl.ClName, c.Cl.ClPhone, c.Cl.ClAddress, c.So.SoName,
