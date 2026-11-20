@@ -1,5 +1,10 @@
 # SalesManagement_SysDev
 
+## 初めて使うPCでのログイン
+
+.NET 8が対象のWindows用SDKとSQL Server Express LocalDBを用意し、「練習用ログイン.cmd」を開きます。専用DB SalesManagement_Practice にサンプルデータを準備します。初期管理者の社員IDとパスワードはいずれも 1227 です。通常起動では既存の SalesManagement を使い、旧形式の社員認証列を必要に応じて更新します。
+
+
 電子機器卸売業向けの販売・在庫管理デスクトップアプリケーションです。現在は `SalesManagement_SysDev` プロジェクトへ統合され、ログイン、メインメニュー、商品・顧客検索、受注登録、受注管理、受注詳細、在庫・出荷関連の業務画面を提供します。
 
 ## 起動方法
@@ -78,3 +83,10 @@ SqlLocalDB start MSSQLLocalDB
 - [機能仕様](SPEC.md)
 - [機能仕様（HTML/CSS閲覧版）](SPEC.html)
 - [実プロジェクトの利用説明](SalesManagement_SysDev/README.md)
+
+## WPFプロジェクトのフォルダー構成
+
+- `Views/<機能>` に画面の XAML とコードビハインドを配置しています。
+- `ViewModels/<機能>` に画面の状態や操作を担当するコードがあります。
+- `Services/<機能>` に業務処理を配置しています。画面と同じ機能名で探せます。
+- `Data/Database` にDB初期化処理、`Entity` にDBモデル、`Resources` に共通スタイルや画像があります。

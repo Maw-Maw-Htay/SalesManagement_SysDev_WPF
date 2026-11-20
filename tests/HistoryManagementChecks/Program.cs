@@ -424,14 +424,14 @@ internal static class Program
         var applicationProject = Path.Combine(projectRoot, "SalesManagement_SysDev");
         var menuTabFiles = new Dictionary<string, int>
         {
-            ["OrderManagementView.xaml"] = 4, // 注文管理: this view uses ChumonManagementViewModel.
-            ["PurchaseOrderManagementView.xaml"] = 6,
-            ["WarehouseMovementManagementView.xaml"] = 4,
-            ["ArrivalManagementView.xaml"] = 3,
-            ["OutboundManagementView.xaml"] = 4,
-            ["ShipmentManagementView.xaml"] = 3,
-            ["InventoryManagementView.xaml"] = 4,
-            ["SalesManagementView.xaml"] = 3
+            ["Views/OrderFulfillment/OrderManagementView.xaml"] = 4, // 注文管理: this view uses ChumonManagementViewModel.
+            ["Views/Purchasing/PurchaseOrderManagementView.xaml"] = 6,
+            ["Views/Warehouse/WarehouseMovementManagementView.xaml"] = 4,
+            ["Views/Arrival/ArrivalManagementView.xaml"] = 3,
+            ["Views/Outbound/OutboundManagementView.xaml"] = 4,
+            ["Views/Shipping/ShipmentManagementView.xaml"] = 3,
+            ["Views/Inventory/InventoryManagementView.xaml"] = 4,
+            ["Views/Sales/SalesManagementView.xaml"] = 3
         };
 
         var totalMenuTabs = 0;
@@ -470,7 +470,7 @@ internal static class Program
 
         var buttonTabFiles = new[]
         {
-            "CustomerManagementView.xaml", "ProductManagementView.xaml", "EmployeeManagementView.xaml"
+            "Views/Customers/CustomerManagementView.xaml", "Views/Products/ProductManagementView.xaml", "Views/Employees/EmployeeManagementView.xaml"
         };
         foreach (var file in buttonTabFiles)
         {
@@ -485,10 +485,10 @@ internal static class Program
                 $"{file} keeps its three filter commands on the shared status-button style");
         }
 
-        Check(File.ReadAllText(Path.Combine(applicationProject, "OrderManagementView.xaml.cs"))
+        Check(File.ReadAllText(Path.Combine(applicationProject, "Views/OrderFulfillment/OrderManagementView.xaml.cs"))
                 .Contains("new ChumonManagementViewModel()", StringComparison.Ordinal),
             "the styled OrderManagementView is 注文管理, not the excluded 受注管理 screen");
-        var orderManagementMarkup = File.ReadAllText(Path.Combine(applicationProject, "F_OrderManagement.xaml"));
+        var orderManagementMarkup = File.ReadAllText(Path.Combine(applicationProject, "Views/Orders/F_OrderManagement.xaml"));
         Check(!orderManagementMarkup.Contains("StatusTabIcon", StringComparison.Ordinal)
             && !orderManagementMarkup.Contains("StatusFilterButton", StringComparison.Ordinal),
             "受注管理 keeps its existing status-tab markup unchanged");
