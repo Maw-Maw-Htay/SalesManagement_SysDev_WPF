@@ -15,12 +15,13 @@ using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using SalesManagement_SysDev;
 
-internal static class Program
+internal static partial class Program
 {
     private static int checks;
     private static readonly List<string> bindingErrors = [];
     private static readonly Assembly assembly = typeof(F_OrderUpdate).Assembly;
     private static string output = "";
+    private static bool interactiveOrderMenu;
 
     [STAThread]
     private static int Main(string[] args)
@@ -28,18 +29,38 @@ internal static class Program
         try
         {
             CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("ja-JP");
+            if (args.Contains("--draft-selection-only"))
+            {
+                SetRole("管理者");
+                CheckDraftSelectionState();
+                Console.WriteLine($"PASS: {checks} selection checks.");
+                return 0;
+            }
+            interactiveOrderMenu = args.Contains("--interactive-order-menu");
             output = Path.GetFullPath(args.FirstOrDefault(arg => !arg.StartsWith("--")) ?? "build_verify/order-update-preview");
             Directory.CreateDirectory(output);
-            var app = new App(); app.InitializeComponent(); app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+            foreach (var dictionary in new[] { "Colors", "Typography", "Controls", "IconResources", "Layouts" })
+            {
+                app.Resources.MergedDictionaries.Add(new ResourceDictionary
+                {
+                    Source = new Uri($"/SalesManagement_SysDev;component/Resources/{dictionary}.xaml", UriKind.Relative)
+                });
+            }
             SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext());
             PresentationTraceSources.DataBindingSource.Switch.Level = SourceLevels.Error;
             PresentationTraceSources.DataBindingSource.Listeners.Add(new BindingListener());
             SetRole("管理者");
-            if(args.Contains("--preview-only")) RenderLayout(1150,720,"update-ux-preview",true,count:2);
+            if(args.Contains("--draft-only")) CheckDraftNavigation();
+            else if(args.Contains("--preview-only")) RenderLayout(1150,720,"update-ux-preview",true,count:2);
             else if(args.Contains("--layout-only")) CheckLayouts();
             else if(args.Contains("--database-only")) { }
-            else { CheckViewModel(); CheckQuantityInputs(); CheckUpdateWorkflow(); CheckInventoryStatus(); CheckCompletionRoutes(); CheckConcurrencySnapshot(); CheckLayouts(); }
-            if (!args.Contains("--skip-database")) CheckDatabase();
+            else { CheckViewModel(); CheckQuantityInputs(); CheckDraftNavigation(); CheckUpdateWorkflow(); CheckInventoryStatus(); CheckCompletionRoutes(); CheckConcurrencySnapshot(); CheckLayouts(); }
+            if (!args.Contains("--skip-database"))
+            {
+                if (!args.Contains("--draft-only")) CheckDatabase();
+                CheckDraftDatabase();
+            }
             else Console.WriteLine("SKIPPED: database integration tests (--skip-database).");
             Check(bindingErrors.Count == 0, "XAML binding errors: " + string.Join(" | ", bindingErrors));
             Console.WriteLine($"PASS: {checks} checks. Layout renders: {output}");
@@ -143,6 +164,12 @@ internal static class Program
             Dispatcher.CurrentDispatcher.Invoke(DispatcherPriority.Background, new Action(() => { }));
         if (!task.IsCompleted) throw new TimeoutException();
         task.GetAwaiter().GetResult();
+    }
+
+    private static T WaitFor<T>(Task<T> task)
+    {
+        Wait(task);
+        return task.Result;
     }
 
     private static void CheckUpdateWorkflow()
@@ -371,8 +398,11 @@ internal static class Program
     private static void CheckRegistrationInputs()
     {
         var source = new QuantityRegistrationSource();
-        using var vm = new OrderRegistrationViewModel(() => { }, () => false, source);
-        vm.Load(); vm.SelectedClient=source.LoadClients(1)[0]; vm.Remarks="入力内容を保持";
+        using var vm = new OrderRegistrationViewModel(() => { }, source: source);
+        vm.Load();
+        Check(source.StockBatches == 1 && source.StockSelections == 0
+            && vm.Products[0].StockLabel == "在庫：5点" && vm.Products[1].StockLabel == "在庫：0点"
+            && vm.Products[2].StockLabel == "在庫：未登録", "registration stock options use one batch with available, zero and missing stock");
         Check(vm.QuantityLabel=="数量 *", "unit is hidden until a product is selected");
         Check(!vm.CanRegister && !vm.AddLineCommand.CanExecute(null) && !vm.ShowProductDetailsCommand.CanExecute(null), "empty registration commands disabled");
         var view = new F_OrderRegistration { DataContext=vm };
@@ -388,13 +418,28 @@ internal static class Program
         var input=(TextBox)editor.Template.FindName("PART_Input",editor);
         var plus=(Button)editor.Template.FindName("PART_Increase",editor);
         var minus=(Button)editor.Template.FindName("PART_Decrease",editor);
+        var details=(Button)view.FindName("ProductDetailsButton");
+        Check(!details.IsEnabled && Equals(details.Background, Application.Current.FindResource("ThemeBorder")),
+            "product details is disabled and gray before selecting a product");
+        var manufacturer = (ComboBox)view.FindName("ManufacturerFilter");
+        CheckManufacturerFiltering(vm, source, manufacturer, (RegistrationLookup)view.FindName("ProductLookup"), details);
+        vm.SelectedClient=source.LoadClients(1)[0]; vm.Remarks="入力内容を保持";
+        var option = (FrameworkElement)((DataTemplate)view.Resources["RegistrationProductSuggestion"]).LoadContent();
+        var missingProduct = vm.Products.Single(product => product.PrId == 3);
+        option.DataContext = missingProduct;
+        FlushBindings();
+        var optionText = Descendants<TextBlock>(option).Select(text => text.Text).ToArray();
+        Check(optionText.Contains(missingProduct.ProductCode) && optionText.Contains(missingProduct.ProductName)
+            && optionText.Contains("メーカー：Dell | 在庫：未登録") && optionText.Contains("¥2,000"),
+            "product option renders code, name, manufacturer, stock and price");
         Check(editor.Text=="1" && !minus.IsEnabled && plus.IsEnabled, "quantity default/minimum state");
-        Check(plus.TransformToAncestor(editor).Transform(new Point()).Y < minus.TransformToAncestor(editor).Transform(new Point()).Y, "plus is above minus");
+        CheckHorizontalStepper(editor);
         plus.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); FlushBindings();
         Check(vm.Quantity=="2" && minus.IsEnabled, "plus updates quantity without Enter");
         minus.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); FlushBindings();
         Check(vm.Quantity=="1" && !minus.IsEnabled, "minus returns to minimum");
         vm.SelectedProduct=source.LoadProducts()[0]; input.Text="37"; FlushBindings();
+        Check(details.IsEnabled, "product details is enabled for a valid selection");
         Check(vm.QuantityLabel=="数量 *（個）", "selected product displays the existing item-count unit");
         Check(vm.CanAddProduct && vm.StockStatus.Text == "在庫不足：32点" && vm.StockStatus.Tooltip.Contains("受注数量：37点"), "direct input updates warning without stock blocking");
         var enter=new KeyEventArgs(Keyboard.PrimaryDevice,PresentationSource.FromVisual(input),Environment.TickCount,Key.Enter) { RoutedEvent=Keyboard.PreviewKeyDownEvent };
@@ -414,8 +459,15 @@ internal static class Program
         }
         input.Text="37"; FlushBindings();
         vm.AddLineCommand.Execute(null); FlushBindings();
+        Check(!details.IsEnabled, "product details is disabled again after clearing selection");
         Check(vm.Lines.Single().Quantity==37 && vm.Lines.Single().UnitName=="個" && vm.Quantity=="1" && vm.SelectedProduct==null && vm.UnitPriceDisplay=="商品選択後に表示", "addition retains unit and resets only product input");
         Check(vm.SelectedClient!=null && vm.Remarks=="入力内容を保持" && vm.CanRegister, "header and remarks retained; stock shortage can register");
+        var addedLine = vm.Lines.Single();
+        var totalBeforeFilter = vm.Total;
+        vm.SelectedMakerId = vm.MakerOptions.Single(maker => maker.Name == "Samsung").Id;
+        Check(ReferenceEquals(addedLine, vm.Lines.Single()) && vm.Total == totalBeforeFilter && vm.CanRegister,
+            "manufacturer browsing preserves existing order lines, totals and registration eligibility");
+        vm.SelectedMakerId = 0;
         vm.Lines[0].QuantityText="5"; FlushBindings();
         Check(vm.Subtotal==6170 && vm.Tax==617 && vm.Total==6787 && vm.Lines[0].TotalIncludingTax==6787, "detail quantity recalculates row/net/tax/inclusive totals immediately");
         vm.Lines[0].QuantityText=""; FlushBindings();
@@ -426,6 +478,7 @@ internal static class Program
         Check(unitColumn?.Binding is Binding unitBinding && unitBinding.Path.Path=="UnitName", "order list includes the product unit column");
         var row=(DataGridRow)grid.ItemContainerGenerator.ContainerFromItem(vm.Lines[0]);
         var rowEditor=Descendants<QuantityUpDown>(row).Single(); rowEditor.ApplyTemplate();
+        CheckHorizontalStepper(rowEditor);
         ((TextBox)rowEditor.Template.FindName("PART_Input",rowEditor)).Text="7"; FlushBindings();
         Check(vm.Lines[0].Quantity==7 && vm.Subtotal==8638 && vm.Lines[0].StockStatus.Text=="在庫不足：2点", "DataGrid TwoWay binding updates calculations and stock warning");
         vm.SelectedProduct=source.LoadProducts()[0]; vm.Quantity="3"; vm.AddLineCommand.Execute(null);
@@ -443,21 +496,27 @@ internal static class Program
         Check(vm.StockStatus.Text=="在庫がありません" && vm.CanAddProduct, "zero stock is explicit and nonblocking");
         vm.SelectedProduct=source.LoadProducts()[2];
         Check(vm.StockStatus.Text=="在庫情報が未登録です" && vm.CanAddProduct, "missing stock is explicit and nonblocking");
+        FlushBindings();
+        Check(((TextBlock)view.FindName("ProductInputStockHint")).Visibility == Visibility.Collapsed,
+            "missing stock warning does not appear beneath the product input stepper");
         var before=(vm.SelectedClient,vm.Remarks,vm.Quantity,vm.Lines.Count);
         vm.ShowProductDetailsCommand.Execute(null); FlushBindings();
         Check(vm.IsProductDetailsVisible && vm.ProductDetails?.PrId==3 && !vm.CanRegister, "read-only product details opens for selected product");
+        Check(Descendants<TextBlock>((FrameworkElement)view.FindName("ProductDetailsOverlay")).Any(text => text.Text == "Dell"),
+            "product details displays the selected manufacturer's name");
         Render(root,"registration-product-details");
         vm.EscapeCommand.Execute(null); FlushBindings();
         Check(!vm.IsProductDetailsVisible && before==(vm.SelectedClient,vm.Remarks,vm.Quantity,vm.Lines.Count), "closing product details preserves entry data");
         vm.SelectedProduct=source.LoadProducts()[0]; vm.Quantity=vm.MaximumQuantity.ToString(CultureInfo.InvariantCulture); FlushBindings();
         Check(!plus.IsEnabled && minus.IsEnabled, "plus disables at existing amount-derived maximum");
         vm.Quantity="1"; vm.SelectedProduct=null;
-        Check(!vm.TryApproveClose(), "unsaved changes confirmation preserves input when cancelled");
+        Check(!WaitFor(vm.TryApproveCloseAsync()), "unsaved changes confirmation preserves input when cancelled");
         Check(!Descendants<TextBox>(root).Any(box => System.Windows.Automation.AutomationProperties.GetName(box) is "受注受付担当者" or "単価（参照専用）"), "employee and unit price are borderless text displays");
         foreach(var product in source.LoadProducts().Skip(1)) { vm.SelectedProduct=product; vm.AddLineCommand.Execute(null); }
         foreach(var (width,height) in new[] { (1280,720),(1366,768),(1600,900),(1920,1080) })
         {
             host.Width=width-56; host.Height=height-94; host.UpdateLayout(); FlushBindings();
+            CheckManufacturerLayout(view);
             var footer=(FrameworkElement)view.FindName("RegistrationFooter");
             var totals=(FrameworkElement)view.FindName("OrderTotalsCard");
             var footerTop=footer.TransformToAncestor(root).Transform(new Point()).Y;
@@ -469,6 +528,13 @@ internal static class Program
             grid.ScrollIntoView(vm.Lines[0]); host.UpdateLayout(); FlushBindings();
             var first=(DataGridRow)grid.ItemContainerGenerator.ContainerFromItem(vm.Lines[0]);
             Check(Descendants<QuantityUpDown>(first).All(control=>control.ActualHeight<=first.ActualHeight), "quantity controls fit rows "+width+"x"+height);
+            if (width == 1920)
+            {
+                var remarks = (FrameworkElement)view.FindName("RemarksInput");
+                Check(remarks.TransformToAncestor(inputScroller).TransformBounds(new Rect(remarks.RenderSize)).Bottom <= inputScroller.ViewportHeight,
+                    "remarks are fully visible at 1920x1080 without scrolling");
+                CheckRegistrationRowAndFooter(view, root, grid, vm);
+            }
             Render(root,"registration-"+width+"x"+height);
         }
         vm.RemoveLineCommand.Execute(vm.Lines[0]);
@@ -482,7 +548,7 @@ internal static class Program
     {
         var source=new RegistrationSubmissionSource();
         var listReturns=0; var nextOrderStarts=0;
-        using var vm=new OrderRegistrationViewModel(()=>listReturns++,()=>false,source,startNextOrder:()=>nextOrderStarts++);
+        using var vm=new OrderRegistrationViewModel(()=>listReturns++,source:source,startNextOrder:()=>nextOrderStarts++);
         vm.Load(); vm.SelectedClient=source.LoadClients(1)[0]; vm.SelectedProduct=source.LoadProducts()[0]; vm.AddLineCommand.Execute(null);
         vm.Remarks="最初の受注";
         var view=new F_OrderRegistration { DataContext=vm };
@@ -494,7 +560,7 @@ internal static class Program
         vm.RegisterCommand.Execute(null);
         for(var i=0;i<100 && source.Calls==0;i++) Wait(Task.Delay(10));
         FlushBindings();
-        Check(vm.IsBusy && !vm.RegisterCommand.CanExecute(null) && !vm.TryApproveClose()
+        Check(vm.IsBusy && !vm.RegisterCommand.CanExecute(null) && !WaitFor(vm.TryApproveCloseAsync())
             && registerButton.Visibility==Visibility.Visible && registerButton.Content?.ToString()=="受注を登録" && !registerButton.IsEnabled,
             "registration request keeps the register label while disabling duplicate submit and navigation");
         vm.RegisterCommand.Execute(null); source.AllowCompletion.Set();
@@ -574,7 +640,7 @@ internal static class Program
             "returning to the list hides completion without resetting or recursively navigating");
         host.Close(); view.Dispose();
         var failedSource=new RegistrationSubmissionSource { Fail=true }; failedSource.AllowCompletion.Set();
-        using var failed=new OrderRegistrationViewModel(()=>{},()=>false,failedSource);
+        using var failed=new OrderRegistrationViewModel(()=>{},source:failedSource);
         failed.Load(); failed.SelectedClient=failedSource.LoadClients(1)[0]; failed.SelectedProduct=failedSource.LoadProducts()[0]; failed.AddLineCommand.Execute(null);
         failed.RegisterCommand.Execute(null);
         for(var i=0;i<200 && failed.IsBusy;i++) Wait(Task.Delay(10));
@@ -666,8 +732,10 @@ internal static class Program
         var overflow=Descendants<ScrollViewer>(root).Where(scroll=>scroll.ScrollableWidth>=1).ToArray();
         if(overflow.Length>0) Render(root,"overflow-"+name);
         Check(overflow.Length==0,"no horizontal scrolling "+name+" "+string.Join(";",overflow.Select(scroll=>$"{scroll.Name}:{scroll.ScrollableWidth}/{scroll.ViewportWidth}/{scroll.ExtentWidth}")));
-        Check(Descendants<ScrollViewer>(root).Count(scroll => scroll.ComputedVerticalScrollBarVisibility == Visibility.Visible) <= 2,
-            "only the independent input and item panes scroll " + name);
+        var verticalScrollers = Descendants<ScrollViewer>(root)
+            .Where(scroll => scroll.IsVisible && scroll.ComputedVerticalScrollBarVisibility == Visibility.Visible).ToArray();
+        Check(verticalScrollers.Length <= 2, "only the independent input and item panes show scrollbars " + name + " "
+            + string.Join(", ", verticalScrollers.Select(scroll => $"{scroll.Name} ({scroll.ViewportHeight:F0}/{scroll.ExtentHeight:F0})")));
         var firstRow = grid.ItemContainerGenerator.ContainerFromItem(vm.Lines[0]) as DataGridRow;
         if (firstRow != null)
         {
@@ -911,11 +979,34 @@ internal static class Program
     }
     private sealed class QuantityRegistrationSource : IOrderRegistrationDataSource
     {
+        public int ProductLoads { get; private set; }
+        public int StockBatches { get; private set; }
+        public int StockSelections { get; private set; }
         public IReadOnlyList<MSalesOffice> LoadOffices() => [new MSalesOffice { SoId=1, SoName="北大阪営業所" }];
         public IReadOnlyList<MClient> LoadClients(int officeId) => [new MClient { ClId=1, ClName="INATUGI", SoId=officeId }];
-        public IReadOnlyList<RegistrationProduct> LoadProducts() => Enumerable.Range(1,35).Select(id=>new RegistrationProduct
-        { PrId=id, ProductCode=$"PR-{id:0000}", ProductName=id==1 ? "キーボード" : $"検証用商品 {id:00}", UnitPrice=id==1 ? 1234 : 2000,
-          CategoryName="入力機器", Stock=id==3 ? null : id==2 ? 0 : 5 }).ToArray();
+        public IReadOnlyList<RegistrationProduct> LoadProducts()
+        {
+            ProductLoads++;
+            return Enumerable.Range(1,35).Select(id=>new RegistrationProduct
+            {
+                PrId = id, ProductCode = $"PR-{id:0000}", Barcode = $"490000000{id:0000}",
+                ProductName = id == 1 ? "キーボード" : id == 3 ? new string('長', 80) : $"検証用商品 {id:00}",
+                MakerId = (id - 1) % 3 + 1, MakerName = ((id - 1) % 3) switch { 0 => "Apple", 1 => "Samsung", _ => "Dell" },
+                UnitPrice = id == 1 ? 1234 : 2000, CategoryName = "入力機器", Stock = id == 3 ? null : id == 2 ? 0 : 5
+            }).ToArray();
+        }
+        public InventoryStockLookup LoadStock(int id)
+        {
+            StockSelections++;
+            return GetStock(id);
+        }
+        public IReadOnlyDictionary<int, InventoryStockLookup> LoadStocks(IReadOnlyCollection<int> ids)
+        {
+            StockBatches++;
+            return ids.Distinct().ToDictionary(id => id, GetStock);
+        }
+        private static InventoryStockLookup GetStock(int id) => id == 3
+            ? new(InventoryStockState.MissingRecord) : new(InventoryStockState.Available, id == 2 ? 0 : 5);
         public bool Register(int employeeId, int customerId, int officeId, DateTime orderDate, DateTime deliveryDate,
             string remarks, IReadOnlyCollection<OrderDetailUpdate> details, out int orderId, out string message) => throw new InvalidOperationException("UI checks must not write to a database.");
         public OrderDetailSnapshot? LoadRegisteredOrder(int orderId) => null;

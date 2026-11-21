@@ -20,27 +20,8 @@ public sealed partial class BusinessService
         using var transaction = db.Database.BeginTransaction();
         try
         {
-            if (!db.MClients.Any(x => x.ClId == customerId && x.SoId == officeId && x.ClFlag == 0)
-                || !db.MSalesOffices.Any(x => x.SoId == officeId && x.SoFlag == 0))
-            { message = "顧客と営業所の組み合わせを確認してください。"; return false; }
-            var productIds = lines.Select(x => x.ProductId).Distinct().ToList();
-            if (db.MProducts.Count(x => productIds.Contains(x.PrId) && x.PrFlag == 0) != productIds.Count)
-            { message = "選択した商品が存在しないか、現在利用できません。"; return false; }
-            var order = new TOrder
-            {
-                EmId = employeeId, ClId = customerId, SoId = officeId, OrDate = orderDate.Date,
-                OrDeliveryDate = deliveryDate?.Date,
-                ClCharge = string.IsNullOrWhiteSpace(note) ? null : note.Trim(), OrStateFlag = 0, OrFlag = 0
-            };
-            db.TOrders.Add(order);
-            db.SaveChanges();
-            foreach (var line in lines) order.TOrderDetails.Add(new TOrderDetail
-            {
-                PrId = line.ProductId, OrQuantity = line.Quantity, OrTotalPrice = line.Quantity * line.UnitPrice
-            });
-            db.SaveChanges();
-            OrderHistoryService.Record(db, order, OrderHistoryOperations.Created, null, "初期フラグ：状態 0（未確定）／管理 0（表示）。在庫数量の変更はありません。");
-            db.SaveChanges();
+            var order = CreateOrderInTransaction(db, employeeId, customerId, officeId, orderDate, deliveryDate, note, lines, out message);
+            if (order == null) return false;
             transaction.Commit();
             orderId = order.OrId;
             message = $"受注を登録しました。\n受注ID: {orderId}";
@@ -52,6 +33,47 @@ public sealed partial class BusinessService
             message = "受注登録に失敗しました: " + ex.Message;
             return false;
         }
+    }
+
+    internal static TOrder? CreateOrderInTransaction(SalesManagementContext db, int employeeId, int customerId,
+        int officeId, DateTime orderDate, DateTime? deliveryDate, string? note, IReadOnlyCollection<OrderDetailUpdate> lines,
+        out string message, bool requireCurrentPrices = false)
+    {
+        message = "";
+        if (!db.MClients.Any(x => x.ClId == customerId && x.SoId == officeId && x.ClFlag == 0)
+            || !db.MSalesOffices.Any(x => x.SoId == officeId && x.SoFlag == 0))
+        {
+            message = "顧客と営業所の組み合わせを確認してください。";
+            return null;
+        }
+        var productIds = lines.Select(x => x.ProductId).Distinct().ToArray();
+        var prices = db.MProducts.Where(x => productIds.Contains(x.PrId) && x.PrFlag == 0)
+            .Select(x => new { x.PrId, x.Price }).ToDictionary(x => x.PrId, x => x.Price);
+        if (prices.Count != productIds.Length)
+        {
+            message = "選択した商品が存在しないか、現在利用できません。";
+            return null;
+        }
+        if (requireCurrentPrices && lines.Any(line => prices[line.ProductId] != line.UnitPrice))
+        {
+            message = "単価が変更された商品があります。下書きを開き直し、該当の商品を追加し直してください。";
+            return null;
+        }
+        var order = new TOrder
+        {
+            EmId = employeeId, ClId = customerId, SoId = officeId, OrDate = orderDate.Date,
+            OrDeliveryDate = deliveryDate?.Date,
+            ClCharge = string.IsNullOrWhiteSpace(note) ? null : note.Trim(), OrStateFlag = 0, OrFlag = 0
+        };
+        foreach (var line in lines) order.TOrderDetails.Add(new TOrderDetail
+        {
+            PrId = line.ProductId, OrQuantity = line.Quantity, OrTotalPrice = line.Quantity * line.UnitPrice
+        });
+        db.TOrders.Add(order);
+        db.SaveChanges();
+        OrderHistoryService.Record(db, order, OrderHistoryOperations.Created, null, "初期フラグ：状態 0（未確定）／管理 0（表示）。在庫数量の変更はありません。");
+        db.SaveChanges();
+        return order;
     }
 
     public static bool SetOrderVisibility(int orderId, int employeeId, bool hidden, string? reason, out string message)

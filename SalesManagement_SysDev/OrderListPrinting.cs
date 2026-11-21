@@ -108,7 +108,7 @@ internal static class OrderListReport
     private const double RowHeight = 22;
     private const double FooterHeight = 22;
     private static readonly double[] ColumnShares = [.15, .13, .13, .34, .15, .10];
-    private static readonly string[] Labels = ["受注番号", "受注日", "納期", "顧客名", "受注合計金額", "受注状態"];
+    private static readonly string[] Labels = ["受注番号", "受注日", "納期", "顧客名", "受注合計金額（税込）", "受注状態"];
     private static readonly FontFamily ReportFont = new("Meiryo");
     private static readonly Brush Ink = Brushes.Black;
     private static readonly Brush Rule = Brushes.LightGray;

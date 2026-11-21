@@ -4,7 +4,7 @@ using System.Windows.Threading;
 
 namespace SalesManagement_SysDev;
 
-public enum OrderStatusTab { All, Pending, Confirmed, Hidden, History }
+public enum OrderStatusTab { All, Pending, Confirmed, Hidden, History, Draft }
 
 public sealed record OrderLineView(int ProductId, string ProductCode, string ProductName, int Quantity, decimal? UnitPrice,
     decimal? LineTotal, int? CurrentStock, bool StockLookupFailed = false, int Number = 0)

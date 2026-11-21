@@ -14,6 +14,7 @@
      <StackPanel Margin="18,14">
       <TextBlock Text="商品コード" Style="{StaticResource FormLabel}"/><TextBlock Text="{Binding ProductDetails.ProductCode}" TextWrapping="Wrap" Margin="0,0,0,10"/>
       <TextBlock Text="商品名" Style="{StaticResource FormLabel}"/><TextBlock Text="{Binding ProductDetails.ProductName}" TextWrapping="Wrap" FontWeight="SemiBold" Margin="0,0,0,10"/>
+      <TextBlock Text="メーカー" Style="{StaticResource FormLabel}"/><TextBlock Text="{Binding ProductDetails.MakerDisplayName}" TextWrapping="Wrap" Margin="0,0,0,10"/>
       <TextBlock Text="カテゴリー" Style="{StaticResource FormLabel}"/><TextBlock Text="{Binding ProductDetails.CategoryName}" TextWrapping="Wrap" Margin="0,0,0,10"/>
       <TextBlock Text="単価" Style="{StaticResource FormLabel}"/><TextBlock Text="{Binding ProductDetails.UnitPrice, StringFormat='¥{0:N0}'}" FontWeight="SemiBold"/>
      </StackPanel>

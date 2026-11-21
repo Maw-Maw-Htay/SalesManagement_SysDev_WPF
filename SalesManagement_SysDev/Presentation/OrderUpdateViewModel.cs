@@ -205,7 +205,7 @@ public sealed class OrderUpdateViewModel : ViewModelBase, IDisposable
     public void Load()
     {
         if(loaded) return; loaded=true;
-        Entry.Load();
+        Entry.Load(includeOptionStock: false);
         Entry.SelectedOffice=Entry.Offices.FirstOrDefault(office=>office.SoId==data.OfficeId);
         Entry.SelectedClient=Entry.Clients.FirstOrDefault(client=>client.ClId==data.CustomerId);
         var productIds = GetInventoryProductIds();

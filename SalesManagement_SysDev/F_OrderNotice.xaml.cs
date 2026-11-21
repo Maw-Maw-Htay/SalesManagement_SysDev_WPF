@@ -7,15 +7,24 @@ public enum OrderNoticeKind { Information, Success, Warning, Error, Confirmation
 
 public sealed partial class F_OrderNotice : Window
 {
+    private bool discardSelected;
+
     public F_OrderNotice(string title, string message, OrderNoticeKind kind, string confirmLabel = "閉じる",
         string cancelLabel = "キャンセル", bool showCancel = false)
+        : this(title, message, kind, confirmLabel, cancelLabel, showCancel, false)
+    {
+    }
+
+    private F_OrderNotice(string title, string message, OrderNoticeKind kind, string confirmLabel,
+        string cancelLabel, bool showCancel, bool allowDiscard)
     {
         InitializeComponent();
         DataContext = new OrderNoticeViewModel(title, message, kind, confirmLabel, cancelLabel, showCancel,
-            result => { if (result.HasValue) DialogResult = result; else Close(); });
+            result => { if (result.HasValue) DialogResult = result; else Close(); },
+            allowDiscard ? () => { discardSelected = true; DialogResult = false; } : null);
         MaxWidth = Math.Max(320, SystemParameters.WorkArea.Width * .9);
         MaxHeight = Math.Max(220, SystemParameters.WorkArea.Height * .85);
-        Width = Math.Min(460, MaxWidth);
+        Width = Math.Min(allowDiscard ? 520 : 460, MaxWidth);
     }
 
     public static void Show(Window? owner, string title, string message, OrderNoticeKind kind = OrderNoticeKind.Information)
@@ -32,6 +41,15 @@ public sealed partial class F_OrderNotice : Window
             confirmLabel, cancelLabel, showCancel: true);
         AttachOwner(dialog, owner);
         return dialog.ShowDialog() == true;
+    }
+
+    public static OrderDraftNavigationChoice ConfirmDraftNavigation(Window? owner)
+    {
+        var dialog = new F_OrderNotice("未保存の変更", "受注の入力内容が保存されていません。画面を移動しますか？",
+            OrderNoticeKind.Confirmation, "一時保存して移動", "入力を続ける", showCancel: true, allowDiscard: true);
+        AttachOwner(dialog, owner);
+        if (dialog.ShowDialog() == true) return OrderDraftNavigationChoice.SaveAndLeave;
+        return dialog.discardSelected ? OrderDraftNavigationChoice.DiscardAndLeave : OrderDraftNavigationChoice.ContinueEditing;
     }
 
     private static void AttachOwner(F_OrderNotice dialog, Window? owner)
@@ -53,13 +71,14 @@ public sealed partial class F_OrderNotice : Window
 public sealed class OrderNoticeViewModel
 {
     public OrderNoticeViewModel(string title, string message, OrderNoticeKind kind, string confirmLabel,
-        string cancelLabel, bool showCancel, Action<bool?> complete)
+        string cancelLabel, bool showCancel, Action<bool?> complete, Action? discard = null)
     {
         Title = title;
         Message = message;
         ConfirmLabel = confirmLabel;
         CancelLabel = cancelLabel;
         CancelVisibility = showCancel ? Visibility.Visible : Visibility.Collapsed;
+        HasDiscardAction = discard != null;
         Glyph = kind switch
         {
             OrderNoticeKind.Success => "✓",
@@ -79,6 +98,7 @@ public sealed class OrderNoticeViewModel
         ConfirmBackground = kind == OrderNoticeKind.Danger ? AppTheme.Danger : AppTheme.Primary;
         ConfirmCommand = new RelayCommand(() => complete(true));
         CancelCommand = new RelayCommand(() => { CancelWasClicked = true; complete(false); });
+        DiscardCommand = new RelayCommand(() => discard?.Invoke(), () => HasDiscardAction);
         CloseCommand = new RelayCommand(() => complete(null));
     }
 
@@ -88,10 +108,13 @@ public sealed class OrderNoticeViewModel
     public string ConfirmLabel { get; }
     public string CancelLabel { get; }
     public Visibility CancelVisibility { get; }
+    public bool HasDiscardAction { get; }
+    public bool ConfirmIsDefault => !HasDiscardAction;
     public Brush AccentBrush { get; }
     public Brush ConfirmBackground { get; }
     public RelayCommand ConfirmCommand { get; }
     public RelayCommand CancelCommand { get; }
+    public RelayCommand DiscardCommand { get; }
     public RelayCommand CloseCommand { get; }
     public bool CancelWasClicked { get; private set; }
 }

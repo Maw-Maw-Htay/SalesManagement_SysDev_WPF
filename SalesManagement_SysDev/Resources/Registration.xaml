@@ -2,6 +2,7 @@
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                     xmlns:local="clr-namespace:SalesManagement_SysDev">
     <local:RegistrationBelowBreakpointConverter x:Key="RegistrationBelowBreakpoint" />
+    <SolidColorBrush x:Key="RegistrationMissingStockText" Color="#B45309" />
     <Style x:Key="RegistrationCard" TargetType="Border" BasedOn="{StaticResource ThemeCard}">
         <Setter Property="Padding" Value="16" /><Setter Property="Margin" Value="0,0,0,12" />
         <Style.Triggers>
@@ -56,6 +57,19 @@
             <DataTrigger Binding="{Binding Text}" Value=""><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
             <DataTrigger Binding="{Binding Tone}" Value="Warning"><Setter Property="Foreground" Value="{StaticResource ThemeWarningText}" /></DataTrigger>
             <DataTrigger Binding="{Binding Tone}" Value="Danger"><Setter Property="Foreground" Value="{StaticResource ThemeDangerText}" /></DataTrigger>
+        </Style.Triggers>
+    </Style>
+    <Style x:Key="RegistrationRowStockHint" TargetType="TextBlock" BasedOn="{StaticResource OrderStockHint}">
+        <Setter Property="Margin" Value="0" />
+        <Setter Property="TextWrapping" Value="Wrap" />
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding IsMissingRecord}" Value="True">
+                <Setter Property="Foreground" Value="{StaticResource RegistrationMissingStockText}" />
+                <Setter Property="FontSize" Value="12" />
+                <Setter Property="FontWeight" Value="{StaticResource TypographySemiBold}" />
+                <Setter Property="LineHeight" Value="17" />
+                <Setter Property="TextTrimming" Value="None" />
+            </DataTrigger>
         </Style.Triggers>
     </Style>
     <Style x:Key="RegistrationSummaryRow" TargetType="RowDefinition">

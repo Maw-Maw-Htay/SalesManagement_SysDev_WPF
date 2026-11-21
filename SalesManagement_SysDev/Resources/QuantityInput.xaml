@@ -64,9 +64,10 @@
     <Style x:Key="QuantityStepButton" TargetType="Button">
         <Setter Property="MinWidth" Value="0" /><Setter Property="MinHeight" Value="0" /><Setter Property="Padding" Value="0" />
         <Setter Property="Background" Value="{StaticResource ThemeCanvas}" /><Setter Property="Foreground" Value="{StaticResource ThemePrimary}" />
+        <Setter Property="BorderThickness" Value="1,0,0,0" />
         <Setter Property="FontSize" Value="12" /><Setter Property="Focusable" Value="False" />
         <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
-            <Border x:Name="surface" Background="{TemplateBinding Background}" BorderBrush="{StaticResource ThemeBorder}" BorderThickness="1,0,0,0">
+            <Border x:Name="surface" Background="{TemplateBinding Background}" BorderBrush="{StaticResource ThemeBorder}" BorderThickness="{TemplateBinding BorderThickness}">
                 <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
             </Border>
             <ControlTemplate.Triggers>
@@ -99,5 +100,36 @@
                 <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.5" /></Trigger>
             </ControlTemplate.Triggers>
         </ControlTemplate></Setter.Value></Setter>
+    </Style>
+    <Style x:Key="HorizontalQuantityUpDown" TargetType="local:QuantityUpDown" BasedOn="{StaticResource QuantityUpDown}">
+        <Setter Property="Width" Value="134" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="local:QuantityUpDown">
+                    <Border x:Name="quantityBorder" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1"
+                            CornerRadius="4" Background="{TemplateBinding Background}" ClipToBounds="True">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="26" /><ColumnDefinition Width="*" /><ColumnDefinition Width="26" />
+                            </Grid.ColumnDefinitions>
+                            <Button x:Name="PART_Decrease" Content="−" Style="{StaticResource QuantityStepButton}"
+                                    BorderThickness="0,0,1,0" AutomationProperties.Name="数量を1減らす" />
+                            <TextBox x:Name="PART_Input" Grid.Column="1"
+                                     Text="{Binding Text, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                     Height="Auto" MinHeight="0" MaxLength="10" Margin="0" Padding="2,0" BorderThickness="0" Background="Transparent"
+                                     VerticalContentAlignment="Center" TextAlignment="Center" InputMethod.IsInputMethodEnabled="False"
+                                     AutomationProperties.Name="{Binding (AutomationProperties.Name), RelativeSource={RelativeSource TemplatedParent}}" />
+                            <Button x:Name="PART_Increase" Grid.Column="2" Content="＋" Style="{StaticResource QuantityStepButton}"
+                                    AutomationProperties.Name="数量を1増やす" />
+                        </Grid>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsKeyboardFocusWithin" Value="True"><Setter TargetName="quantityBorder" Property="BorderBrush" Value="{StaticResource ThemeAccent}" /></Trigger>
+                        <Trigger Property="Validation.HasError" Value="True"><Setter TargetName="quantityBorder" Property="BorderBrush" Value="{StaticResource ThemeDanger}" /></Trigger>
+                        <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.5" /></Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
     </Style>
 </ResourceDictionary>

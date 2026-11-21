@@ -64,9 +64,6 @@ public sealed partial class F_OrderManagement
         historyOperationFilter.SelectionChanged += FilterSelectionChanged;
         historySearch.TextChanged += SearchTextChanged;
         historySearch.KeyDown += SearchKeyDown;
-        historyGrid.ColumnHeaderStyle = grid.ColumnHeaderStyle;
-        historyGrid.CellStyle = grid.CellStyle;
-        historyGrid.RowStyle = grid.RowStyle;
         historyGrid.FontSize = AppTypography.Body.Size;
         historyGrid.FontWeight = AppTypography.Body.Weight;
         historyGrid.ColumnHeaderHeight = 40;
@@ -169,20 +166,20 @@ public sealed partial class F_OrderManagement
     {
         grid.Visibility = isHistoryView ? Visibility.Collapsed : Visibility.Visible;
         historyPanel.Visibility = isHistoryView ? Visibility.Visible : Visibility.Collapsed;
-        orderEmptyState.Visibility = !isHistoryView && grid.Items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        orderEmptyState.Visibility = !isHistoryView && viewModel.Rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        orderPagination.Visibility = isHistoryView ? Visibility.Collapsed : Visibility.Visible;
         deliveryDateField.Visibility = isHistoryView ? Visibility.Collapsed : Visibility.Visible;
         employeeFilterLabel.Text = isHistoryView ? "実行担当者" : "担当者";
         pendingBadge.Visibility = isHistoryView ? Visibility.Collapsed : Visibility.Visible;
         confirmedBadge.Visibility = isHistoryView ? Visibility.Collapsed : Visibility.Visible;
+        draftsBadge.Visibility = isHistoryView ? Visibility.Collapsed : Visibility.Visible;
         hiddenBadge.Visibility = isHistoryView ? Visibility.Collapsed : Visibility.Visible;
         allBadge.Visibility = isHistoryView ? Visibility.Collapsed : Visibility.Visible;
         selectionCount.Visibility = isHistoryView ? Visibility.Collapsed : Visibility.Visible;
-        orderActions.Visibility = isHistoryView ? Visibility.Collapsed : Visibility.Visible;
+        listActions.Visibility = isHistoryView ? Visibility.Collapsed : Visibility.Visible;
         resultCount.Visibility = isHistoryView ? Visibility.Collapsed : Visibility.Visible;
         dateRangeLabel.Text = isHistoryView ? "操作期間（履歴日時）" : "受注期間（受注日）";
-        listInteractionHint.Text = isHistoryView ? "行をダブルクリックで履歴詳細、受注番号で受注詳細を表示" : "行をダブルクリックすると詳細を表示";
         ReflowFilterFields(filterDetails.ActualWidth);
-        UpdateSelectionSummary();
     }
 
     private void HistoryRowDoubleClick(object sender, MouseButtonEventArgs e)
@@ -210,7 +207,7 @@ public sealed partial class F_OrderManagement
     {
         try
         {
-            var snapshot = LoadOrderDetailSnapshot(new OrderListRow { 受注番号 = row.Entry.OrderId });
+            var snapshot = LoadOrderDetailSnapshot(row.Entry.OrderId);
             if (snapshot == null)
             {
                 F_OrderNotice.Show(NavigationOwner ?? this, "受注詳細", "受注が削除されているか、現在の営業所では参照できません。操作時の記録は履歴詳細で確認できます。", OrderNoticeKind.Information);

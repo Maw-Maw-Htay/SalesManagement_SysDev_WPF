@@ -37,7 +37,8 @@
                 <Grid>
                     <ListBox x:Name="SuggestionList" ItemsSource="{Binding ItemsSource, ElementName=LookupRoot}"
                              ItemTemplate="{Binding SuggestionTemplate, ElementName=LookupRoot}" MaxHeight="220" BorderThickness="0"
-                             ScrollViewer.HorizontalScrollBarVisibility="Disabled" HorizontalContentAlignment="Stretch"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.CanContentScroll="True" HorizontalContentAlignment="Stretch"
+                             VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
                              PreviewMouseLeftButtonUp="SuggestionClicked" PreviewKeyDown="SuggestionKeyDown" IsTextSearchEnabled="False" />
                     <TextBlock Text="一致する登録済みデータがありません" Foreground="{StaticResource ThemeSecondaryText}" FontSize="12" Margin="8,12" TextWrapping="Wrap">
                         <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Visibility" Value="Collapsed" /><Style.Triggers><DataTrigger Binding="{Binding HasItems, ElementName=SuggestionList}" Value="False"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers></Style></TextBlock.Style>
