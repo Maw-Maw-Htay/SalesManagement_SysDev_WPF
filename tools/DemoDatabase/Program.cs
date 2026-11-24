@@ -29,8 +29,9 @@ internal static class Program
             if (mode == "seed")
             {
                 PurchaseSchemaInitializer.EnsureReady(db);
-                var updated = seeder.FillLegacyPurchaseOffices();
-                if (updated > 0) Console.WriteLine($"Assigned offices to {updated} existing demo purchase orders.");
+                var (offices, receiptDates) = seeder.PrepareExistingPurchases();
+                if (offices > 0) Console.WriteLine($"Assigned offices to {offices} existing demo purchase orders.");
+                if (receiptDates > 0) Console.WriteLine($"Corrected the dates of {receiptDates} confirmed demo receipts without changing stock.");
             }
 
             if (mode == "seed" && ready == null)
@@ -50,7 +51,7 @@ internal static class Program
             if (mode == "smoke") DemoUiChecks.Run(credentials[DemoData.Admin]);
             else
             {
-                if (mode == "seed") Console.WriteLine("The completed fixture exists. Verifying it after the purchase-office compatibility check.");
+                if (mode == "seed") Console.WriteLine("The completed fixture exists. Verifying it after the purchase and receipt compatibility check.");
                 DemoVerification.Verify(db, anchor, credentials).Write(GetOption(args, "--report-dir"));
             }
             return 0;

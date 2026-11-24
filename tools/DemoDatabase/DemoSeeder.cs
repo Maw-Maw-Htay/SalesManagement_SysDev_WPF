@@ -11,36 +11,100 @@ internal sealed class DemoSeeder(SalesManagementContext db, DateTime anchor, IRe
     private static readonly TimeSpan JapanOffset = TimeSpan.FromHours(9);
     private DemoKeys keys = null!;
 
-    internal int FillLegacyPurchaseOffices()
+    internal (int Offices, int ReceiptDates) PrepareExistingPurchases()
     {
-        if (!db.THattyus.Any(x => x.RegisteredOfficeId == null)) return 0;
-
         using var transaction = db.Database.BeginTransaction(IsolationLevel.Serializable);
+        var purchases = db.THattyus.Include(x => x.THattyuDetails).ToList();
+        if (purchases.Count == 0) return (0, 0);
+
         var demoKeys = DemoKeys.Read(db);
         Require(EmployeePasswordHasher.Verify(credentials[DemoData.Admin], demoKeys.Employees[DemoData.Admin].EmPasswordHash),
             "The encrypted demo administrator credential does not match the database.");
-
-        var updated = 0;
+        var receiptsByPurchase = db.TWarehousings.Include(x => x.TWarehousingDetails).ToLookup(x => x.HaId);
+        var matchedPurchases = new HashSet<int>();
+        var offices = 0;
+        var receiptDates = 0;
         foreach (var plan in DemoData.Purchases(anchor))
         {
             var maker = demoKeys.Makers[plan.Supplier];
             var employee = DemoData.Logistics(plan.Office);
-            var purchase = db.THattyus.Include(x => x.THattyuDetails).SingleOrDefault(x =>
-                x.MaId == maker && x.HaDate == plan.Date && x.EmId == employee);
-            if (purchase == null || purchase.RegisteredOfficeId.HasValue) continue;
+            var purchase = purchases.SingleOrDefault(x => x.MaId == maker && x.HaDate == plan.Date && x.EmId == employee);
+            if (purchase == null) continue;
+            matchedPurchases.Add(purchase.HaId);
 
             var expected = plan.Lines.Select(x => (demoKeys.Products[x.Product].PrId, x.Quantity)).OrderBy(x => x.PrId);
             var actual = purchase.THattyuDetails.Select(x => (x.PrId, x.HaQuantity)).OrderBy(x => x.PrId);
-            Require(actual.SequenceEqual(expected),
-                $"Purchase {purchase.HaId} does not match the demo plan. Its office was not assigned.");
-            purchase.RegisteredOfficeId = demoKeys.Offices[plan.Office];
-            updated++;
+            Require(purchase.HaFlag == 0 && actual.SequenceEqual(expected),
+                $"Purchase {purchase.HaId} does not match the demo plan. Seeding was stopped.");
+            var office = demoKeys.Offices[plan.Office];
+            Require(purchase.RegisteredOfficeId == null || purchase.RegisteredOfficeId == office,
+                $"Purchase {purchase.HaId} already has a different office. Review the demo data before running seed again.");
+            if (purchase.RegisteredOfficeId == null)
+            {
+                purchase.RegisteredOfficeId = office;
+                offices++;
+            }
+
+            var plannedReceipts = plan.Receipts.Select(x => x with
+            {
+                Lines = x.Lines.Select(line => (demoKeys.Products[line.Product].PrId, line.Quantity)).ToArray()
+            }).ToArray();
+            foreach (var (receipt, date) in MatchLegacyReceiptDates(purchase.HaId, employee, receiptsByPurchase[purchase.HaId], plannedReceipts))
+            {
+                receipt.WaDate = date;
+                receiptDates++;
+            }
         }
 
+        Require(matchedPurchases.Count == purchases.Count,
+            "Existing purchases outside the demo plan were found. Seeding was stopped.");
         db.SaveChanges();
         transaction.Commit();
         db.ChangeTracker.Clear();
-        return updated;
+        return (offices, receiptDates);
+    }
+
+    internal static IReadOnlyList<(TWarehousing Receipt, DateTime Date)> MatchLegacyReceiptDates(
+        int purchaseId, int employee, IEnumerable<TWarehousing> receipts, IReadOnlyList<ReceiptSeed> planned)
+    {
+        var plansByDate = planned.ToDictionary(x => x.Date);
+        var unmatchedDates = new HashSet<DateTime>(plansByDate.Keys);
+        var legacy = new List<TWarehousing>();
+        var corrections = new List<(TWarehousing, DateTime)>();
+
+        // Reserve exact dates before matching rows whose dates were overwritten by older versions.
+        foreach (var receipt in receipts)
+        {
+            Require(receipt.EmId == employee && receipt.WaFlag == 0 && receipt.WaShelfFlag is 0 or 1,
+                $"Receipt {receipt.WaId} has an unexpected employee or state. Seeding was stopped.");
+            if (receipt.WaDate is DateTime date && plansByDate.TryGetValue(date, out var plan))
+            {
+                Require(unmatchedDates.Remove(date) && LinesMatch(receipt, plan)
+                    && (receipt.WaShelfFlag == 0 || plan.Confirmed),
+                    $"Receipt {receipt.WaId} does not match its planned date and details. Seeding was stopped.");
+            }
+            else
+            {
+                legacy.Add(receipt);
+            }
+        }
+
+        foreach (var receipt in legacy)
+        {
+            Require(receipt.WaShelfFlag == 1 && receipt.WaDate.HasValue,
+                $"Receipt {receipt.WaId} has an unexpected date and is not a dated confirmed receipt. Seeding was stopped.");
+            var matches = planned.Where(plan => plan.Confirmed && unmatchedDates.Contains(plan.Date) && LinesMatch(receipt, plan))
+                .ToArray();
+            Require(matches.Length == 1,
+                $"Receipt {receipt.WaId} for purchase {purchaseId} cannot be matched uniquely. Seeding was stopped before updating stock.");
+            unmatchedDates.Remove(matches[0].Date);
+            corrections.Add((receipt, matches[0].Date));
+        }
+        return corrections;
+
+        static bool LinesMatch(TWarehousing receipt, ReceiptSeed plan) =>
+            receipt.TWarehousingDetails.Select(line => (line.PrId, line.WaQuantity)).OrderBy(line => line.PrId)
+                .SequenceEqual(plan.Lines.OrderBy(line => line.Product));
     }
 
     internal void Seed()
