@@ -104,10 +104,17 @@ public sealed class LoginViewModel : ViewModelBase
                 {
                     db.Database.OpenConnection();
                     using var probe = db.Database.GetDbConnection().CreateCommand();
-                    probe.CommandText = "SELECT COL_LENGTH(N'dbo.M_Employee', N'EmPasswordHash')";
-                    if (probe.ExecuteScalar() is DBNull)
-                        EmployeeSchemaInitializer.EnsureReady(db);
-                    OrderSchemaInitializer.EnsureReady(db);
+                    probe.CommandText = """
+                        SELECT
+                            CASE WHEN COL_LENGTH(N'dbo.M_Employee', N'EmPasswordHash') IS NULL
+                                OR OBJECT_ID(N'dbo.T_EmployeeAssignmentHistory', N'U') IS NULL THEN 1 ELSE 0 END
+                          + CASE WHEN COL_LENGTH(N'dbo.T_Order', N'OrDeliveryDate') IS NULL THEN 2 ELSE 0 END
+                          + CASE WHEN OBJECT_ID(N'dbo.T_OrderOperationHistory', N'U') IS NULL THEN 4 ELSE 0 END;
+                        """;
+                    var missing = (int)probe.ExecuteScalar()!;
+                    if ((missing & 1) != 0) EmployeeSchemaInitializer.EnsureReady(db);
+                    if ((missing & 2) != 0) OrderSchemaInitializer.EnsureReady(db);
+                    if ((missing & 4) != 0) OrderHistoryService.EnsureReady(db);
                 }
                 return true;
             }

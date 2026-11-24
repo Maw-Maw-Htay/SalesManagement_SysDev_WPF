@@ -60,6 +60,15 @@ public static class ShipmentOperationRules
             ? null : "未確定の出荷は非表示にできません。出荷確定の処理を続けてください.";
     }
 
+    // New sales use the saved order amount. Legacy sales keep their recorded amounts on reuse.
+    public static TSaleDetail CreateSaleDetail(TSale sale, TOrderDetail orderLine) => new()
+    {
+        Sa = sale,
+        PrId = orderLine.PrId,
+        SaQuantity = orderLine.OrQuantity,
+        SaPrTotalPrice = orderLine.OrTotalPrice
+    };
+
     public static string? ValidateLines(IReadOnlyCollection<ShipmentQuantityInput> lines) =>
         lines.Count == 0 || lines.Any(x => x.ProductId <= 0 || x.Quantity <= 0)
             ? "有効な商品と1以上の数量を持つ出荷明細が必要です。" : null;
@@ -291,16 +300,7 @@ public static class ShipmentService
                 if (orderLines.Any(x => x.OrTotalPrice < 0) || !ShipmentOperationRules.LinesMatch(storedLines, quantities))
                     return Denied("受注明細の金額または数量が出荷内容と一致しません。受注を確認してください。");
 
-                foreach (var line in orderLines)
-                {
-                    db.TSaleDetails.Add(new TSaleDetail
-                    {
-                        Sa = sale,
-                        PrId = line.PrId,
-                        SaQuantity = line.OrQuantity,
-                        SaPrTotalPrice = line.OrTotalPrice
-                    });
-                }
+                db.TSaleDetails.AddRange(orderLines.Select(line => ShipmentOperationRules.CreateSaleDetail(sale, line)));
                 db.TSales.Add(sale);
             }
             db.SaveChanges();

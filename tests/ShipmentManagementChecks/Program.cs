@@ -10,6 +10,15 @@ internal static class Program
             CheckRecordFormattingAndFilters();
             CheckStateTransitionsAndQuantities();
             CheckSalesAndArrivalGuards();
+            var product = new MProduct { PrId = 2, Price = 1200m };
+            var orderLine = new TOrderDetail { Pr = product, PrId = 2, OrQuantity = 2, OrTotalPrice = 2000m };
+            var detail = ShipmentOperationRules.CreateSaleDetail(new TSale(), orderLine);
+            Check(detail.PrId == 2 && detail.SaQuantity == 2 && detail.SaPrTotalPrice == 2000m,
+                "new sale uses the order amount after a catalogue price change");
+            var legacy = new TSaleDetail { PrId = 2, SaQuantity = 2, SaPrTotalPrice = 2400m };
+            Check(legacy.SaPrTotalPrice != detail.SaPrTotalPrice &&
+                ShipmentOperationRules.ValidateExistingSale(true, [new(2, 2)], [new(legacy.PrId, legacy.SaQuantity)]) == null,
+                "legacy sale with matching quantities can be reused despite a different recorded amount");
             CheckPermissionsAndHideReason();
             Console.WriteLine($"PASS: {checks} shipment-management checks.");
             return 0;

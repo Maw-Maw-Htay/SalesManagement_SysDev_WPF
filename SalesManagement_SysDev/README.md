@@ -102,19 +102,19 @@
 
 | 画面 | XAML | 表示・入力状態 |
 |---|---|---|
-| ログイン | [F_login.xaml](F_login.xaml) | `Presentation/LoginViewModel.cs` |
-| ホーム | [HomeView.xaml](HomeView.xaml) | `Presentation/HomeViewModel.cs` |
-| 受注管理 | [F_OrderManagement.xaml](F_OrderManagement.xaml) | `OrderManagementViewModel.cs` |
-| 受注登録 | [F_OrderRegistration.xaml](F_OrderRegistration.xaml) | `Presentation/OrderRegistrationViewModel.cs` |
-| 受注詳細 | [F_OrderDetail.xaml](F_OrderDetail.xaml) | `OrderDetailViewModel.cs` |
-| 受注更新 | [F_OrderUpdate.xaml](F_OrderUpdate.xaml) | `Presentation/OrderUpdateViewModel.cs` |
-| 受注非表示 | [F_OrderHide.xaml](F_OrderHide.xaml) | `Presentation/OrderHideViewModel.cs` |
-| 注文管理 | [OrderManagementView.xaml](OrderManagementView.xaml) | `ChumonManagementViewModel.cs`, `BusinessService.ConfirmChumon` / `HideChumon` |
-| 顧客管理 | [CustomerManagementView.xaml](CustomerManagementView.xaml) | `Presentation/CustomerManagementViewModel.cs`, `CustomerService.cs` |
-| 商品管理 | [ProductManagementView.xaml](ProductManagementView.xaml) | `Presentation/ProductManagementViewModel.cs`, `ProductService.cs` |
-| 在庫管理 | [InventoryManagementView.xaml](InventoryManagementView.xaml) | `Presentation/InventoryManagementViewModel.cs`, `InventoryService.cs` |
-| 入庫管理・出庫管理 | [WarehouseMovementManagementView.xaml](WarehouseMovementManagementView.xaml) | `Presentation/WarehouseMovementViewModel.cs`, `WarehouseMovementService.cs` |
-| その他の既存一覧 | [ManagementListView.xaml](ManagementListView.xaml) | `Presentation/ManagementListViewModel.cs` |
+| ログイン | [F_login.xaml](Views/Authentication/F_login.xaml) | `ViewModels/Authentication/LoginViewModel.cs` |
+| ホーム | [HomeView.xaml](Views/Shell/HomeView.xaml) | `ViewModels/Shell/HomeViewModel.cs` |
+| 受注管理 | [F_OrderManagement.xaml](Views/Orders/F_OrderManagement.xaml) | `OrderManagementViewModel.cs` |
+| 受注登録 | [F_OrderRegistration.xaml](Views/Orders/F_OrderRegistration.xaml) | `ViewModels/Orders/OrderRegistrationViewModel.cs` |
+| 受注詳細 | [F_OrderDetail.xaml](Views/Orders/F_OrderDetail.xaml) | `ViewModels/Orders/OrderDetailViewModel.cs` |
+| 受注更新 | [F_OrderUpdate.xaml](Views/Orders/F_OrderUpdate.xaml) | `ViewModels/Orders/OrderUpdateViewModel.cs` |
+| 受注非表示 | [F_OrderHide.xaml](Views/Orders/F_OrderHide.xaml) | `ViewModels/Orders/OrderHideViewModel.cs` |
+| 注文管理 | [OrderManagementView.xaml](Views/OrderFulfillment/OrderManagementView.xaml) | `ViewModels/OrderFulfillment/ChumonManagementViewModel.cs`, `BusinessService.ConfirmChumon` / `HideChumon` |
+| 顧客管理 | [CustomerManagementView.xaml](Views/Customers/CustomerManagementView.xaml) | `ViewModels/Customers/CustomerManagementViewModel.cs`, `Services/Customers/CustomerService.cs` |
+| 商品管理 | [ProductManagementView.xaml](Views/Products/ProductManagementView.xaml) | `ViewModels/Products/ProductManagementViewModel.cs`, `Services/Products/ProductService.cs` |
+| 在庫管理 | [InventoryManagementView.xaml](Views/Inventory/InventoryManagementView.xaml) | `ViewModels/Inventory/InventoryManagementViewModel.cs`, `Services/Inventory/InventoryService.cs` |
+| 入庫管理・出庫管理 | [WarehouseMovementManagementView.xaml](Views/Warehouse/WarehouseMovementManagementView.xaml) | `ViewModels/Warehouse/WarehouseMovementViewModel.cs`, `Services/Warehouse/WarehouseMovementService.cs` |
+| その他の既存一覧 | [ManagementListView.xaml](Views/Shared/ManagementListView.xaml) | `ViewModels/Shared/ManagementListViewModel.cs` |
 
 注文管理では、常時表示の検索欄から注文番号・顧客ID・顧客名で一覧を絞り込み、テキスト入力は短い待ち時間の後に反映します。「詳細条件」では注文番号、顧客名、注文日と納期の範囲、受付営業所、注文状態、管理状態を組み合わせて指定できます。受付営業所の候補は閲覧できる注文に基づきます。開始日が終了日より後の場合はメッセージを表示し、「条件クリア」で選択中のタブを保ったまま検索条件を解除します。注文に実行担当者が一貫して記録されていないため、その項目での絞り込みはありません。
 
@@ -140,7 +140,7 @@
 
 `PasswordBox` の入力同期、フォーカス、スクロール、ウィンドウ操作はコードビハインドで扱います。業務サービス・EFエンティティ・スキーマ初期化処理は既存のものを使用します。
 
-受注登録は [Resources/Registration.xaml](Resources/Registration.xaml) に局所スタイル、[RegistrationLookup.xaml](RegistrationLookup.xaml) に候補表示とキーボード操作を定義しています。`OrderRegistrationDataSource` は既存のマスタ取得と `BusinessService.CreateOrder` への接続だけを担当します。税額は既存の `OrderDetailViewModel` を確認用モデルとして再利用し、登録画面に税率定数を追加していません。
+受注登録は [Resources/Registration.xaml](Resources/Registration.xaml) に局所スタイル、[RegistrationLookup.xaml](Views/Shared/RegistrationLookup.xaml) に候補表示とキーボード操作を定義しています。`OrderRegistrationDataSource` は既存のマスタ取得と `BusinessService.CreateOrder` への接続だけを担当します。税額は既存の `OrderDetailViewModel` を確認用モデルとして再利用し、登録画面に税率定数を追加していません。
 
 受注更新の検証はリポジトリ直下から `dotnet run --project tests/OrderUpdateChecks -p:UseAppHost=false` で実行できます。入力・保存状態、WPFバインディング、4解像度×3拡大率に相当する作業領域のレイアウトを検証し、`build_verify/order-update-preview` に画像を出力します。DB検証は `SalesManagement_OrderUpdateChecks_` にランダムIDを付けた専用LocalDBデータベースを作成し、保存・監査・競合・ロール・ロールバックを確認後に削除します。既存の `SalesManagement` のデータは変更しません。実ディスプレイのDPI切替を行う試験とは別です。
 
