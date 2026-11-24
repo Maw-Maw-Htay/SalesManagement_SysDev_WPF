@@ -201,12 +201,10 @@ public sealed class ShipmentDetailViewModel
     public IReadOnlyList<ShipmentLineRecord> Lines { get; }
     public bool CanConfirm => ShipmentService.CanConfirm && Shipment.IsUnconfirmed
         && Shipment.ManagementFlag == ShipmentService.ActiveFlag;
-    public bool CanHide => ShipmentService.CanHide && Shipment.IsConfirmed
+    public bool CanHide => ShipmentService.CanHide && (Shipment.IsConfirmed || Shipment.IsUnconfirmed)
         && Shipment.ManagementFlag == ShipmentService.ActiveFlag;
     public bool ShowHideAction => ShipmentService.CanHide && Shipment.ManagementFlag == ShipmentService.ActiveFlag;
-    public string HideUnavailableReason => Shipment.IsConfirmed ? "" : Shipment.IsUnconfirmed
-        ? "未確定の出荷は非表示にできません。出荷確定の後に実行できます。"
-        : "出荷状況を確認できないため非表示にできません。";
+    public string HideUnavailableReason => Shipment.IsConfirmed || Shipment.IsUnconfirmed ? "" : "業務状態を確認してください。";
     public bool HasHiddenReason => Shipment.ManagementFlag == ShipmentService.HiddenFlag
         && !string.IsNullOrWhiteSpace(Shipment.HiddenReason);
     public string QuantityText => Shipment.Quantity.ToString("N0");

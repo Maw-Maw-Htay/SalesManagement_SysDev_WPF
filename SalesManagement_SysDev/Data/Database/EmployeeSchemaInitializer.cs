@@ -42,15 +42,6 @@ public static class EmployeeSchemaInitializer
             END
             """);
 
-        // Upgrade existing plaintext credentials once. EmPassword is a required legacy column
-        // capped at 10 characters, so replace it with a random non-authenticating placeholder.
-        var legacyEmployees = db.MEmployees.Where(x => x.EmPasswordHash == null).ToList();
-        foreach (var employee in legacyEmployees)
-        {
-            employee.EmPasswordHash = EmployeePasswordHasher.Hash(employee.EmPassword);
-            employee.EmPassword = EmployeePasswordHasher.CreateLegacyPlaceholder();
-        }
-        if (legacyEmployees.Count > 0) db.SaveChanges();
         transaction.Commit();
     }
 }

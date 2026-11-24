@@ -177,6 +177,24 @@ public partial class PurchaseOrderManagementView : UserControl
 
     private void Csv_Click(object sender, RoutedEventArgs e) => PurchaseOrderCsv.Save(Window.GetWindow(this), viewModel.ExportRows);
 
+    private async void ConfirmSelected_Click(object sender, RoutedEventArgs e)
+    {
+        if (isOpeningDetail || !viewModel.CanHide || viewModel.SelectedRow is not { } row
+            || AppSession.Employee is not { } actor) return;
+        var owner = Window.GetWindow(this);
+        if (!F_OrderNotice.Confirm(owner, "発注確定", "選択した発注を確定し、入庫情報を作成しますか？", "確定する"))
+            return;
+        isOpeningDetail = true;
+        try
+        {
+            var result = await Task.Run(() => PurchaseOrderService.Confirm(row.Data.Id, actor.EmId));
+            if (result.Succeeded) await viewModel.LoadAsync();
+            F_OrderNotice.Show(owner, "発注確定", result.Message,
+                result.Succeeded ? OrderNoticeKind.Success : OrderNoticeKind.Error);
+        }
+        finally { isOpeningDetail = false; }
+    }
+
     private async void HideSelected_Click(object sender, RoutedEventArgs e)
     {
         if (viewModel.SelectedRow is not { } row || !PurchaseOrderService.CanHide) return;

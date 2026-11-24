@@ -11,7 +11,6 @@ public sealed partial class BusinessService
         var employee = db.MEmployees.Include(x => x.Po).Include(x => x.So)
             .FirstOrDefault(x => x.EmId == id && x.EmFlag == 0 && x.Po.PoFlag == 0);
         if (employee == null || !VerifyEmployeePassword(employee, password)) return null;
-        db.SaveChanges();
         // The session never needs credential material.
         employee.EmPassword = EmployeePasswordHasher.CreateLegacyPlaceholder();
         employee.EmPasswordHash = null;
@@ -31,8 +30,8 @@ public sealed partial class BusinessService
         var employee = db.MEmployees.FirstOrDefault(x => x.EmId == id && x.EmFlag == 0);
         if (employee == null || !VerifyEmployeePassword(employee, oldPassword))
         { message = "現在のパスワードが正しくありません。"; return false; }
-        employee.EmPasswordHash = EmployeePasswordHasher.Hash(newPassword);
-        employee.EmPassword = EmployeePasswordHasher.CreateLegacyPlaceholder();
+        employee.EmPassword = newPassword;
+        employee.EmPasswordHash = null;
         db.SaveChanges();
         if (AppSession.Employee?.EmId == id)
         {
@@ -47,10 +46,7 @@ public sealed partial class BusinessService
     {
         if (!string.IsNullOrWhiteSpace(employee.EmPasswordHash))
             return EmployeePasswordHasher.Verify(password, employee.EmPasswordHash);
-        if (!EmployeePasswordHasher.VerifyLegacy(password, employee.EmPassword)) return false;
-        employee.EmPasswordHash = EmployeePasswordHasher.Hash(password);
-        employee.EmPassword = EmployeePasswordHasher.CreateLegacyPlaceholder();
-        return true;
+        return EmployeePasswordHasher.VerifyLegacy(password, employee.EmPassword);
     }
 
     public static void EnsureStock(MProduct product, SalesManagementContext db)
@@ -295,6 +291,7 @@ public sealed partial class BusinessService
             foreach (var (productId, quantity) in quantities)
                 db.TSyukkoDetails.Add(new TSyukkoDetail { SyId = outbound.SyId, PrId = productId, SyQuantity = quantity });
             order.ChStateFlag = 1;
+            order.EmId = employeeId;
             db.SaveChanges();
             tx.Commit();
             syukkoId = outbound.SyId;

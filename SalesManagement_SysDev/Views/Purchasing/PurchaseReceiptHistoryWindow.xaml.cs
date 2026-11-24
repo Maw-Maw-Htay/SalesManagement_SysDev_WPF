@@ -53,7 +53,7 @@ public partial class PurchaseReceiptHistoryWindow : Window
         }
         var term = Search.Text.Trim();
         var matches = receipts.Where(x =>
-            (!start.HasValue || x.Date.Date >= start) && (!end.HasValue || x.Date.Date <= end)
+            (!start.HasValue || x.Date?.Date >= start) && (!end.HasValue || x.Date?.Date <= end)
             && (x.OrderCode.Contains(term, StringComparison.OrdinalIgnoreCase) || x.Code.Contains(term, StringComparison.OrdinalIgnoreCase)
                 || x.MakerName.Contains(term, StringComparison.CurrentCultureIgnoreCase))).ToArray();
         ReceiptsGrid.ItemsSource = matches;

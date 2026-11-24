@@ -89,10 +89,11 @@ public static class EmployeeService
         return new(employee, assignments);
     }
 
-    public static EmployeeOperationResult Create(int actorId, string name, string phone,
+    public static EmployeeOperationResult Create(int actorId, int employeeId, string name, string phone,
         int officeId, int positionId, string initialPassword)
     {
         if (!CanManageActor(actorId)) return Denied();
+        if (employeeId is < 1 or > 999999) return new(false, "社員IDは1～6桁の数字で入力してください。");
         var invalid = Validate(name, phone, initialPassword);
         if (invalid != null) return new(false, invalid);
         using var db = new SalesManagementContext();
@@ -102,14 +103,13 @@ public static class EmployeeService
             EnsureCurrentAdmin(db, actorId);
             if (!TryResolveAssignment(db, officeId, positionId, out var office, out var position))
                 return new(false, "有効な営業所と役割を選択してください。");
-            var maxId = db.MEmployees.Select(x => (int?)x.EmId).Max() ?? 0;
-            if (maxId == int.MaxValue) return new(false, "社員番号を採番できません。管理者へお問い合わせください。");
+            if (db.MEmployees.Any(x => x.EmId == employeeId))
+                return new(false, "この社員IDはすでに使われています。");
             var employee = new MEmployee
             {
-                EmId = maxId + 1, EmName = name.Trim(), EmPhone = phone.Trim(), SoId = officeId, PoId = positionId,
+                EmId = employeeId, EmName = name.Trim(), EmPhone = phone.Trim(), SoId = officeId, PoId = positionId,
                 EmHiredate = DateTime.Today, EmFlag = ActiveFlag, EmHidden = null,
-                EmPassword = EmployeePasswordHasher.CreateLegacyPlaceholder(),
-                EmPasswordHash = EmployeePasswordHasher.Hash(initialPassword)
+                EmPassword = initialPassword
             };
             db.MEmployees.Add(employee);
             db.SaveChanges();

@@ -118,7 +118,7 @@ public static class DatabaseInitializer
             for (var i = 1; i <= 150; i++)
             {
                 var id = 2000 + i;
-                if (!db.MEmployees.Any(x => x.EmId == id)) db.MEmployees.Add(new MEmployee { EmId = id, EmName = $"サンプル社員{i:000}", SoId = offices[(i - 1) % offices.Count].SoId, PoId = positions[(i - 1) % positions.Count].PoId, EmHiredate = DateTime.Today.AddDays(-i), EmPassword = EmployeePasswordHasher.CreateLegacyPlaceholder(), EmPasswordHash = EmployeePasswordHasher.Hash($"{id}"), EmPhone = $"050-200-{i:0000}", EmFlag = 0 });
+                if (!db.MEmployees.Any(x => x.EmId == id)) db.MEmployees.Add(new MEmployee { EmId = id, EmName = $"サンプル社員{i:000}", SoId = offices[(i - 1) % offices.Count].SoId, PoId = positions[(i - 1) % positions.Count].PoId, EmHiredate = DateTime.Today.AddDays(-i), EmPassword = $"{id}", EmPhone = $"050-200-{i:0000}", EmFlag = 0 });
             }
             for (var i = 1; i <= 150; i++)
             {
@@ -230,7 +230,7 @@ public static class DatabaseInitializer
     private static void EnsureEmployee(SalesManagementContext db, int id, string name, string password, MSalesOffice office, MPosition position)
     {
         if (db.MEmployees.Any(x => x.EmId == id)) return;
-        db.MEmployees.Add(new MEmployee { EmId = id, EmName = name, EmPassword = EmployeePasswordHasher.CreateLegacyPlaceholder(), EmPasswordHash = EmployeePasswordHasher.Hash(password), EmPhone = "000-0000-0000", EmHiredate = DateTime.Today, EmFlag = 0, SoId = office.SoId, PoId = position.PoId });
+        db.MEmployees.Add(new MEmployee { EmId = id, EmName = name, EmPassword = password, EmPhone = "000-0000-0000", EmHiredate = DateTime.Today, EmFlag = 0, SoId = office.SoId, PoId = position.PoId });
     }
 
     private static void EnsureProduct(SalesManagementContext db, MMaker maker, MSmallClassification small, string code, string name, string barcode, decimal price, int safetyStock, int quantity)

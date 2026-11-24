@@ -191,13 +191,13 @@ public sealed class EmployeeManagementViewModel : ViewModelBase
         ApplyFilters(resetPage: true);
     }
 
-    public async Task<EmployeeOperationResult> CreateAsync(string name, string phone, int officeId, int roleId, string password)
+    public async Task<EmployeeOperationResult> CreateAsync(int employeeId, string name, string phone, int officeId, int roleId, string password)
     {
         if (!CanCreate) return new(false, "社員を登録する権限がありません。");
         IsBusy = true;
         try
         {
-            var result = await Task.Run(() => EmployeeService.Create(AppSession.Employee!.EmId, name, phone, officeId, roleId, password));
+            var result = await Task.Run(() => EmployeeService.Create(AppSession.Employee!.EmId, employeeId, name, phone, officeId, roleId, password));
             if (result.Succeeded) await LoadAfterMutationAsync();
             return result;
         }

@@ -168,7 +168,7 @@ public static class WarehouseMovementRules
     public static string? ValidateHide(int managementFlag, int? state)
     {
         if (managementFlag != WarehousingService.ActiveFlag) return "通常表示のデータだけ非表示にできます。";
-        return state == WarehousingService.ConfirmedState ? null : "未確定のデータは非表示にできません。先に確定してください。";
+        return state is 0 or 1 ? null : "業務状態を確認してください。";
     }
 
     public static string? ValidateLines(IReadOnlyCollection<WarehouseMovementLineInput> lines) =>
@@ -208,8 +208,8 @@ public static class WarehousingService
     public static bool CanView => WarehouseActorResolver.CanUse;
     public static bool CanConfirm => CanView;
     public static bool CanViewHidden => WarehouseActorResolver.CanAdmin;
-    public static bool CanHide => CanViewHidden;
-    public static bool CanRestore => CanHide;
+    public static bool CanHide => CanView;
+    public static bool CanRestore => CanViewHidden;
     public static bool IsRestorable(WarehouseMovementRecord record) =>
         record.Kind == WarehouseMovementKind.Inbound && record.ManagementFlag == HiddenFlag && record.IsConfirmed
         && !string.IsNullOrWhiteSpace(record.HiddenReason);
@@ -373,9 +373,11 @@ public static class WarehousingService
             }
 
             receipt.WaShelfFlag = ConfirmedState;
+            receipt.WaDate = DateTime.Today;
+            receipt.EmId = actor!.EmployeeId;
             db.SaveChanges();
             transaction.Commit();
-            return new(true, "棚入れを確定し、商品在庫を更新しました。入庫日と既存の担当者情報は保持しています。", receipt.WaId);
+            return new(true, "棚入れを確定し、商品在庫を更新しました。入庫日と確定担当者を記録しました。", receipt.WaId);
         }
         catch (UnauthorizedAccessException ex) { return Denied(ex.Message); }
         catch (Exception ex)
@@ -394,17 +396,19 @@ public static class WarehousingService
     internal static WarehouseMovementOperationResult HideInContext(SalesManagementContext db, int actorId, int warehousingId, string? reason)
     {
         if (!CanHide || AppSession.Employee?.EmId != actorId)
-            return Denied("入庫を非表示にする権限がありません。管理者としてログインしてください。");
+            return Denied("入庫を非表示にする権限がありません。管理者または物流担当としてログインしてください。");
         if (ValidateHideReason(reason) is { } validation) return Denied(validation);
         try
         {
             using var transaction = db.Database.BeginTransaction(IsolationLevel.Serializable);
             var actor = WarehouseActorResolver.Resolve(db, actorId);
-            if (actor is not { IsAdministrator: true }) return Denied("入庫を非表示にする権限がありません。");
+            if (actor == null) return Denied("入庫を非表示にする権限がありません。");
             var receipt = db.TWarehousings.FromSqlInterpolated(
                 $"SELECT * FROM dbo.T_Warehousing WITH (UPDLOCK, HOLDLOCK) WHERE WaID = {warehousingId}")
                 .SingleOrDefault();
             if (receipt == null) return Denied("対象の入庫が見つかりません。");
+            if (!actor.IsAdministrator && !db.THattyus.Any(x => x.HaId == receipt.HaId && x.Em.SoId == actor.OfficeId))
+                return Denied("自営業所の発注に紐づく入庫だけ非表示にできます。");
             if (WarehouseMovementRules.ValidateHide(receipt.WaFlag, receipt.WaShelfFlag) is { } stateError)
                 return Denied(stateError);
             receipt.WaFlag = HiddenFlag;
@@ -474,7 +478,7 @@ public static partial class OutboundService
     public static bool CanView => WarehouseActorResolver.CanUse;
     public static bool CanConfirm => CanView;
     public static bool CanViewHidden => WarehouseActorResolver.CanAdmin;
-    public static bool CanHide => CanViewHidden;
+    public static bool CanHide => CanView;
 
     public static WarehouseMovementDirectory Load()
     {
@@ -633,18 +637,20 @@ public static partial class OutboundService
     public static WarehouseMovementOperationResult Hide(int actorId, int syukkoId, string? reason)
     {
         if (!CanHide || AppSession.Employee?.EmId != actorId)
-            return Denied("出庫を非表示にする権限がありません。管理者としてログインしてください。");
+            return Denied("出庫を非表示にする権限がありません。管理者または物流担当としてログインしてください。");
         if (ValidateHideReason(reason) is { } validation) return Denied(validation);
         using var db = new SalesManagementContext();
         try
         {
             using var transaction = db.Database.BeginTransaction(IsolationLevel.Serializable);
             var actor = WarehouseActorResolver.Resolve(db, actorId);
-            if (actor is not { IsAdministrator: true }) return Denied("出庫を非表示にする権限がありません。");
+            if (actor == null) return Denied("出庫を非表示にする権限がありません。");
             var outbound = db.TSyukkos.FromSqlInterpolated(
                 $"SELECT * FROM dbo.T_Syukko WITH (UPDLOCK, HOLDLOCK) WHERE SyID = {syukkoId}")
                 .SingleOrDefault();
             if (outbound == null) return Denied("対象の出庫が見つかりません。");
+            if (!actor.IsAdministrator && outbound.SoId != actor.OfficeId)
+                return Denied("自営業所の出庫だけ非表示にできます。");
             if (WarehouseMovementRules.ValidateHide(outbound.SyFlag, outbound.SyStateFlag) is { } stateError)
                 return Denied(stateError);
             outbound.SyFlag = HiddenFlag;

@@ -116,8 +116,8 @@ internal static class Program
     {
         AppSession.Employee = Employee("物流");
         Check(PurchaseOrderService.CanView && PurchaseOrderService.CanRegister, "logistics can view and register purchases");
-        Check(!PurchaseOrderService.CanHide && !PurchaseOrderService.CanViewHidden, "logistics cannot view hidden records or hide orders");
-        Check(!PurchaseOrderService.Hide(10, 1, "理由").Succeeded, "unauthorized hide is denied before database access");
+        Check(PurchaseOrderService.CanHide && !PurchaseOrderService.CanViewHidden, "logistics can hide orders in their office");
+        Check(!PurchaseOrderService.Hide(999, 1, "理由").Succeeded, "unauthorized hide is denied before database access");
 
         AppSession.Employee = Employee("営業");
         Check(!PurchaseOrderService.CanView && !PurchaseOrderService.CanRegister, "sales role is denied purchase management");

@@ -444,10 +444,10 @@ public sealed class WarehouseMovementDetailViewModel
         : OutboundService.CanConfirm && Record.IsUnconfirmed && Record.ManagementFlag == OutboundService.ActiveFlag);
     public string ConfirmActionLabel => IsInbound ? "入庫確定" : "出庫を確定";
     public bool CanHide => !readOnly && (IsInbound
-        ? WarehousingService.CanHide && Record.IsConfirmed && Record.ManagementFlag == WarehousingService.ActiveFlag
-        : OutboundService.CanHide && Record.IsConfirmed && Record.ManagementFlag == OutboundService.ActiveFlag);
+        ? WarehousingService.CanHide && (Record.IsConfirmed || Record.IsUnconfirmed) && Record.ManagementFlag == WarehousingService.ActiveFlag
+        : OutboundService.CanHide && (Record.IsConfirmed || Record.IsUnconfirmed) && Record.ManagementFlag == OutboundService.ActiveFlag);
     public bool CanShowHideRestriction => !readOnly && (IsInbound ? WarehousingService.CanHide : OutboundService.CanHide)
-        && Record.ManagementFlag == WarehousingService.ActiveFlag && !Record.IsConfirmed;
+        && Record.ManagementFlag == WarehousingService.ActiveFlag && !Record.IsConfirmed && !Record.IsUnconfirmed;
     public string SourceSalesOrderCode => $"ORD-{Record.ReferenceId:000000}";
     public bool CanOpenRelatedOrder => !IsInbound && AppSession.CanManageOrders && Record.RelatedOrderId.HasValue;
     public bool CanOpenRelatedArrival => !IsInbound && ArrivalService.CanView && Record.RelatedArrival != null;
@@ -457,7 +457,7 @@ public sealed class WarehouseMovementDetailViewModel
         : "関連する入荷データはありません。";
     public IReadOnlyList<OutboundDetailLine> OutboundLines { get; }
     public string HideRestrictionText => CanShowHideRestriction
-        ? "未確定のデータは非表示にできません。先に業務確定を行ってください。" : "";
+        ? "業務状態を確認してください。" : "";
     public Brush StateBackground => Record.BusinessState == WarehousingService.ConfirmedState
         ? AppTheme.SuccessSurface : Record.BusinessState == WarehousingService.UnconfirmedState
             ? AppTheme.WarningSurface : AppTheme.DangerSurface;

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 
 namespace SalesManagement_SysDev;
@@ -11,7 +11,7 @@ public partial class TWarehousing
 
     public int? EmId { get; set; }
 
-    public DateTime WaDate { get; set; }
+    public DateTime? WaDate { get; set; }
 
     public int? WaShelfFlag { get; set; }
 

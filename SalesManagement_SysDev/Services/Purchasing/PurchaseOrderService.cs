@@ -52,7 +52,7 @@ public sealed record PurchaseOrderLineRecord(
     public int RemainingQuantity => Math.Max(0, OrderedQuantity - ReceivedQuantity);
 }
 
-public sealed record PurchaseReceiptRecord(int Id, int OrderId, DateTime Date, string MakerName, string EmployeeName,
+public sealed record PurchaseReceiptRecord(int Id, int OrderId, DateTime? Date, string MakerName, string EmployeeName,
     int? ShelfFlag, int Flag, int Quantity)
 {
     public string Code => $"IN-{Id:000000}";
@@ -172,7 +172,7 @@ public static class PurchaseOrderService
         && (AppSession.IsAdmin || AppSession.IsLogistics);
     public static bool CanRegister => CanView;
     public static bool CanViewHidden => AppSession.Employee is { EmFlag: ActiveFlag } && AppSession.IsAdmin;
-    public static bool CanHide => CanViewHidden;
+    public static bool CanHide => CanView;
 
     public static PurchaseOrderDirectory Load()
     {
@@ -325,6 +325,48 @@ public static class PurchaseOrderService
                 x.TWarehousingDetails.Sum(d => (int?)d.WaQuantity) ?? 0));
     }
 
+    public static PurchaseOperationResult Confirm(int orderId, int actorId)
+    {
+        if (!CanView || AppSession.Employee?.EmId != actorId)
+            return Denied("発注を確定する権限がありません。");
+        try
+        {
+            using var db = new SalesManagementContext();
+            using var transaction = db.Database.BeginTransaction(IsolationLevel.Serializable);
+            var actor = ResolveActor(db, actorId);
+            EnsureCanView(actor);
+            var order = db.THattyus.FromSqlInterpolated(
+                    $"SELECT * FROM dbo.T_Hattyu WITH (UPDLOCK, HOLDLOCK) WHERE HaID = {orderId}")
+                .Include(x => x.Em).Include(x => x.THattyuDetails).SingleOrDefault();
+            if (order == null || order.HaFlag != ActiveFlag
+                || (!actor!.IsAdministrator && order.Em.SoId != AppSession.Employee!.SoId))
+                return Denied("操作できる表示中の発注が見つかりません。");
+            if (order.WaWarehouseFlag != 0 || db.TWarehousings.Any(x => x.HaId == orderId))
+                return Denied("この発注は確定済みか、関連する入庫がすでにあります。");
+            if (order.THattyuDetails.Count == 0 || order.THattyuDetails.Any(x => x.HaQuantity <= 0))
+                return Denied("発注明細の商品と数量を確認してください。");
+
+            db.Database.ExecuteSqlRaw("""
+                IF EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.T_Warehousing')
+                    AND name = N'WaDate' AND is_nullable = 0)
+                    ALTER TABLE dbo.T_Warehousing ALTER COLUMN WaDate date NULL;
+                """);
+            var receipt = new TWarehousing { HaId = order.HaId, WaFlag = ActiveFlag, WaShelfFlag = 0 };
+            foreach (var line in order.THattyuDetails)
+                receipt.TWarehousingDetails.Add(new TWarehousingDetail { PrId = line.PrId, WaQuantity = line.HaQuantity });
+            db.TWarehousings.Add(receipt);
+            order.WaWarehouseFlag = 1;
+            db.SaveChanges();
+            transaction.Commit();
+            return new(true, orderId, "発注を確定し、入庫情報を作成しました。");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine(ex);
+            return Denied("発注を確定できませんでした。発注明細と入庫テーブルの状態を確認してください。");
+        }
+    }
+
     public static string? ValidateHideReason(string? reason)
     {
         if (string.IsNullOrWhiteSpace(reason)) return "非表示理由を入力してください。";
@@ -334,14 +376,15 @@ public static class PurchaseOrderService
 
     public static PurchaseOperationResult Hide(int actorId, int orderId, string? reason)
     {
-        if (!CanHide) return Denied("発注を非表示にする権限がありません。管理者としてログインしてください。");
+        if (!CanHide || AppSession.Employee?.EmId != actorId) return Denied("発注を非表示にする権限がありません。管理者または物流担当としてログインしてください。");
         if (ValidateHideReason(reason) is { } validation) return Denied(validation);
 
         using var db = new SalesManagementContext();
         using var transaction = db.Database.BeginTransaction(IsolationLevel.Serializable);
         var actor = ResolveActor(db, actorId);
-        if (actor is not { IsAdministrator: true }) return Denied("発注を非表示にする権限がありません。");
-        var order = db.THattyus.FirstOrDefault(x => x.HaId == orderId && x.HaFlag == ActiveFlag);
+        if (actor is not { IsAllowedPurchaser: true }) return Denied("発注を非表示にする権限がありません。");
+        var order = db.THattyus.FirstOrDefault(x => x.HaId == orderId && x.HaFlag == ActiveFlag
+            && (actor.IsAdministrator || x.Em.SoId == AppSession.Employee!.SoId));
         if (order == null) return Denied("対象の発注は見つからないか、すでに非表示です。");
 
         order.HaFlag = HiddenFlag;
@@ -441,7 +484,8 @@ public static class PurchaseOrderService
     private static PurchaseActor? ResolveActor(SalesManagementContext db, int actorId)
     {
         if (AppSession.Employee is not { EmFlag: ActiveFlag } session || session.EmId != actorId) return null;
-        var role = db.MEmployees.AsNoTracking().Where(x => x.EmId == actorId && x.EmFlag == ActiveFlag)
+        var role = db.MEmployees.AsNoTracking()
+            .Where(x => x.EmId == actorId && x.EmFlag == ActiveFlag && x.Po.PoFlag == 0 && x.SoId == session.SoId)
             .Select(x => x.Po.PoName).FirstOrDefault();
         if (role == null || !string.Equals(role, AppSession.Role, StringComparison.Ordinal)) return null;
         var isAdmin = role == "管理者";

@@ -157,6 +157,7 @@ internal sealed class EmployeeEditorDialog : Window
 {
     private readonly EmployeeManagementViewModel viewModel;
     private readonly EmployeeRecord? original;
+    private readonly TextBox employeeId = FormTextBox(7);
     private readonly TextBox name = FormTextBox(50);
     private readonly TextBox phone = FormTextBox(13);
     private readonly ComboBox office = new() { Height = 38, DisplayMemberPath = nameof(EmployeeOffice.Name), SelectedValuePath = nameof(EmployeeOffice.Id) };
@@ -205,7 +206,8 @@ internal sealed class EmployeeEditorDialog : Window
         content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         if (twoColumns) content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         var basic = Card("基本情報");
-        AddReadOnlyField(basic, "社員番号", original?.Code ?? "登録時に自動採番");
+        if (isNew) AddField(basic, "社員ID（1～6桁） *", employeeId);
+        else AddReadOnlyField(basic, "社員番号", original!.Code);
         AddField(basic, "社員名 *", name);
         AddField(basic, "所属営業所 *", office);
         AddReadOnlyField(basic, "入社日", original?.HireDate.ToString("yyyy/MM/dd") ?? "登録日");
@@ -214,7 +216,7 @@ internal sealed class EmployeeEditorDialog : Window
         content.Children.Add(basicCard);
 
         var account = Card("アカウント・権限");
-        AddReadOnlyField(account, "ログインID", original?.LoginId ?? "自動採番される社員番号の数字部分");
+        AddReadOnlyField(account, "ログインID", original?.LoginId ?? "入力した社員ID");
         AddField(account, "権限ロール *", role);
         if (isNew)
         {
@@ -246,6 +248,7 @@ internal sealed class EmployeeEditorDialog : Window
         var footerBorder = new Border { BorderBrush = AppTheme.Border, BorderThickness = new Thickness(0, 1, 0, 0), Child = footer };
         Grid.SetRow(footerBorder, 2); root.Children.Add(footerBorder);
         Content = new Border { Background = AppTheme.Surface, BorderBrush = AppTheme.Border, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(10), ClipToBounds = true, Child = root };
+        employeeId.TextChanged += (_, _) => ValidateForm();
         name.TextChanged += (_, _) => ValidateForm(); phone.TextChanged += (_, _) => ValidateForm();
         office.SelectionChanged += (_, _) => ValidateForm(); role.SelectionChanged += (_, _) => ValidateForm();
         password.PasswordChanged += (_, _) => ValidateForm(); confirmation.PasswordChanged += (_, _) => ValidateForm();
@@ -282,7 +285,7 @@ internal sealed class EmployeeEditorDialog : Window
         try
         {
             var result = isNew
-                ? await viewModel.CreateAsync(name.Text, phone.Text, (int)office.SelectedValue, (int)role.SelectedValue, passwordValue)
+                ? await viewModel.CreateAsync(int.Parse(employeeId.Text), name.Text, phone.Text, (int)office.SelectedValue, (int)role.SelectedValue, passwordValue)
                 : await viewModel.UpdateAsync(original!, name.Text, phone.Text, (int)office.SelectedValue, (int)role.SelectedValue);
             if (isNew) { password.Clear(); confirmation.Clear(); }
             if (result.Succeeded)
@@ -311,15 +314,20 @@ internal sealed class EmployeeEditorDialog : Window
             || office.SelectedValue == null || role.SelectedValue == null) return false;
         if (EmployeeService.Validate(name.Text, phone.Text, original == null ? password.Password : null) != null) return false;
         if (!viewModel.Offices.Any(x => x.Id == (int)office.SelectedValue) || !viewModel.Roles.Any(x => x.Id == (int)role.SelectedValue)) return false;
+        if (original == null && !HasValidEmployeeId()) return false;
         if (original != null && !HasChanges()) return false;
         return original != null || password.Password.Length > 0 && password.Password == confirmation.Password;
     }
+
+    private bool HasValidEmployeeId() => employeeId.Text.Length is >= 1 and <= 6
+        && employeeId.Text.All(char.IsAsciiDigit) && int.TryParse(employeeId.Text, out var id) && id > 0;
 
     private void ValidateForm()
     {
         save.IsEnabled = CanSave();
         validation.Text = EmployeeService.Validate(name.Text, phone.Text, original == null ? password.Password : null)
-            ?? (original == null && password.Password.Length == 0 ? "初期パスワードを入力してください。"
+            ?? (original == null && !HasValidEmployeeId() ? "社員IDは1～6桁の数字で入力してください。"
+                : original == null && password.Password.Length == 0 ? "初期パスワードを入力してください。"
                 : original == null && password.Password != confirmation.Password ? "初期パスワードと確認用パスワードが一致しません。"
                 : office.SelectedValue is not int officeId || role.SelectedValue is not int roleId
                     || !viewModel.Offices.Any(x => x.Id == officeId) || !viewModel.Roles.Any(x => x.Id == roleId)
@@ -328,7 +336,7 @@ internal sealed class EmployeeEditorDialog : Window
     }
 
     private bool HasChanges() => original == null
-        ? name.Text.Length != 0 || phone.Text.Length != 0 || office.SelectedValue != null || role.SelectedValue != null
+        ? employeeId.Text.Length != 0 || name.Text.Length != 0 || phone.Text.Length != 0 || office.SelectedValue != null || role.SelectedValue != null
             || HasPasswordInput()
         : original.Name != name.Text.Trim() || original.Phone != phone.Text.Trim()
             || !Equals(original.OfficeId, office.SelectedValue) || !Equals(original.PositionId, role.SelectedValue);

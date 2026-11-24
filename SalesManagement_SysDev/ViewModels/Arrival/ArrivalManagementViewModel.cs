@@ -226,7 +226,7 @@ public sealed class ArrivalDetailViewModel
     public ArrivalRecord Arrival { get; }
     public IReadOnlyList<ArrivalLineRecord> Lines { get; }
     public bool CanConfirm => !readOnly && ArrivalService.CanConfirm && Arrival.IsUnconfirmed;
-    public bool CanHide => !readOnly && ArrivalService.CanHide && Arrival.IsConfirmed
+    public bool CanHide => !readOnly && ArrivalService.CanHide && (Arrival.IsConfirmed || Arrival.IsUnconfirmed)
         && Arrival.ManagementFlag == ArrivalService.ActiveFlag;
     public bool HasHiddenReason => Arrival.ManagementFlag == ArrivalService.HiddenFlag
         && !string.IsNullOrWhiteSpace(Arrival.HiddenReason);

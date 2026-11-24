@@ -62,7 +62,7 @@ internal static class Program
         Check(ShipmentOperationRules.ValidateConfirmState(ShipmentService.HiddenFlag, ShipmentService.UnconfirmedState) != null, "hidden shipment cannot be confirmed");
         Check(ShipmentOperationRules.ValidateConfirmState(0, null) != null, "unknown shipment state is rejected");
         Check(ShipmentOperationRules.ValidateHideState(ShipmentService.ActiveFlag, ShipmentService.ConfirmedState) == null, "confirmed visible shipment can be hidden");
-        Check(ShipmentOperationRules.ValidateHideState(ShipmentService.ActiveFlag, ShipmentService.UnconfirmedState) != null, "unconfirmed shipment cannot be hidden");
+        Check(ShipmentOperationRules.ValidateHideState(ShipmentService.ActiveFlag, ShipmentService.UnconfirmedState) == null, "unconfirmed shipment can be hidden");
         Check(ShipmentOperationRules.ValidateHideState(ShipmentService.HiddenFlag, ShipmentService.ConfirmedState) != null, "hidden shipment cannot be hidden twice");
         Check(ShipmentOperationRules.ValidateLines([new(2, 1), new(3, 8)]) == null, "positive shipment lines are accepted");
         Check(ShipmentOperationRules.ValidateLines([]) != null && ShipmentOperationRules.ValidateLines([new(0, 1)]) != null

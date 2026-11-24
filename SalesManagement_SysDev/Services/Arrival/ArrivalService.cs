@@ -62,8 +62,7 @@ public static class ArrivalOperationRules
     public static string? ValidateHideState(int managementFlag, int? state)
     {
         if (managementFlag != ArrivalService.ActiveFlag) return "通常表示の入荷だけを非表示にできます。";
-        return state != ArrivalService.ConfirmedState
-            ? "未確定の入荷は非表示にできません。入荷確定の処理を続けてください。" : null;
+        return state is 0 or 1 ? null : "入荷状態を確認してください。";
     }
 
     public static string? ValidateLines(IReadOnlyCollection<ArrivalQuantityInput> lines) =>
@@ -146,7 +145,7 @@ public static class ArrivalService
         && (AppSession.IsAdmin || AppSession.IsSales);
     public static bool CanConfirm => CanView;
     public static bool CanViewHidden => AppSession.Employee is { EmFlag: ActiveFlag } && AppSession.IsAdmin;
-    public static bool CanHide => CanViewHidden;
+    public static bool CanHide => CanView;
 
     public static ArrivalDirectory Load()
     {
@@ -327,7 +326,7 @@ public static class ArrivalService
     {
         if (arrivalId <= 0) return Denied("対象の入荷を確認してください。");
         if (!CanHide || AppSession.Employee?.EmId != actorId)
-            return Denied("入荷を非表示にする権限がありません。管理者としてログインしてください。");
+            return Denied("入荷を非表示にする権限がありません。管理者または営業担当者としてログインしてください。");
         if (ValidateHideReason(reason) is { } validation) return Denied(validation);
 
         using var db = new SalesManagementContext();
@@ -335,11 +334,12 @@ public static class ArrivalService
         {
             using var transaction = db.Database.BeginTransaction(IsolationLevel.Serializable);
             var actor = ResolveActor(db, actorId);
-            if (actor is not { IsAdministrator: true }) return Denied("入荷を非表示にする権限がありません。");
+            EnsureCanView(actor);
             var arrival = db.TArrivals.FromSqlInterpolated(
                 $"SELECT * FROM dbo.T_Arrival WITH (UPDLOCK, HOLDLOCK) WHERE ArID = {arrivalId}")
                 .SingleOrDefault();
             if (arrival == null) return Denied("対象の入荷が見つかりません。");
+            if (!actor!.IsAdministrator && arrival.SoId != actor.OfficeId) return Denied("自営業所の入荷だけ非表示にできます。");
             if (ArrivalOperationRules.ValidateHideState(arrival.ArFlag, arrival.ArStateFlag) is { } stateError)
                 return Denied(stateError);
 

@@ -122,7 +122,7 @@ public static class SalesService
 
     public static bool CanView => AppSession.Employee is { EmFlag: ActiveFlag }
         && (AppSession.IsAdmin || AppSession.IsSales);
-    public static bool CanHide => AppSession.Employee is { EmFlag: ActiveFlag } && AppSession.IsAdmin;
+    public static bool CanHide => CanView;
 
     public static SalesDirectory Load()
     {
@@ -184,7 +184,7 @@ public static class SalesService
     public static SalesOperationResult Hide(int actorId, int salesId, string? reason)
     {
         if (actorId <= 0 || salesId <= 0 || AppSession.Employee?.EmId != actorId
-            || AppSession.Employee is not { EmFlag: ActiveFlag } || !AppSession.IsAdmin) return Denied();
+            || !CanHide) return Denied();
         var invalidReason = ValidateHideReason(reason);
         if (invalidReason != null) return new(false, invalidReason);
         using var db = new SalesManagementContext();
@@ -192,10 +192,10 @@ public static class SalesService
         {
             using var transaction = db.Database.BeginTransaction(IsolationLevel.Serializable);
             var actor = GetCurrentActor(db);
-            if (!actor.IsAdministrator) return Denied();
             var sale = db.TSales.FromSqlInterpolated(
                 $"SELECT * FROM dbo.T_Sale WITH (UPDLOCK, HOLDLOCK) WHERE SaID = {salesId}").SingleOrDefault();
             if (sale == null) return new(false, "対象の売上が見つかりません。");
+            if (!actor.IsAdministrator && sale.SoId != actor.OfficeId) return Denied();
             if (sale.SaFlag != ActiveFlag) return new(false, "表示中の売上だけを非表示にできます。");
 
             // Hiding changes only sales management metadata; order, shipment and stock rows are untouched.
@@ -241,5 +241,5 @@ public static class SalesService
     }
 
     private static SalesOperationResult Denied() =>
-        new(false, "売上を非表示にする権限がありません。管理者としてログインし直してください。");
+        new(false, "売上を非表示にする権限がありません。役割と対象の営業所を確認してください。");
 }

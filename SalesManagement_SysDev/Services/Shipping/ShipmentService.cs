@@ -56,8 +56,7 @@ public static class ShipmentOperationRules
     public static string? ValidateHideState(int managementFlag, int? state)
     {
         if (managementFlag != ShipmentService.ActiveFlag) return "表示中の出荷だけを非表示にできます。";
-        return state == ShipmentService.ConfirmedState
-            ? null : "未確定の出荷は非表示にできません。出荷確定の処理を続けてください.";
+        return state is 0 or 1 ? null : "出荷状態を確認してください。";
     }
 
     // New sales use the saved order amount. Legacy sales keep their recorded amounts on reuse.
