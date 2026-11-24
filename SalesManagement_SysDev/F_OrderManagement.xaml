@@ -294,7 +294,7 @@
                               ToolTip="未確定の受注を表示" AutomationProperties.Name="未確定">
                         <MenuItem.Header>
                             <StackPanel Orientation="Horizontal">
-                                <local:LucideIcon Data="{StaticResource IconOrderWarning}" Width="15" Height="15" Margin="0,0,6,0"
+                                <local:LucideIcon Data="{StaticResource IconOrderClock3}" Width="15" Height="15" Margin="0,0,6,0"
                                                   Stroke="{StaticResource OrderPendingIconBrush}" />
                                 <TextBlock Text="未確定" VerticalAlignment="Center" />
                                 <Border x:Name="pendingBadge" Style="{StaticResource OrderListTabCount}">
@@ -432,12 +432,14 @@
                         <DataGrid.Columns>
                             <DataGridTemplateColumn Width="36" MinWidth="36" MaxWidth="36" CanUserResize="False" CanUserSort="False"
                                                     HeaderStyle="{StaticResource OrderTableCenterHeader}">
-                                <DataGridTemplateColumn.Header>
-                                    <CheckBox x:Name="selectAllRows" IsThreeState="True"
-                                              IsChecked="{Binding DataContext.AllPageSelected, Mode=OneWay, RelativeSource={RelativeSource AncestorType=DataGrid}}"
-                                              Command="{Binding DataContext.TogglePageSelectionCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
-                                              ToolTip="このページの行をすべて選択／解除" AutomationProperties.Name="このページの行をすべて選択／解除" />
-                                </DataGridTemplateColumn.Header>
+                                <DataGridTemplateColumn.HeaderTemplate>
+                                    <DataTemplate>
+                                        <CheckBox IsThreeState="True"
+                                                  IsChecked="{Binding DataContext.AllPageSelected, Mode=OneWay, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                                  Command="{Binding DataContext.TogglePageSelectionCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                                  ToolTip="このページの行をすべて選択／解除" AutomationProperties.Name="このページの行をすべて選択／解除" />
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.HeaderTemplate>
                                 <DataGridTemplateColumn.CellTemplate><DataTemplate>
                                     <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                               HorizontalAlignment="Center" VerticalAlignment="Center"
@@ -478,8 +480,8 @@
                             <DataGridTextColumn Header="受注合計金額（税込）" Binding="{Binding Total, StringFormat='¥{0:N0}'}" SortMemberPath="Total"
                                                 Width="1.1*" MinWidth="166" HeaderStyle="{StaticResource OrderTableRightHeader}"
                                                 HeaderTemplate="{StaticResource OrderSortableHeading}" ElementStyle="{StaticResource TableNumber}" />
-                            <DataGridTemplateColumn Header="受注状態" SortMemberPath="Status" Width="100" MinWidth="96"
-                                                    HeaderStyle="{StaticResource OrderTableCenterHeader}" HeaderTemplate="{StaticResource OrderSortableHeading}">
+                            <DataGridTemplateColumn Header="受注状態" SortMemberPath="Status" Width="100" MinWidth="96" CanUserSort="False"
+                                                    HeaderStyle="{StaticResource OrderTableCenterHeader}">
                                 <DataGridTemplateColumn.CellTemplate><DataTemplate>
                                     <Border Style="{StaticResource OrderStatePill}" ToolTip="{Binding DraftSummary}">
                                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">

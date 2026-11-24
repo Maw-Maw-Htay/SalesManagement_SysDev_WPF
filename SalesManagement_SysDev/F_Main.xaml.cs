@@ -18,6 +18,8 @@ public partial class F_Main : Window
     private SidebarEntry? activeNavigationItem;
     private SidebarEntry? historyNavigationItem;
     private readonly Dictionary<string, SidebarEntry> navigationItems = [];
+    private readonly string standardSessionText;
+    private readonly string orderEntrySessionText;
     private bool allowWindowClose;
 
     public F_Main()
@@ -50,12 +52,12 @@ public partial class F_Main : Window
         homeView = (UIElement)pageHost.Content;
         ((FrameworkElement)homeView).DataContext = new HomeViewModel(NavigateFromHome);
         var employee = AppSession.Employee!;
-        status.Text = $"社員: {employee.EmName}　役職: {employee.Po.PoName}　営業所: {employee.So.SoName}";
-        if (SalesManagementContext.IsDemoMode)
-        {
-            Title += "［デモ］";
-            status.Text = "［デモ］ " + status.Text;
-        }
+        var isDemoMode = SalesManagementContext.IsDemoMode;
+        var demoPrefix = isDemoMode ? "［デモ］ " : "";
+        standardSessionText = $"{demoPrefix}社員: {employee.EmName}　役職: {employee.Po.PoName}　営業所: {employee.So.SoName}";
+        orderEntrySessionText = $"{demoPrefix}役職：{employee.Po.PoName}　営業所：{employee.So.SoName}";
+        status.Text = standardSessionText;
+        if (isDemoMode) Title += "［デモ］";
         loginName.Text = employee.EmName;
         loginId.Text = employee.EmId.ToString();
         loginPhone.Text = string.IsNullOrWhiteSpace(employee.EmPhone) ? "未登録" : employee.EmPhone;
@@ -252,9 +254,9 @@ public partial class F_Main : Window
         DisposeOrderRegistrationIfLeaving(view);
         Title = title;
         var isOrderPage = title is "受注管理" or "受注履歴";
-        var isRegistrationPage = title is "受注登録" or "受注更新";
+        var isOrderEntryPage = title is "受注登録" or "受注更新";
         mainHeaderTitle.Text = isOrderPage ? "受注管理" : title;
-        ApplyStandardHeaderStyle();
+        ApplyStandardHeaderStyle(isOrderEntryPage);
         if (view is F_Product { Content: ProductManagementView product } && ProductService.CanEdit)
         {
             productHeaderRegisterButton.DataContext = product.DataContext;
@@ -282,11 +284,11 @@ public partial class F_Main : Window
                 ? Visibility.Visible
                 : Visibility.Collapsed;
         }
-        else if (isRegistrationPage)
+        else if (isOrderEntryPage)
         {
-            mainHeaderTitle.Foreground = (Brush)FindResource("ThemePrimary");
+            mainHeaderTitle.SetResourceReference(TextBlock.ForegroundProperty, "ThemeOrderEntryNavy");
             mainHeaderTitle.FontSize = 20;
-            orderHeaderIcon.Stroke = (Brush)FindResource("ThemePrimary");
+            orderHeaderIcon.SetResourceReference(LucideIcon.StrokeProperty, "ThemeOrderEntryNavy");
             orderHeaderIcon.Visibility = Visibility.Visible;
             status.Foreground = (Brush)FindResource("ThemeSecondaryText");
         }
@@ -296,7 +298,7 @@ public partial class F_Main : Window
         mainSidebar.Visibility = Visibility.Visible;
     }
 
-    private void ApplyStandardHeaderStyle()
+    private void ApplyStandardHeaderStyle(bool isOrderEntryPage = false)
     {
         mainHeader.Background = (Brush)FindResource("ThemeSurface");
         mainHeader.BorderBrush = (Brush)FindResource("ThemeBorder");
@@ -312,6 +314,7 @@ public partial class F_Main : Window
         customerHeaderRegisterButton.DataContext = null;
         productHeaderRegisterButton.Visibility = Visibility.Collapsed;
         productHeaderRegisterButton.DataContext = null;
+        status.Text = isOrderEntryPage ? orderEntrySessionText : standardSessionText;
         status.Visibility = Visibility.Visible;
     }
 

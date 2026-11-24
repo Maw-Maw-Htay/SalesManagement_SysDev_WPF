@@ -5,34 +5,47 @@
         WindowStartupLocation="CenterOwner" WindowStyle="None" ResizeMode="NoResize"
         AllowsTransparency="True" Background="Transparent" ShowInTaskbar="False"
         Style="{StaticResource {x:Type Window}}">
+    <Window.Resources>
+        <ResourceDictionary Source="Resources/DraftNavigationNotice.xaml" />
+    </Window.Resources>
     <Window.InputBindings>
         <KeyBinding Key="Escape" Command="{Binding CloseCommand}" />
     </Window.InputBindings>
-    <Border Background="{StaticResource ThemeSurface}" BorderBrush="{StaticResource ThemeBorder}" BorderThickness="1" CornerRadius="8">
-        <Grid>
-            <Grid.RowDefinitions><RowDefinition Height="56" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" MinHeight="64" /></Grid.RowDefinitions>
-            <Border Background="{StaticResource ThemePrimary}" CornerRadius="8,8,0,0" Padding="20,0">
-                <DockPanel LastChildFill="True" VerticalAlignment="Center">
-                    <Button DockPanel.Dock="Right" Command="{Binding CloseCommand}" Style="{StaticResource ThemeIconButton}" Width="30" Height="30" ToolTip="閉じる" AutomationProperties.Name="メッセージを閉じる"><TextBlock Text="×" Foreground="White" FontSize="20" /></Button>
-                    <TextBlock Text="{Binding Glyph}" Foreground="{Binding AccentBrush}" FontSize="21" FontWeight="Bold" Margin="0,0,12,0" VerticalAlignment="Center" />
-                    <TextBlock Text="{Binding Title}" Foreground="White" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center" TextWrapping="Wrap" />
-                </DockPanel>
-            </Border>
-            <Grid Grid.Row="1" Margin="22,22,22,18">
-                <TextBlock Text="{Binding Message}" Foreground="{StaticResource ThemeText}" FontSize="14" TextWrapping="Wrap" LineHeight="22" />
+    <Grid>
+        <ContentPresenter Content="{Binding}" ContentTemplate="{StaticResource DraftNavigationNoticeTemplate}"
+                          Visibility="{Binding HasDiscardAction, Converter={StaticResource BooleanVisibility}}" />
+        <Border Background="{StaticResource ThemeSurface}" BorderBrush="{StaticResource ThemeBorder}" BorderThickness="1" CornerRadius="8">
+            <Border.Style>
+                <Style TargetType="Border">
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding HasDiscardAction}" Value="True">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </Border.Style>
+            <Grid>
+                <Grid.RowDefinitions><RowDefinition Height="56" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" MinHeight="64" /></Grid.RowDefinitions>
+                <Border Background="{StaticResource ThemePrimary}" CornerRadius="8,8,0,0" Padding="20,0">
+                    <DockPanel LastChildFill="True" VerticalAlignment="Center">
+                        <Button DockPanel.Dock="Right" Command="{Binding CloseCommand}" Style="{StaticResource ThemeIconButton}" Width="30" Height="30" ToolTip="閉じる" AutomationProperties.Name="メッセージを閉じる"><TextBlock Text="×" Foreground="White" FontSize="20" /></Button>
+                        <TextBlock Text="{Binding Glyph}" Foreground="{Binding AccentBrush}" FontSize="21" FontWeight="Bold" Margin="0,0,12,0" VerticalAlignment="Center" />
+                        <TextBlock Text="{Binding Title}" Foreground="White" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center" TextWrapping="Wrap" />
+                    </DockPanel>
+                </Border>
+                <Grid Grid.Row="1" Margin="22,22,22,18">
+                    <TextBlock Text="{Binding Message}" Foreground="{StaticResource ThemeText}" FontSize="14" TextWrapping="Wrap" LineHeight="22" />
+                </Grid>
+                <Border Grid.Row="2" BorderBrush="{StaticResource ThemeBorder}" BorderThickness="0,1,0,0" Padding="20,8">
+                    <WrapPanel HorizontalAlignment="Right" VerticalAlignment="Center">
+                        <Button Content="{Binding CancelLabel}" Command="{Binding CancelCommand}" Visibility="{Binding CancelVisibility}"
+                                IsCancel="True" IsDefault="{Binding HasDiscardAction}" MinWidth="112" Height="38" Margin="0,4,8,4" />
+                        <Button Content="{Binding ConfirmLabel}" Command="{Binding ConfirmCommand}" IsDefault="{Binding ConfirmIsDefault}"
+                                MinWidth="112" Height="38" Background="{Binding ConfirmBackground}" Foreground="White"
+                                BorderBrush="{Binding ConfirmBackground}" FontSize="14" FontWeight="SemiBold" Margin="0,4" />
+                    </WrapPanel>
+                </Border>
             </Grid>
-            <Border Grid.Row="2" BorderBrush="{StaticResource ThemeBorder}" BorderThickness="0,1,0,0" Padding="20,8">
-                <WrapPanel HorizontalAlignment="Right" VerticalAlignment="Center">
-                    <Button Content="{Binding CancelLabel}" Command="{Binding CancelCommand}" Visibility="{Binding CancelVisibility}"
-                            IsCancel="True" IsDefault="{Binding HasDiscardAction}" MinWidth="112" Height="38" Margin="0,4,8,4" />
-                    <Button Content="{Binding ConfirmLabel}" Command="{Binding ConfirmCommand}" IsDefault="{Binding ConfirmIsDefault}"
-                            MinWidth="112" Height="38" Background="{Binding ConfirmBackground}" Foreground="White"
-                            BorderBrush="{Binding ConfirmBackground}" FontSize="14" FontWeight="SemiBold" Margin="0,4" />
-                    <Button Content="破棄して移動" Command="{Binding DiscardCommand}" MinWidth="112" Height="38" Margin="8,4,0,4"
-                            Foreground="{StaticResource ThemeDangerText}" BorderBrush="{StaticResource ThemeDanger}"
-                            Visibility="{Binding HasDiscardAction, Converter={StaticResource BooleanVisibility}}" />
-                </WrapPanel>
-            </Border>
-        </Grid>
-    </Border>
+        </Border>
+    </Grid>
 </Window>

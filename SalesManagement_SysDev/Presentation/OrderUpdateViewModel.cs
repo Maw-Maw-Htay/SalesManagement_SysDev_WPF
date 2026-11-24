@@ -61,7 +61,7 @@ public sealed class OrderUpdateLine : ViewModelBase, IDataErrorInfo
     public string Error => QuantityError;
     public string this[string name] => name == nameof(Quantity) ? QuantityError : "";
     public OrderDetailLine Preview { get; private set; }
-    public string TotalText => Error.Length == 0 ? $"¥{new OrderDetailItemRow(Preview, 0).Total:N0}" : "—";
+    public string SubtotalText => Error.Length == 0 ? $"¥{Preview.Subtotal:N0}" : "—";
 
     private static bool IsNumber(string text)
     {
@@ -93,7 +93,7 @@ public sealed class OrderUpdateLine : ViewModelBase, IDataErrorInfo
             Preview = new OrderDetailLine { DetailId = DetailId, ProductId = ProductId, ProductCode = ProductCode,
                 ProductName = ProductName, Quantity = count, UnitPrice = price, Subtotal = subtotal };
         foreach (var name in new[] { nameof(IsQuantityChanged), nameof(HasChanges), nameof(HasPendingQuantity), nameof(QuantityConfirmationHint),
-            nameof(QuantityError), nameof(Error), nameof(TotalText), nameof(Preview) }) Notify(name);
+            nameof(QuantityError), nameof(Error), nameof(SubtotalText), nameof(Preview) }) Notify(name);
         ConfirmQuantityCommand.Refresh();
     }
 }
@@ -163,7 +163,8 @@ public sealed class OrderUpdateViewModel : ViewModelBase, IDisposable
     public RelayCommand SelectCustomerCommand {get;}
     public bool IsCustomerSelectionVisible=>customerSelectionVisible;
     public string CustomerDisplay=>$"C-{customer.ClId:0000}　{customer.ClName}";
-    public string EmployeeHeader=>$"社員: {AppSession.Employee?.EmName}　役職: {AppSession.Role}　営業所: {AppSession.Employee?.So?.SoName}";
+    public string CustomerName => customer.ClName;
+    public string SessionHeader => $"役職：{AppSession.Role}　営業所：{AppSession.Employee?.So?.SoName}";
     public DateTime? OrderDate {get=>orderDate;set {if(Set(ref orderDate,value)) {orderDateInvalid=!value.HasValue;StateChanged();}}}
     public DateTime? DeliveryDate {get=>deliveryDate;set {if(Set(ref deliveryDate,value)) {deliveryDateInvalid=false;StateChanged();}}}
     public string DateInputError=>orderDateInvalid || deliveryDateInvalid || !OrderDate.HasValue ? "受注日・納品希望日を正しい日付で指定してください。" : "";
@@ -191,12 +192,12 @@ public sealed class OrderUpdateViewModel : ViewModelBase, IDisposable
         : Entry.ProductSearch.Length>0 ? "入力中の商品を追加するか、商品欄をクリアしてください。" : RemarksError;
     public bool CanSave=>CanEdit && HasOrderChanges && !HasPendingQuantity && ValidationMessage.Length==0;
     public bool IsError=>!isBusy && (ValidationMessage.Length>0 || saveError.Length>0);
-    public string SaveButtonText=>isBusy ? "保存中…" : "変更を保存";
     public string Feedback=>isBusy ? "保存中…" : hasSaved ? "受注を更新しました。"
         : ValidationMessage.Length>0 ? ValidationMessage : saveError.Length>0 ? saveError
         : HasUnsavedChanges ? "未保存の変更があります。" : "変更はありません。";
     public decimal Subtotal=>preview.Subtotal;
     public decimal Tax=>preview.Tax;
+    public string TaxLabel => Entry.TaxLabel;
     public decimal Total=>preview.Total;
     public string RoundingNotice=>preview.RoundingNotice;
     public string QuantitySummary=>$"{Lines.Count} 品目 / {Lines.Sum(line=>(long)line.Preview.Quantity):N0} 点";
@@ -247,10 +248,7 @@ public sealed class OrderUpdateViewModel : ViewModelBase, IDisposable
         foreach (var line in Entry.Lines)
             if (stock.TryGetValue(line.ProductId, out var lookup)) line.ApplyStockLookup(lookup);
         if (Entry.SelectedProduct is { } product && stock.TryGetValue(product.PrId, out var selected))
-        {
-            product.ApplyStockLookup(selected);
-            Notify(nameof(EntryStockStatus));
-        }
+            Entry.RefreshSelectedProductStock(selected);
     }
 
     private void SelectCustomer(MClient? candidate)
@@ -258,7 +256,7 @@ public sealed class OrderUpdateViewModel : ViewModelBase, IDisposable
         if(candidate==null || candidate.SoId!=data.OfficeId || candidate.ClFlag!=0 || !Entry.Clients.Contains(candidate)) return;
         if(candidate.ClId!=customer.ClId && !confirmCustomerChange(candidate)) return;
         customer=candidate; Entry.SelectedClient=candidate; customerSelectionVisible=false;
-        Notify(nameof(CustomerDisplay));Notify(nameof(IsCustomerSelectionVisible));StateChanged();
+        Notify(nameof(CustomerName));Notify(nameof(CustomerDisplay));Notify(nameof(IsCustomerSelectionVisible));StateChanged();
     }
     private void EntryChanged(object? sender,PropertyChangedEventArgs args)
     {
@@ -325,7 +323,7 @@ public sealed class OrderUpdateViewModel : ViewModelBase, IDisposable
     private void RefreshState()
     {
         foreach(var name in new[] {nameof(IsBusy),nameof(HasSaved),nameof(CanEdit),nameof(HasUnsavedChanges),nameof(HasPendingQuantity),
-            nameof(CanSave),nameof(RemarksError),nameof(DateInputError),nameof(ValidationMessage),nameof(IsError),nameof(Feedback),nameof(SaveButtonText)}) Notify(name);
+            nameof(CanSave),nameof(RemarksError),nameof(DateInputError),nameof(ValidationMessage),nameof(IsError),nameof(Feedback)}) Notify(name);
         foreach(var command in new[] {SaveCommand,CloseCommand,EscapeCommand,AddLineCommand,RemoveLineCommand,UndoRemoveLineCommand,ChangeCustomerCommand,SelectCustomerCommand}) command.Refresh();
     }
     public void Dispose()

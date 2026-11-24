@@ -47,6 +47,10 @@
     <GeometryGroup x:Key="IconCheck">
         <PathGeometry Figures="M20 6 9 17l-5-5" />
     </GeometryGroup>
+    <!-- save -->
+    <GeometryGroup x:Key="IconSave">
+        <PathGeometry Figures="M5 3h10l6 6v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z M7 3v6h9 M7 21v-7h10v7" />
+    </GeometryGroup>
     <!-- circle-check -->
     <GeometryGroup x:Key="IconCheckCircle">
         <EllipseGeometry Center="12,12" RadiusX="10" RadiusY="10" />

@@ -18,7 +18,7 @@ public partial class F_OrderUpdate : Window, IDisposable
         InitializeComponent();this.returnToList=returnToList;this.showDetails=showDetails;
         viewModel=new OrderUpdateViewModel(data,saved=>{if(saved) ShowCompletion();else RequestClose();},updateSource,lookupSource,
             confirmCustomerChange:_=>F_OrderNotice.Confirm(HostWindow,"顧客を変更しますか？",
-                "変更すると、この受注の発注元顧客が更新されます。","変更する","キャンセル"));
+                "変更すると、この受注の受注元顧客が更新されます。","変更する","キャンセル"));
         DataContext=viewModel;
         _=new RegistrationWindowPlacement(this,preferredWidth:1150,preferredHeight:760,minimumWidth:900,minimumHeight:580);
         Closing+=(_,e)=>{if(!disposed) e.Cancel=!viewModel.TryApproveClose(ConfirmDiscard);};
@@ -43,7 +43,7 @@ public partial class F_OrderUpdate : Window, IDisposable
             Dispatcher.BeginInvoke(new Action(()=>
             {
                 if(disposed || !RootLayout.IsLoaded) return;
-                if(viewModel.Entry.IsProductDetailsVisible) ProductDetailsOverlay.FocusCloseButton(); else ProductDetailsButton.Focus();
+                if(viewModel.Entry.IsProductDetailsVisible) ProductDetailsOverlay.FocusCloseButton(); else ProductInput.FocusProductDetails();
             }));
         };
     }
@@ -58,8 +58,7 @@ public partial class F_OrderUpdate : Window, IDisposable
         return root;
     }
     public bool TryApproveNavigation()=>viewModel.TryApproveClose(ConfirmDiscard);
-    private bool ConfirmDiscard()=>F_OrderNotice.Confirm(HostWindow,"未保存の変更",
-        "変更内容が保存されていません。画面を閉じてもよろしいですか？","破棄して戻る","編集を続ける",destructive:true);
+    private bool ConfirmDiscard()=>F_OrderNotice.ConfirmUpdateNavigation(HostWindow);
     private void RequestClose()
     {
         if(embedded) {if(TryApproveNavigation()) returnToList?.Invoke();} else Close();
@@ -80,7 +79,7 @@ public partial class F_OrderUpdate : Window, IDisposable
             catch {F_OrderNotice.Show(HostWindow,"受注詳細","更新は保存されていますが、受注詳細を取得できませんでした。",OrderNoticeKind.Error);}
         }
         else if(((OrderNoticeViewModel)notice.DataContext).CancelWasClicked) RequestClose();
-        else CancelButton.Focus();
+        else ReturnToListButton.Focus();
     }
     private void DateValidationError(object sender,DatePickerDateValidationErrorEventArgs e)
     {e.ThrowException=false;if(RootLayout.DataContext is OrderUpdateViewModel model) model.SetDateInputText(sender==DeliveryDateInput,e.Text);}

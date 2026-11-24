@@ -36,7 +36,7 @@ internal sealed class OrderRegistrationDataSource : IOrderRegistrationDataSource
         {
             PrId = x.PrId, ProductCode = x.PrJcode ?? x.PrModelNumber, ProductName = x.PrName,
             ModelNumber = x.PrModelNumber, Barcode = x.PrJcode ?? "", MakerId = x.MaId, MakerName = x.Ma.MaName, UnitPrice = x.Price,
-            CategoryName = x.Sc.ScName
+            CategoryName = x.Sc.ScName, SafetyStock = x.PrSafetyStock
         }).ToList();
 
     public InventoryStockLookup LoadStock(int productId) => InventoryService.ReadCurrentStock(db, [productId])[productId];

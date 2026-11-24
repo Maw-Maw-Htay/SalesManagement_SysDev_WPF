@@ -26,7 +26,7 @@ public readonly record struct OrderStockStatus(string Text, OrderStockTone Tone,
     };
 }
 
-public sealed class RegistrationProduct
+public sealed class RegistrationProduct : ViewModelBase
 {
     private int? stock;
     private InventoryStockState stockState;
@@ -45,6 +45,7 @@ public sealed class RegistrationProduct
     public string UnitName => "個";
     public int? Stock { get => stock; init => stock = value; }
     public InventoryStockState StockState { get => stockState; init => stockState = value; }
+    public int? SafetyStock { get; init; }
     public string CategoryName { get; init; } = "";
     public bool IsActive { get; init; } = true;
     public string Display => $"[{ProductCode}] {ProductName}（単価: ¥{UnitPrice:N0}）";
@@ -55,11 +56,21 @@ public sealed class RegistrationProduct
         _ => "在庫：要確認"
     };
     public string MakerAndStockLabel => $"メーカー：{MakerDisplayName} | {StockLabel}";
+    private int? AvailableStock => StockState == InventoryStockState.Available && Stock is >= 0 ? Stock : null;
+    public string DetailStockText => AvailableStock is int count ? $"{count:N0} 個" : "取得できません";
+    public InventoryCondition DetailStockCondition => InventoryService.ClassifyStock(AvailableStock, SafetyStock);
 
     internal void ApplyStockLookup(InventoryStockLookup lookup)
     {
+        if (stock == lookup.Quantity && stockState == lookup.State) return;
         stock = lookup.Quantity;
         stockState = lookup.State;
+        Notify(nameof(Stock));
+        Notify(nameof(StockState));
+        Notify(nameof(StockLabel));
+        Notify(nameof(MakerAndStockLabel));
+        Notify(nameof(DetailStockText));
+        Notify(nameof(DetailStockCondition));
     }
 }
 
@@ -224,6 +235,13 @@ public sealed class OrderRegistrationViewModel : ViewModelBase, IDisposable
     public bool HasSelectedProduct => IsProductValid;
     public string QuantityLabel => IsProductValid ? $"数量 *（{selectedProduct!.UnitName}）" : "数量 *";
     public int MaximumQuantity => RegistrationQuantity.Maximum(selectedProduct?.UnitPrice ?? 0);
+    public string CurrentStockDisplay => !IsProductValid ? "—" : selectedProduct!.StockState switch
+    {
+        InventoryStockState.Available when selectedProduct.Stock is int count => $"{count:N0} 個",
+        InventoryStockState.MissingRecord => "未登録",
+        _ => "取得不可"
+    };
+    public bool HasSufficientStock => IsProductValid && QuantityError.Length == 0 && StockStatus.Tone == OrderStockTone.Normal;
     public OrderStockStatus StockStatus
     {
         get
@@ -263,6 +281,7 @@ public sealed class OrderRegistrationViewModel : ViewModelBase, IDisposable
     public string QuantitySummary => $"{Lines.Count} 品目 / {Lines.Sum(line => (long)line.Quantity):N0} 点";
     public decimal Subtotal => preview.Subtotal;
     public decimal Tax => preview.Tax;
+    public string TaxLabel => $"消費税（{OrderTax.Rate * 100:0.##}%）";
     public decimal Total => preview.Total;
     public string RoundingNotice => preview.RoundingNotice;
     public string UnitPriceDisplay => IsProductValid ? $"¥{selectedProduct!.UnitPrice:N0}" : "商品選択後に表示";
@@ -365,6 +384,16 @@ public sealed class OrderRegistrationViewModel : ViewModelBase, IDisposable
         }
     }
     public string Quantity { get => quantity; set { if (Set(ref quantity, value)) StateChanged(); } }
+
+    internal void RefreshSelectedProductStock(InventoryStockLookup lookup)
+    {
+        if (selectedProduct == null) return;
+        selectedProduct.ApplyStockLookup(lookup);
+        Notify(nameof(StockStatus));
+        Notify(nameof(CurrentStockDisplay));
+        Notify(nameof(HasSufficientStock));
+    }
+
     public string Remarks { get => remarks; set { if (Set(ref remarks, value)) { Notify(nameof(PreviewRemarks)); StateChanged(); } } }
     public DateTime? OrderDate
     {
@@ -417,7 +446,7 @@ public sealed class OrderRegistrationViewModel : ViewModelBase, IDisposable
     public string ValidationSummary => isBusy ? busyMessage
         : CanRegister ? "入力内容を確認して登録してください。"
         : !IsOfficeValid ? "受付営業所を候補から選択してください。"
-        : !IsClientValid ? "発注元顧客を候補から選択してください。"
+        : !IsClientValid ? "受注元顧客を候補から選択してください。"
         : DateInputError.Length > 0 ? DateInputError
         : Remarks.Trim().Length > OrderUpdateRules.RemarksMaxLength ? "備考は50文字以内で入力してください。"
         : ProductInputInvalid ? "商品を候補から選択するか、商品欄をクリアしてください。"
@@ -758,7 +787,8 @@ public sealed class OrderRegistrationViewModel : ViewModelBase, IDisposable
     {
         if (isDraftSaveFeedback && HasUnsavedChanges) ShowFeedback("");
         foreach (var name in new[] { nameof(CanRegister), nameof(CanAddProduct), nameof(ValidationSummary), nameof(QuantityError), nameof(MaximumQuantity), nameof(HasSelectedProduct), nameof(StockStatus),
-            nameof(QuantityLabel), nameof(DateInputError), nameof(UnitPriceDisplay), nameof(CustomerInputInvalid), nameof(OfficeInputInvalid), nameof(ProductInputInvalid), nameof(HasUnsavedChanges) }) Notify(name);
+            nameof(CurrentStockDisplay), nameof(HasSufficientStock), nameof(QuantityLabel), nameof(DateInputError), nameof(UnitPriceDisplay),
+            nameof(CustomerInputInvalid), nameof(OfficeInputInvalid), nameof(ProductInputInvalid), nameof(HasUnsavedChanges) }) Notify(name);
         AddLineCommand.Refresh(); RemoveLineCommand.Refresh(); RegisterCommand.Refresh(); SaveDraftCommand.Refresh();
         ShowProductDetailsCommand.Refresh(); CloseProductDetailsCommand.Refresh(); UndoRemoveLineCommand.Refresh();
     }
@@ -828,7 +858,7 @@ public sealed class OrderRegistrationViewModel : ViewModelBase, IDisposable
     private void SetBusy(bool busy, string message = "")
     {
         isBusy = busy; busyMessage = message;
-        Notify(nameof(IsBusy)); Notify(nameof(RegisterButtonText)); Notify(nameof(ValidationSummary));
+        Notify(nameof(IsBusy)); Notify(nameof(CanRegister)); Notify(nameof(RegisterButtonText)); Notify(nameof(ValidationSummary));
         Notify(nameof(HasUnsavedChanges));
         foreach (var command in new[] { CloseCommand, AddLineCommand, RemoveLineCommand, RegisterCommand, SaveDraftCommand, UndoRemoveLineCommand, ShowProductDetailsCommand, CloseProductDetailsCommand,
             SelectOfficeCommand, SelectClientCommand, SelectProductCommand, ShowRegisteredOrderCommand, ReturnToListCommand, StartNextOrderCommand,

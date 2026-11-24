@@ -1,4 +1,6 @@
 using System.Windows;
+using System.Windows.Documents;
+using System.Windows.Input;
 using System.Windows.Media;
 
 namespace SalesManagement_SysDev;
@@ -16,15 +18,16 @@ public sealed partial class F_OrderNotice : Window
     }
 
     private F_OrderNotice(string title, string message, OrderNoticeKind kind, string confirmLabel,
-        string cancelLabel, bool showCancel, bool allowDiscard)
+        string cancelLabel, bool showCancel, bool allowDiscard, bool showConfirm = true)
     {
         InitializeComponent();
         DataContext = new OrderNoticeViewModel(title, message, kind, confirmLabel, cancelLabel, showCancel,
             result => { if (result.HasValue) DialogResult = result; else Close(); },
-            allowDiscard ? () => { discardSelected = true; DialogResult = false; } : null);
+            allowDiscard ? () => { discardSelected = true; DialogResult = false; } : null, showConfirm);
         MaxWidth = Math.Max(320, SystemParameters.WorkArea.Width * .9);
         MaxHeight = Math.Max(220, SystemParameters.WorkArea.Height * .85);
-        Width = Math.Min(allowDiscard ? 520 : 460, MaxWidth);
+        Width = Math.Min(allowDiscard ? 628 : 460, MaxWidth);
+        if (allowDiscard) Title = title;
     }
 
     public static void Show(Window? owner, string title, string message, OrderNoticeKind kind = OrderNoticeKind.Information)
@@ -43,13 +46,53 @@ public sealed partial class F_OrderNotice : Window
         return dialog.ShowDialog() == true;
     }
 
-    public static OrderDraftNavigationChoice ConfirmDraftNavigation(Window? owner)
+    public static OrderDraftNavigationChoice ConfirmDraftNavigation(Window? owner) => ConfirmOrderNavigation(owner, canSaveDraft: true);
+
+    public static bool ConfirmUpdateNavigation(Window? owner) =>
+        ConfirmOrderNavigation(owner, canSaveDraft: false) == OrderDraftNavigationChoice.DiscardAndLeave;
+
+    private static OrderDraftNavigationChoice ConfirmOrderNavigation(Window? owner, bool canSaveDraft)
     {
-        var dialog = new F_OrderNotice("未保存の変更", "受注の入力内容が保存されていません。画面を移動しますか？",
-            OrderNoticeKind.Confirmation, "一時保存して移動", "入力を続ける", showCancel: true, allowDiscard: true);
+        var dialog = new F_OrderNotice("未保存の変更があります", "受注の入力内容がまだ保存されていません。",
+            OrderNoticeKind.Confirmation, "一時保存して移動", "入力を続ける", showCancel: true, allowDiscard: true, showConfirm: canSaveDraft);
         AttachOwner(dialog, owner);
-        if (dialog.ShowDialog() == true) return OrderDraftNavigationChoice.SaveAndLeave;
-        return dialog.discardSelected ? OrderDraftNavigationChoice.DiscardAndLeave : OrderDraftNavigationChoice.ContinueEditing;
+        if (owner == null) dialog.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+
+        var previousFocus = owner == null ? null : FocusManager.GetFocusedElement(owner);
+        AdornerLayer? layer = null;
+        DraftNavigationShade? shade = null;
+        if (owner?.Content is UIElement content && AdornerLayer.GetAdornerLayer(content) is { } ownerLayer)
+        {
+            layer = ownerLayer;
+            shade = new DraftNavigationShade(content);
+            layer.Add(shade);
+        }
+
+        var choice = OrderDraftNavigationChoice.ContinueEditing;
+        try
+        {
+            if (dialog.ShowDialog() == true) choice = OrderDraftNavigationChoice.SaveAndLeave;
+            else if (dialog.discardSelected) choice = OrderDraftNavigationChoice.DiscardAndLeave;
+            return choice;
+        }
+        finally
+        {
+            if (shade != null) layer!.Remove(shade);
+            if (choice == OrderDraftNavigationChoice.ContinueEditing
+                && previousFocus is UIElement { IsVisible: true, IsEnabled: true } editor
+                && Window.GetWindow(editor) == owner)
+                Keyboard.Focus(editor);
+        }
+    }
+
+    private sealed class DraftNavigationShade : Adorner
+    {
+        private readonly Brush tint = new SolidColorBrush(Color.FromArgb(0x59, 0x08, 0x1C, 0x3D));
+
+        public DraftNavigationShade(UIElement content) : base(content) => IsHitTestVisible = false;
+
+        protected override void OnRender(DrawingContext drawingContext) =>
+            drawingContext.DrawRectangle(tint, null, new Rect(AdornedElement.RenderSize));
     }
 
     private static void AttachOwner(F_OrderNotice dialog, Window? owner)
@@ -71,7 +114,7 @@ public sealed partial class F_OrderNotice : Window
 public sealed class OrderNoticeViewModel
 {
     public OrderNoticeViewModel(string title, string message, OrderNoticeKind kind, string confirmLabel,
-        string cancelLabel, bool showCancel, Action<bool?> complete, Action? discard = null)
+        string cancelLabel, bool showCancel, Action<bool?> complete, Action? discard = null, bool showConfirm = true)
     {
         Title = title;
         Message = message;
@@ -79,6 +122,7 @@ public sealed class OrderNoticeViewModel
         CancelLabel = cancelLabel;
         CancelVisibility = showCancel ? Visibility.Visible : Visibility.Collapsed;
         HasDiscardAction = discard != null;
+        HasConfirmAction = showConfirm;
         Glyph = kind switch
         {
             OrderNoticeKind.Success => "✓",
@@ -96,7 +140,7 @@ public sealed class OrderNoticeViewModel
             _ => AppTheme.Secondary
         };
         ConfirmBackground = kind == OrderNoticeKind.Danger ? AppTheme.Danger : AppTheme.Primary;
-        ConfirmCommand = new RelayCommand(() => complete(true));
+        ConfirmCommand = new RelayCommand(() => complete(true), () => HasConfirmAction);
         CancelCommand = new RelayCommand(() => { CancelWasClicked = true; complete(false); });
         DiscardCommand = new RelayCommand(() => discard?.Invoke(), () => HasDiscardAction);
         CloseCommand = new RelayCommand(() => complete(null));
@@ -109,6 +153,7 @@ public sealed class OrderNoticeViewModel
     public string CancelLabel { get; }
     public Visibility CancelVisibility { get; }
     public bool HasDiscardAction { get; }
+    public bool HasConfirmAction { get; }
     public bool ConfirmIsDefault => !HasDiscardAction;
     public Brush AccentBrush { get; }
     public Brush ConfirmBackground { get; }

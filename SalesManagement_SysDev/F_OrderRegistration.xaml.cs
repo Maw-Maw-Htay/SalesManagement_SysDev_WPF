@@ -30,7 +30,7 @@ public partial class F_OrderRegistration : UserControl, IDisposable
                 {
                     if (isDisposed || !IsLoaded) return;
                     if (viewModel.IsProductDetailsVisible) ProductDetailsOverlay.FocusCloseButton();
-                    else ProductDetailsButton.Focus();
+                    else ProductInput.FocusProductDetails();
                 }));
             else if (args.PropertyName == nameof(OrderRegistrationViewModel.IsCompletionDialogVisible))
                 Dispatcher.BeginInvoke(new Action(() =>

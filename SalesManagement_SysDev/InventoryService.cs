@@ -23,12 +23,7 @@ public sealed record InventoryRowData(
         _ => InventoryStockState.Available
     });
     public string DisplayCode => $"P-{ProductId:0000}";
-    public InventoryCondition Condition => Quantity switch
-    {
-        0 => InventoryCondition.Empty,
-        > 0 when SafetyStock is >= 0 => Quantity < SafetyStock ? InventoryCondition.Low : InventoryCondition.Normal,
-        _ => InventoryCondition.Unavailable
-    };
+    public InventoryCondition Condition => InventoryService.ClassifyStock(Quantity, SafetyStock);
     public string ConditionLabel => Condition switch
     {
         InventoryCondition.Empty => "在庫切れ",
@@ -60,6 +55,13 @@ public static class InventoryService
 {
     public static bool CanView => AppSession.Employee is { EmFlag: 0 }
         && (AppSession.IsAdmin || AppSession.IsLogistics);
+
+    internal static InventoryCondition ClassifyStock(long? quantity, int? safetyStock) => quantity switch
+    {
+        0 => InventoryCondition.Empty,
+        > 0 when safetyStock is >= 0 => quantity < safetyStock ? InventoryCondition.Low : InventoryCondition.Normal,
+        _ => InventoryCondition.Unavailable
+    };
 
     internal static IReadOnlyDictionary<int, InventoryStockLookup> ReadCurrentStock(
         SalesManagementContext db, IReadOnlyCollection<int> productIds)

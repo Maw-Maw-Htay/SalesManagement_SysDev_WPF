@@ -1,7 +1,11 @@
+using System.Globalization;
+using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Documents;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
 using Microsoft.Data.SqlClient;
@@ -74,25 +78,24 @@ internal static partial class Program
                 Environment.TickCount, key) { RoutedEvent = Keyboard.PreviewKeyDownEvent });
     }
 
-    private static void CheckManufacturerLayout(F_OrderRegistration view)
+    private static void CheckManufacturerLayout(FrameworkElement view)
     {
-        var fields = (FrameworkElement)view.FindName("ProductSearchFields");
-        var maker = (FrameworkElement)view.FindName("ManufacturerFilter");
-        var search = (FrameworkElement)view.FindName("ProductLookup");
-        var details = (FrameworkElement)view.FindName("ProductDetailsButton");
+        var productInput = (OrderProductInput)view.FindName("ProductInput");
+        var fields = (FrameworkElement)productInput.FindName("ProductSearchFields");
+        var maker = (FrameworkElement)productInput.FindName("ManufacturerFilter");
+        var search = (FrameworkElement)productInput.FindName("ProductLookup");
+        var details = (FrameworkElement)productInput.FindName("ProductDetailsButton");
         Rect Bounds(FrameworkElement element) => element.TransformToAncestor(fields).TransformBounds(new Rect(element.RenderSize));
         var makerBounds = Bounds(maker);
         var searchBounds = Bounds(search);
         var detailBounds = Bounds(details);
-        Check((fields.ActualWidth < 440
-                ? makerBounds.Bottom < searchBounds.Top && Math.Abs(makerBounds.Left - searchBounds.Left) < 1
-                : makerBounds.Right < searchBounds.Left && Math.Abs(makerBounds.Top - searchBounds.Top) < 1)
+        Check(makerBounds.Bottom < searchBounds.Top && Math.Abs(makerBounds.Left - searchBounds.Left) < 1
+            && Math.Abs(makerBounds.Width - fields.ActualWidth) < 1
             && Math.Abs(searchBounds.Top - detailBounds.Top) < 1 && searchBounds.Right < detailBounds.Left,
-            "manufacturer and product fields adapt to width and keep details aligned");
+            "the manufacturer field spans the card above the aligned product lookup and details button");
     }
 
-    private static void CheckRegistrationRowAndFooter(F_OrderRegistration view, FrameworkElement root,
-        DataGrid grid, OrderRegistrationViewModel vm)
+    private static void CheckRegistrationRow(FrameworkElement root, DataGrid grid, OrderRegistrationViewModel vm)
     {
         var missing = vm.Lines.Single(line => line.ProductId == 3);
         grid.ScrollIntoView(missing);
@@ -100,6 +103,7 @@ internal static partial class Program
         FlushBindings();
         var row = (DataGridRow)grid.ItemContainerGenerator.ContainerFromItem(missing);
         var product = Descendants<TextBlock>(row).Single(text => text.Text == missing.ProductName);
+        var code = Descendants<TextBlock>(row).Single(text => text.Text == missing.ProductCode);
         var warning = Descendants<TextBlock>(row).Single(text => text.Text == "在庫情報が未登録です");
         var icon = Descendants<LucideIcon>((DependencyObject)warning.Parent).Single();
         var stepper = Descendants<QuantityUpDown>(row).Single();
@@ -107,22 +111,23 @@ internal static partial class Program
         Rect Bounds(FrameworkElement element) => element.TransformToAncestor(row).TransformBounds(new Rect(element.RenderSize));
         DataGridCell Cell(string heading) => Descendants<DataGridCell>(row).Single(cell => Equals(cell.Column.Header, heading));
         var unit = Descendants<TextBlock>(Cell("単価")).Single();
-        var total = Descendants<TextBlock>(Cell("行合計（税込）")).Single();
+        var subtotal = Descendants<TextBlock>(Cell("小計")).Single();
         Check(warning.Foreground is SolidColorBrush { Color: var warningColor } && warningColor == Color.FromRgb(0xB4, 0x53, 0x09)
             && icon.IsVisible && icon.Stroke is SolidColorBrush { Color: var iconColor } && iconColor == Color.FromRgb(0xD9, 0x77, 0x06)
             && warning.FontSize == 12 && warning.FontWeight == FontWeights.SemiBold,
             $"missing stock uses 12-DIP semibold amber text and an orange icon ({warning.Foreground}, {icon.Stroke}, {warning.FontSize}, {warning.FontWeight})");
-        var verticalGap = Bounds(warning).Top - Bounds(product).Bottom;
+        var verticalGap = Bounds(warning).Top - Bounds(code).Bottom;
         var iconGap = Bounds(warning).Left - Bounds(icon).Right;
-        var productCellEnd = Bounds(Cell("商品コード / 商品名")).Right;
+        var productCellEnd = Bounds(Cell("商品コード・商品名")).Right;
         Check(Math.Abs(verticalGap - 3) < 1 && Math.Abs(iconGap - 4) < 1 && Bounds(warning).Right <= productCellEnd + 0.5
+            && Bounds(product).Bottom <= Bounds(code).Top + 0.5 && product.FontWeight == FontWeights.Bold
             && product.TextTrimming == TextTrimming.CharacterEllipsis && Equals(product.ToolTip, product.Text),
-            $"warning stays under the product and within its column ({verticalGap:F1} vertical gap, {iconGap:F1} icon gap, {productCellEnd - Bounds(warning).Right:F1} remaining width)");
+            $"warning stays under the product name and code ({verticalGap:F1} vertical gap, {iconGap:F1} icon gap, {productCellEnd - Bounds(warning).Right:F1} remaining width)");
         Check(Math.Abs(CenterY(Bounds(unit)) - CenterY(Bounds(stepper))) < 1
-            && Math.Abs(CenterY(Bounds(total)) - CenterY(Bounds(stepper))) < 1
-            && Bounds(total).Left - Bounds(unit).Right >= 16
-            && Bounds(Cell("操作")).Right - Bounds(delete).Right >= 10,
-            "prices and totals align with quantity, with space before totals and after delete");
+            && Math.Abs(CenterY(Bounds(subtotal)) - CenterY(Bounds(stepper))) < 1
+            && unit.TextAlignment == TextAlignment.Right && subtotal.TextAlignment == TextAlignment.Right
+            && Math.Abs((Bounds(Cell("操作")).Left + Bounds(Cell("操作")).Right) - (Bounds(delete).Left + Bounds(delete).Right)) < 2,
+            "prices and subtotals are right-aligned, and delete is centered");
         foreach (var (productId, message, isWarning) in new[] { (1, "在庫不足：7点", true), (2, "在庫がありません", true), (4, "在庫：5点", false) })
         {
             var line = vm.Lines.Single(line => line.ProductId == productId);
@@ -136,13 +141,33 @@ internal static partial class Program
                 Application.Current.FindResource(isWarning ? "ThemeDangerText" : "ThemeSecondaryText")),
                 "existing row style is preserved for " + message);
         }
+    }
 
-        Button FindButton(string name) => (Button)view.FindName(name);
-        double LeftOf(Button button) => button.TransformToAncestor(root).Transform(new Point()).X;
-        var save = FindButton("SaveDraftButton");
-        Check(save.IsVisible && save.IsEnabled && Equals(save.Content, "一時的保存")
-            && LeftOf(FindButton("ReturnToListEditingButton")) < LeftOf(save)
-            && LeftOf(save) < LeftOf(FindButton("RegisterButton")), "fixed footer orders back, draft save and registration");
+    private static void CheckRegistrationFooter(F_OrderRegistration view, string layout, bool stacked = false)
+    {
+        var footer = (Border)view.FindName("RegistrationFooter");
+        var back = (Button)view.FindName("ReturnToListButton");
+        var save = (Button)view.FindName("SaveDraftButton");
+        var register = (Button)view.FindName("RegisterButton");
+        var buttons = Descendants<Button>(footer).ToArray();
+        Rect Bounds(Button button) => button.TransformToAncestor(footer).TransformBounds(new Rect(button.RenderSize));
+        Check(buttons.SequenceEqual(new[] { back, save, register })
+            && buttons.Select(button => button.Content?.ToString()).SequenceEqual(new[] { "一覧に戻る", "下書き保存", "受注を登録" })
+            && buttons.All(button =>
+            {
+                var bounds = Bounds(button);
+                return button.IsVisible && Math.Abs(bounds.Height - 42) < 1 && bounds.Left >= 0 && bounds.Top >= 0
+                    && bounds.Right <= footer.ActualWidth + 1 && bounds.Bottom <= footer.ActualHeight + 1;
+            }),
+            "exactly three unclipped footer actions at " + layout);
+        var backBounds = Bounds(back);
+        var saveBounds = Bounds(save);
+        var registerBounds = Bounds(register);
+        Check(Math.Abs(backBounds.Left - footer.Padding.Left) < 1
+            && Math.Abs(footer.ActualWidth - registerBounds.Right - footer.Padding.Right) < 1
+            && Math.Abs(registerBounds.Left - saveBounds.Right - 12) < 1 && Math.Abs(saveBounds.Top - registerBounds.Top) < 1
+            && (stacked ? backBounds.Bottom < saveBounds.Top : backBounds.Right < saveBounds.Left && Math.Abs(backBounds.Top - saveBounds.Top) < 1),
+            "footer keeps Back at left and grouped Save and Register at right at " + layout);
     }
 
     private static double CenterY(Rect rect) => rect.Top + rect.Height / 2;
@@ -202,6 +227,124 @@ internal static partial class Program
         reopened.CloseCommand.Execute(null);
         Check(navigations == 3 && store.Saved?.Form.Header.Remarks == "更新した備考",
             "discard-and-leave preserves the previous draft");
+        CheckDraftNavigationDialog();
+    }
+
+    private static void CheckDraftNavigationDialog()
+    {
+        var host = new Window { Width = 1100, Height = 560, Left = -30000, Top = -30000, ShowInTaskbar = false, ShowActivated = false };
+        var store = new DraftStoreStub();
+        var navigations = 0;
+        using var model = new OrderRegistrationViewModel(() => navigations++, () => F_OrderNotice.ConfirmDraftNavigation(host),
+            source: new QuantityRegistrationSource(), draftStore: store);
+        model.Load();
+        using var view = new F_OrderRegistration();
+        var root = (FrameworkElement)view.Content;
+        view.Content = null;
+        root.DataContext = model;
+        host.Content = root;
+        var remarks = (TextBox)view.FindName("RemarksInput");
+        var back = (Button)view.FindName("ReturnToListButton");
+        var click = typeof(Button).GetMethod("OnClick", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        host.Show();
+        try
+        {
+            FlushBindings();
+            remarks.Text = "移動前に保持する入力";
+            FocusManager.SetFocusedElement(host, remarks);
+            FlushBindings();
+            var layer = AdornerLayer.GetAdornerLayer(root) ?? throw new InvalidOperationException("Expected an owner adorner layer.");
+            var originalAdorners = layer.GetAdorners(root)?.Length ?? 0;
+
+            void Interact(Action<Window, Button, Button, Button> interact)
+            {
+                InteractWithModal(host, () => click.Invoke(back, null), modal =>
+                {
+                    modal.UpdateLayout();
+                    FlushBindings();
+                    var buttons = Descendants<Button>(modal).Where(button => button.IsVisible).ToArray();
+                    Button Find(string caption) => buttons.Single(button => Equals(button.Content, caption));
+                    Check(modal.Owner == host && modal.WindowStartupLocation == WindowStartupLocation.CenterOwner
+                        && !IsWindowEnabled(new WindowInteropHelper(host).Handle)
+                        && layer.GetAdorners(root)?.Length == originalAdorners + 1,
+                        "the unsaved notice is centered, modal and dims the owner");
+                    interact(modal, Find("破棄して移動"), Find("入力を続ける"), Find("一時保存して移動"));
+                });
+                Check(IsWindowEnabled(new WindowInteropHelper(host).Handle) && (layer.GetAdorners(root)?.Length ?? 0) == originalAdorners,
+                    "closing the notice restores the owner and removes the overlay");
+            }
+
+            Interact((modal, discard, stay, save) =>
+            {
+                Check(modal.Title == "未保存の変更があります"
+                    && Descendants<TextBlock>(modal).Count(text => text.IsVisible && text.Text is
+                        "受注の入力内容がまだ保存されていません。" or "移動すると、入力内容が失われる可能性があります。" or "どのようにしますか？") == 3,
+                    "the modal shows the requested title and three messages");
+                Check(stay.IsDefault && !discard.IsDefault && !save.IsDefault, "the default action continues editing");
+                CheckFooter(modal, discard, stay, save, stacked: false);
+                Render((FrameworkElement)modal.Content, "unsaved-changes-dialog");
+                click.Invoke(stay, null);
+            });
+            Check(navigations == 0 && store.Saves == 0 && model.Remarks == "移動前に保持する入力"
+                && ReferenceEquals(FocusManager.GetFocusedElement(host), remarks), "continue preserves the input and restores editing focus");
+
+            host.Width = 560;
+            host.UpdateLayout();
+            Interact((modal, discard, stay, save) =>
+            {
+                CheckFooter(modal, discard, stay, save, stacked: false);
+                var close = Descendants<Button>(modal).Single(button => button.IsVisible && Equals(button.ToolTip, "閉じる"));
+                click.Invoke(close, null);
+            });
+            host.Width = 430;
+            host.UpdateLayout();
+            Interact((modal, discard, stay, save) =>
+            {
+                CheckFooter(modal, discard, stay, save, stacked: true);
+                stay.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(stay), Environment.TickCount, Key.Escape)
+                    { RoutedEvent = Keyboard.KeyDownEvent });
+            });
+            Check(navigations == 0 && store.Saves == 0 && model.Remarks == "移動前に保持する入力",
+                "the X button and Escape cancel navigation");
+
+            store.FailSave = true;
+            Interact((_, _, _, save) => click.Invoke(save, null));
+            WaitUntil(() => !model.IsBusy);
+            Check(navigations == 0 && model.Remarks == "移動前に保持する入力" && model.Feedback.Contains("保存できませんでした"),
+                "the save action leaves the editor and input available on failure");
+            store.FailSave = false;
+            Interact((_, _, _, save) => click.Invoke(save, null));
+            WaitUntil(() => navigations == 1);
+            Check(store.Saved?.Form.Header.Remarks == "移動前に保持する入力" && !model.HasUnsavedChanges,
+                "the save action completes before navigation");
+
+            model.Remarks = "今回の変更だけ破棄";
+            Interact((_, discard, _, _) => click.Invoke(discard, null));
+            Check(navigations == 2 && store.Saves == 2 && store.Saved?.Form.Header.Remarks == "移動前に保持する入力",
+                "the discard action navigates without replacing or deleting the saved draft");
+        }
+        finally { host.Close(); }
+
+        static void CheckFooter(Window modal, Button discard, Button stay, Button save, bool stacked)
+        {
+            var surface = (FrameworkElement)modal.Content;
+            Rect Bounds(FrameworkElement element) => element.TransformToAncestor(surface).TransformBounds(new Rect(element.RenderSize));
+            var destructive = Bounds(discard);
+            var keep = Bounds(stay);
+            var temporary = Bounds(save);
+            Check((stacked ? destructive.Bottom < keep.Top : keep.Left - destructive.Right >= 47.5 && Math.Abs(destructive.Top - keep.Top) < 1)
+                && temporary.Left - keep.Right >= 11.5 && Math.Abs(keep.Top - temporary.Top) < 1 && temporary.Right <= surface.ActualWidth,
+                $"the footer separates destructive and safe actions without overlap ({surface.ActualWidth:F1} wide, {destructive}, {keep}, {temporary})");
+            foreach (var button in new[] { discard, stay, save })
+            {
+                var caption = Descendants<TextBlock>(button).Single(text => Equals(text.Text, button.Content));
+                var text = new FormattedText(caption.Text, CultureInfo.CurrentCulture, caption.FlowDirection,
+                    new Typeface(caption.FontFamily, caption.FontStyle, caption.FontWeight, caption.FontStretch),
+                    caption.FontSize, caption.Foreground, VisualTreeHelper.GetDpi(caption).PixelsPerDip);
+                Check(caption.ActualWidth + 1 >= text.Width && Math.Abs(button.ActualHeight - 42) < 1,
+                    "the action caption fits its button");
+            }
+        }
     }
 
     private static void WaitUntil(Func<bool> condition)
@@ -476,7 +619,8 @@ internal static partial class Program
                 && reopened.Remarks == "DraftNavigationFailure", "draft list reopens the same registration form with the raw date and notes");
 
             var draftView = (F_OrderRegistration)host.Content;
-            var manufacturer = (ComboBox)draftView.FindName("ManufacturerFilter");
+            var productInput = (OrderProductInput)draftView.FindName("ProductInput");
+            var manufacturer = (ComboBox)productInput.FindName("ManufacturerFilter");
             Check(manufacturer.SelectedItem is ProductMasterOption { Id: 0 }, "reopened draft starts with all manufacturers");
             manufacturer.SelectedItem = reopened.MakerOptions.Single(option => option.Name == "Dell");
             FlushBindings();

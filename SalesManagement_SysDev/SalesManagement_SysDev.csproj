@@ -19,6 +19,8 @@
 
   <ItemGroup>
     <Content Include="Resources\Lucide\LICENSE.txt" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="ProductImages\*.png;ProductImages\*.jpg;ProductImages\*.jpeg"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
 <ItemGroup>

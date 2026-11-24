@@ -194,10 +194,15 @@ internal static partial class Program
                     $"page size {size} updates the visible range and retains the current sort");
             }
 
+            var selectionHeader = Descendants<DataGridColumnHeader>(grid).Single(header => header.Column == grid.Columns[0]);
+            var pageCheckBox = Descendants<CheckBox>(selectionHeader).Single();
             model.Rows[0].IsChecked = true;
-            Check(model.SelectionText == "1件選択中" && model.AllPageSelected == null, "individual checkbox updates selection and indeterminate header");
-            model.TogglePageSelectionCommand.Execute(null);
-            Check(model.SelectionText == "20件選択中" && model.AllPageSelected == true, "header selects the current page");
+            FlushBindings();
+            Check(model.SelectionText == "1件選択中" && pageCheckBox.IsChecked is null, "individual checkbox updates selection and indeterminate header");
+            typeof(CheckBox).GetMethod("OnClick", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(pageCheckBox, null);
+            FlushBindings();
+            Check(model.SelectionText == "20件選択中" && pageCheckBox.IsChecked == true && model.Rows.All(row => row.IsChecked),
+                "clicking the header checkbox selects the current page");
             model.NextPageCommand.Execute(null);
             WaitUntil(() => !model.IsLoading);
             Check(model.Rows.All(row => !row.IsChecked) && model.SelectionText == "20件選択中", "selection count includes checked orders on other pages");

@@ -2,5 +2,7 @@ namespace SalesManagement_SysDev;
 
 internal static class OrderTax
 {
-    public static decimal Calculate(decimal subtotal) => Math.Round(subtotal * 0.1m, 0, MidpointRounding.AwayFromZero);
+    public const decimal Rate = 0.1m;
+
+    public static decimal Calculate(decimal subtotal) => Math.Round(subtotal * Rate, 0, MidpointRounding.AwayFromZero);
 }
