@@ -118,7 +118,20 @@ public static class WarehousingService
     }
 
     internal static WarehouseMovementOperationResult ConfirmShelfInContext(SalesManagementContext db, int actorId, int warehousingId,
-        IReadOnlyCollection<WarehouseMovementLineInput>? expected)
+        IReadOnlyCollection<WarehouseMovementLineInput>? expected) =>
+        ConfirmShelfCore(db, actorId, warehousingId, expected, DateTime.Today);
+
+    public static WarehouseMovementOperationResult ConfirmDemoShelf(int actorId, int warehousingId,
+        IReadOnlyCollection<WarehouseMovementLineInput> expected, DateTime receiptDate)
+    {
+        if (!SalesManagementContext.IsDemoMode)
+            return Denied("デモ用の入庫日を設定できるのはデモDBだけです。");
+        using var db = new SalesManagementContext();
+        return ConfirmShelfCore(db, actorId, warehousingId, expected, receiptDate.Date);
+    }
+
+    private static WarehouseMovementOperationResult ConfirmShelfCore(SalesManagementContext db, int actorId, int warehousingId,
+        IReadOnlyCollection<WarehouseMovementLineInput>? expected, DateTime receiptDate)
     {
         if (!CanConfirm || AppSession.Employee?.EmId != actorId)
             return Denied("棚入れを確定する権限がありません。管理者または物流担当としてログインしてください。");
@@ -180,7 +193,7 @@ public static class WarehousingService
             }
 
             receipt.WaShelfFlag = ConfirmedState;
-            receipt.WaDate = DateTime.Today;
+            receipt.WaDate = receiptDate;
             receipt.EmId = actor!.EmployeeId;
             db.SaveChanges();
             transaction.Commit();

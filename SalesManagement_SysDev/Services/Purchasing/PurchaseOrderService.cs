@@ -22,6 +22,7 @@ public sealed record PurchaseOrderRecord(
     int ManagementFlag, string? HiddenReason, int ProductLineCount, int OrderedQuantity, int ReceivedQuantity)
 {
     public string Code => $"PO-{Id:000000}";
+    public int? RegisteredOfficeId { get; init; }
     public PurchaseReceiptStatus? RecordedProgress { get; init; }
     public int? RecordedRemaining { get; init; }
     public PurchaseReceiptStatus ReceiptStatus => RecordedProgress ??
@@ -185,7 +186,7 @@ public static partial class PurchaseOrderService
         if (!actor!.IsAdministrator) headerQuery = headerQuery.Where(x => x.HaFlag == ActiveFlag && x.RegisteredOfficeId == actor.OfficeId);
         var headers = headerQuery.Select(x => new HeaderRow(
             x.HaId, x.HaDate, x.MaId, x.Ma.MaName, x.EmId, x.Em.EmName, x.HaFlag, x.HaHidden,
-            x.THattyuDetails.Count())).ToList();
+            x.THattyuDetails.Count(), x.RegisteredOfficeId)).ToList();
         var orderIds = headers.Select(x => x.Id).ToArray();
 
         var orderedLines = orderIds.Length == 0
@@ -214,6 +215,7 @@ public static partial class PurchaseOrderService
                 header.EmployeeId, header.EmployeeName, header.ManagementFlag, header.HiddenReason,
                 header.ProductLineCount, quantities.Sum(x => x.Ordered), quantities.Sum(x => x.Received))
             {
+                RegisteredOfficeId = header.RegisteredOfficeId,
                 RecordedProgress = hasUnexpectedProduct ? PurchaseReceiptStatus.Unknown : PurchaseProgress.Classify(quantities, header.ProductLineCount),
                 RecordedRemaining = quantities.Sum(x => Math.Max(0, x.Ordered - x.Received))
             };
@@ -263,7 +265,7 @@ public static partial class PurchaseOrderService
         var header = db.THattyus.AsNoTracking()
             .Where(x => x.HaId == orderId && (actor!.IsAdministrator || (x.HaFlag == ActiveFlag && x.RegisteredOfficeId == actor.OfficeId)))
             .Select(x => new HeaderRow(x.HaId, x.HaDate, x.MaId, x.Ma.MaName, x.EmId, x.Em.EmName,
-                x.HaFlag, x.HaHidden, x.THattyuDetails.Count()))
+                x.HaFlag, x.HaHidden, x.THattyuDetails.Count(), x.RegisteredOfficeId))
             .FirstOrDefault();
         if (header == null) return null;
 
@@ -290,6 +292,7 @@ public static partial class PurchaseOrderService
             header.EmployeeId, header.EmployeeName, header.ManagementFlag, header.HiddenReason,
             header.ProductLineCount, lines.Sum(x => x.OrderedQuantity), lines.Sum(x => x.ReceivedQuantity))
         {
+            RegisteredOfficeId = header.RegisteredOfficeId,
             RecordedProgress = receivedByProduct.Keys.Except(lines.Select(x => x.ProductId)).Any() ? PurchaseReceiptStatus.Unknown
                 : PurchaseProgress.Classify(lines.Select(x => (x.OrderedQuantity, x.ReceivedQuantity)).ToArray(), header.ProductLineCount),
             RecordedRemaining = lines.Sum(x => x.RemainingQuantity)
@@ -387,7 +390,7 @@ public static partial class PurchaseOrderService
     private static PurchaseOperationResult Denied(string message) => new(false, null, message);
 
     private sealed record HeaderRow(int Id, DateTime OrderDate, int MakerId, string MakerName,
-        int EmployeeId, string EmployeeName, int ManagementFlag, string? HiddenReason, int ProductLineCount);
+        int EmployeeId, string EmployeeName, int ManagementFlag, string? HiddenReason, int ProductLineCount, int? RegisteredOfficeId);
     private sealed record LineAggregate(int OrderId, int ProductId, int Quantity);
     private sealed record DetailLineRow(int DetailId, int ProductId, string ProductCode, string ProductName,
         int OrderedQuantity, int CurrentStock, int SafetyStock);

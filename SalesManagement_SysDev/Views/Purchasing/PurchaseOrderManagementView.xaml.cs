@@ -177,6 +177,48 @@ public partial class PurchaseOrderManagementView : UserControl
 
     private void Csv_Click(object sender, RoutedEventArgs e) => PurchaseOrderCsv.Save(Window.GetWindow(this), viewModel.ExportRows);
 
+    private async void AssignOffice_Click(object sender, RoutedEventArgs e)
+    {
+        if (isOpeningDetail || viewModel.IsLoading || viewModel.IsBusy
+            || !PurchaseOrderService.CanAssignOffice || AppSession.Employee is not { } actor) return;
+        var owner = Window.GetWindow(this);
+        if ((OrdersGrid.SelectedItem as PurchaseOrderRow ?? viewModel.SelectedRow) is not { Data.RegisteredOfficeId: null } row)
+        {
+            F_OrderNotice.Show(owner, "旧発注の営業所を設定", "営業所が未設定の発注を一覧から1件選んでください。",
+                OrderNoticeKind.Information);
+            return;
+        }
+
+        isOpeningDetail = true;
+        try
+        {
+            var offices = await Task.Run(() => PurchaseOrderService.LoadAssignableOffices(actor.EmId));
+            var picker = new ComboBox { ItemsSource = offices, DisplayMemberPath = nameof(PurchaseOrderService.OfficeOption.Name),
+                Margin = new Thickness(0, 12, 0, 12) };
+            var save = new Button { Content = "営業所を設定", IsDefault = true, IsEnabled = false };
+            var panel = new StackPanel { Margin = new Thickness(20) };
+            panel.Children.Add(new TextBlock { Text = $"{row.Data.Code} の発注時の営業所を資料で確認し、選択してください。設定後はこの営業所の物流担当が扱えます。",
+                TextWrapping = TextWrapping.Wrap });
+            panel.Children.Add(picker);
+            panel.Children.Add(save);
+            var dialog = new Window { Title = "旧発注の営業所を設定", Owner = owner, Width = 480,
+                SizeToContent = SizeToContent.Height, Content = panel, WindowStartupLocation = WindowStartupLocation.CenterOwner };
+            picker.SelectionChanged += (_, _) => save.IsEnabled = picker.SelectedItem != null;
+            save.Click += (_, _) => dialog.DialogResult = true;
+            if (dialog.ShowDialog() != true || picker.SelectedItem is not PurchaseOrderService.OfficeOption office) return;
+            var result = await Task.Run(() => PurchaseOrderService.AssignOffice(actor.EmId, row.Data.Id, office.Id));
+            F_OrderNotice.Show(owner, "旧発注の営業所を設定", result.Message,
+                result.Succeeded ? OrderNoticeKind.Success : OrderNoticeKind.Error);
+            if (result.Succeeded) await viewModel.LoadAsync();
+        }
+        catch (Exception error)
+        {
+            System.Diagnostics.Debug.WriteLine(error);
+            F_OrderNotice.Show(owner, "旧発注の営業所を設定", "営業所を読み込めませんでした。", OrderNoticeKind.Error);
+        }
+        finally { isOpeningDetail = false; }
+    }
+
     private async void ConfirmSelected_Click(object sender, RoutedEventArgs e)
     {
         if (isOpeningDetail || !viewModel.CanHide || viewModel.SelectedRow is not { } row

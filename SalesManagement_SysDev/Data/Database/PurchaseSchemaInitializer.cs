@@ -2,7 +2,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace SalesManagement_SysDev;
 
-internal static class PurchaseSchemaInitializer
+public static class PurchaseSchemaInitializer
 {
     public static void EnsureReady(SalesManagementContext db)
     {

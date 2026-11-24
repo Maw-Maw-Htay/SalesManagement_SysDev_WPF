@@ -5,6 +5,49 @@ namespace SalesManagement_SysDev;
 
 public static partial class PurchaseOrderService
 {
+    public static bool CanAssignOffice => CanView && AppSession.IsAdmin;
+
+    public sealed record OfficeOption(int Id, string Name);
+
+    public static IReadOnlyList<OfficeOption> LoadAssignableOffices(int actorId)
+    {
+        if (!CanAssignOffice || AppSession.Employee?.EmId != actorId)
+            throw new UnauthorizedAccessException("営業所の割り当ては管理者のみ実行できます。");
+        using var db = new SalesManagementContext();
+        if (ResolveActor(db, actorId) is not { IsAdministrator: true })
+            throw new UnauthorizedAccessException("営業所の割り当ては管理者のみ実行できます。");
+        return db.MSalesOffices.AsNoTracking().Where(x => x.SoFlag == 0)
+            .OrderBy(x => x.SoId).Select(x => new OfficeOption(x.SoId, x.SoName)).ToList();
+    }
+
+    public static PurchaseOperationResult AssignOffice(int actorId, int orderId, int officeId)
+    {
+        if (!CanAssignOffice || AppSession.Employee?.EmId != actorId)
+            return Denied("営業所の割り当ては管理者のみ実行できます。");
+        try
+        {
+            using var db = new SalesManagementContext();
+            using var transaction = db.Database.BeginTransaction(IsolationLevel.Serializable);
+            if (ResolveActor(db, actorId) is not { IsAdministrator: true })
+                return Denied("営業所の割り当ては管理者のみ実行できます。");
+            var order = db.THattyus.FromSqlInterpolated(
+                $"SELECT * FROM dbo.T_Hattyu WITH (UPDLOCK, HOLDLOCK) WHERE HaID = {orderId}").SingleOrDefault();
+            if (order == null || order.RegisteredOfficeId.HasValue)
+                return Denied("営業所が未設定の発注を選択してください。");
+            if (!db.MSalesOffices.Any(x => x.SoId == officeId && x.SoFlag == 0))
+                return Denied("有効な営業所を選択してください。");
+            order.RegisteredOfficeId = officeId;
+            db.SaveChanges();
+            transaction.Commit();
+            return new(true, orderId, "発注と関連入庫の営業所を設定しました。");
+        }
+        catch (Exception error)
+        {
+            System.Diagnostics.Trace.TraceError("発注の営業所設定に失敗しました: {0}", error);
+            return Denied("営業所を設定できませんでした。一覧を再読込してください。");
+        }
+    }
+
     public static PurchaseOperationResult Confirm(int orderId, int actorId)
     {
         if (!CanView || AppSession.Employee?.EmId != actorId)

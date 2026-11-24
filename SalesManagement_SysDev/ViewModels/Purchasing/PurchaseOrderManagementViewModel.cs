@@ -107,6 +107,7 @@ public sealed class PurchaseOrderManagementViewModel : ViewModelBase, IDisposabl
     public bool IsBusy { get => isBusy; private set { if (Set(ref isBusy, value)) NotifyActions(); } }
     public bool CanReload => !IsLoading && !IsBusy;
     public bool CanRegister => PurchaseOrderService.CanRegister && !IsLoading && !IsBusy;
+    public bool CanAssignOffice => PurchaseOrderService.CanAssignOffice;
     public bool CanHide => PurchaseOrderService.CanHide && !IsLoading && !IsBusy
         && !searchPending && ActiveTab != PurchaseManagementTab.Hidden && SelectedRow is { IsSelectable: true };
     public bool CanClearSelection => SelectedRow != null;

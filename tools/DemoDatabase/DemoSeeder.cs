@@ -139,7 +139,7 @@ internal sealed class DemoSeeder(SalesManagementContext db, DateTime anchor, IRe
             }
             if (planned.Confirmed && receipt.WaShelfFlag == 0)
             {
-                var result = WarehousingService.ConfirmShelf(actor, receipt.WaId, lines);
+                var result = WarehousingService.ConfirmDemoShelf(actor, receipt.WaId, lines, planned.Date);
                 Require(result.Succeeded, $"Receipt {receipt.WaId} failed. {result.Message}");
             }
         }

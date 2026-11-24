@@ -25,6 +25,7 @@ internal static class Program
             var credentials = ReadCredentials();
             var ready = ReadProperty(db, "KansaiOADemoReady");
             Require(ready == null || ready == DemoData.Marker, "Unknown demo dataset version.");
+            if (mode == "seed") PurchaseSchemaInitializer.EnsureReady(db);
 
             if (mode == "seed" && ready == null)
             {
