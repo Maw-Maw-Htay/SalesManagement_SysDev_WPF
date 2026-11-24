@@ -164,7 +164,7 @@ public static class ShipmentService
         && (AppSession.IsAdmin || AppSession.IsSales);
     public static bool CanConfirm => CanView;
     public static bool CanViewHidden => AppSession.Employee is { EmFlag: ActiveFlag } && AppSession.IsAdmin;
-    public static bool CanHide => CanViewHidden;
+    public static bool CanHide => CanView;
 
     public static ShipmentDirectory Load()
     {
@@ -321,18 +321,19 @@ public static class ShipmentService
     {
         if (shipmentId <= 0) return Denied("対象の出荷を確認してください。");
         if (!CanHide || AppSession.Employee?.EmId != actorId)
-            return Denied("出荷を非表示にする権限がありません。管理者としてログインしてください。");
+            return Denied("出荷を非表示にする権限がありません。管理者または営業担当者としてログインしてください。");
         if (ShipmentOperationRules.ValidateHideReason(reason) is { } validation) return Denied(validation);
         using var db = new SalesManagementContext();
         try
         {
             using var transaction = db.Database.BeginTransaction(IsolationLevel.Serializable);
             var actor = ResolveActor(db, actorId);
-            if (actor is not { IsAdministrator: true }) return Denied("出荷を非表示にする権限がありません。");
+            EnsureCanView(actor);
             var shipment = db.TShipments.FromSqlInterpolated(
                 $"SELECT * FROM dbo.T_Shipment WITH (UPDLOCK, HOLDLOCK) WHERE ShID = {shipmentId}")
                 .SingleOrDefault();
             if (shipment == null) return Denied("対象の出荷が見つかりません。");
+            EnsureShipmentScope(shipment, actor!);
             if (ShipmentOperationRules.ValidateHideState(shipment.ShFlag, shipment.ShStateFlag) is { } stateError)
                 return Denied(stateError);
             shipment.ShFlag = HiddenFlag;

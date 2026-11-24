@@ -31,16 +31,15 @@ public static class ProductService
         flag == HiddenFlag || flag == 2 && !string.IsNullOrWhiteSpace(reason);
 
     public static bool CanView => AppSession.Employee is { EmFlag: 0, Po.PoFlag: 0 }
-        && (AppSession.IsAdmin || AppSession.IsSales || AppSession.IsLogistics);
-    public static bool CanEdit => AppSession.Employee is { EmFlag: 0, Po.PoFlag: 0 }
-        && (AppSession.IsAdmin || AppSession.IsSales);
+        && (AppSession.IsAdmin || AppSession.IsLogistics);
+    public static bool CanEdit => CanView;
     public static bool CanViewHidden => CanEdit;
-    public static bool CanViewOrders => CanEdit;
+    public static bool CanViewOrders => CanView && AppSession.IsAdmin;
 
     internal sealed record ActorScope(int Id, int OfficeId, string Role)
     {
         public bool IsAdmin => Role == "管理者";
-        public bool CanMaintain => Role is "管理者" or "営業";
+        public bool CanMaintain => Role is "管理者" or "物流";
     }
 
     public static ProductCatalog Load()

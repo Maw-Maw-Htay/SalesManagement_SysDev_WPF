@@ -103,7 +103,7 @@ internal static partial class Program
         var salesEditor = new CustomerEditorViewModel([new CustomerOffice(4, "北大阪")]);
         Check(!salesEditor.CanChangeOffice && salesEditor.OfficeId == 4, "sales office is fixed to the logged-in office");
         AppSession.Employee = Employee("物流", 4);
-        Check(!CustomerService.CanEdit && !CustomerService.CanViewHidden, "logistics is read-only and cannot view hidden customers");
+        Check(!CustomerService.CanView && !CustomerService.CanEdit && !CustomerService.CanViewHidden, "logistics cannot access customer management");
         Check(!CustomerService.CanViewOrders && !CustomerService.Restore(1,
             new(12, 4, "", "", "", "", "", "", CustomerService.HiddenFlag, "理由")).Succeeded,
             "logistics cannot view orders or restore customers");

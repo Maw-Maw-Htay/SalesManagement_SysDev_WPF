@@ -67,13 +67,13 @@ internal static partial class Program
     private static void CheckPermissions()
     {
         AppSession.Employee = Employee("物流");
-        Check(ProductService.CanView && !ProductService.CanEdit, "logistics can view but not edit products");
-        Check(!ProductService.CanViewHidden && !ProductService.CanViewOrders,
-            "logistics cannot see hidden products or customer order details");
+        Check(ProductService.CanView && ProductService.CanEdit, "logistics can maintain products");
+        Check(ProductService.CanViewHidden && !ProductService.CanViewOrders,
+            "logistics can view hidden products and cannot view order details");
+        AppSession.Employee = Employee("営業");
         var denied = ProductService.Create(1, new ProductInput(null, "", 0, 0, "", "", default, -1, -1));
         Check(!denied.Succeeded && denied.Message.Contains("権限"), "product write rejects unauthorized role before database access");
-        AppSession.Employee = Employee("営業");
-        Check(ProductService.CanView && ProductService.CanEdit && ProductService.CanViewHidden, "sales can maintain products and view hidden products");
+        Check(!ProductService.CanView && !ProductService.CanEdit && !ProductService.CanViewHidden, "sales cannot access product management");
         AppSession.Employee = Employee("管理者");
         Check(ProductService.CanEdit && ProductService.CanViewHidden, "administrator can maintain products and view hidden products");
         AppSession.Employee = null;
@@ -226,8 +226,7 @@ internal static partial class Program
             Check(ProductOrderHistory.ReadDetail(line.PrId, line.OrId)?.Lines.Any(x => x.ProductId == line.PrId) == true
                 && ProductOrderHistory.ReadDetail(int.MaxValue, line.OrId) == null, "live detail navigation rechecks the product-order relationship");
             ActAs("営業");
-            var salesOffice = AppSession.Employee!.SoId;
-            Check(ProductOrderHistory.ReadPage(line.PrId, 1).Total == query.Count(x => x.Or.SoId == salesOffice), "live sales order history is restricted by order office");
+            Check(!ProductService.CanViewOrders, "sales cannot access order history through product management");
         }
         finally { AppSession.Employee = null; }
     }

@@ -89,9 +89,9 @@ internal static class Program
     private static void CheckPermissionsAndHideReason()
     {
         AppSession.Employee = Employee("営業");
-        Check(ShipmentService.CanView && ShipmentService.CanConfirm && !ShipmentService.CanHide && !ShipmentService.CanViewHidden,
-            "active sales user can view and confirm but cannot hide or view hidden shipments");
-        Check(!ShipmentService.Hide(10, 42, "理由").Succeeded, "unauthorized hide is denied before database access");
+        Check(ShipmentService.CanView && ShipmentService.CanConfirm && ShipmentService.CanHide && !ShipmentService.CanViewHidden,
+            "active sales user can view, confirm and hide shipments in scope");
+        Check(!ShipmentService.Hide(10, 999, "理由").Succeeded, "unauthorized hide is denied before database access");
         AppSession.Employee = Employee("物流");
         Check(!ShipmentService.CanView && !ShipmentService.CanConfirm && !ShipmentService.CanHide,
             "logistics role is denied by the existing shipment permission matrix");

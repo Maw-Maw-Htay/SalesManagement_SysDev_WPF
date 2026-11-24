@@ -249,6 +249,7 @@ public static class CustomerService
     public static CustomerEditSnapshot Snapshot(CustomerRecord row) => new(row.Id, row.OfficeId, row.Name,
         row.ContactPhone, row.PostalCode, row.Address, row.Fax, row.ManagementFlag);
 
+    public static bool CanView => CanEdit;
     public static bool CanViewHidden => CanEdit;
     public static bool CanEdit => AppSession.Employee is { EmFlag: 0, Po.PoFlag: 0 } && AppSession.CanManageOrders;
     public static bool CanViewOrders => CanEdit;
@@ -257,12 +258,12 @@ public static class CustomerService
     {
         var session = AppSession.Employee;
         const string error = "顧客情報を表示または変更する権限がありません。再ログインしてください。";
-        if (session is not { EmFlag: 0, Po.PoFlag: 0 } || maintainingEmployeeId.HasValue && session.EmId != maintainingEmployeeId)
+        if (!CanView || session is not { EmFlag: 0, Po.PoFlag: 0 } || maintainingEmployeeId.HasValue && session.EmId != maintainingEmployeeId)
             throw new UnauthorizedAccessException(error);
         var actor = db.MEmployees.AsNoTracking().Where(x => x.EmId == session.EmId && x.EmFlag == 0 && x.Po.PoFlag == 0)
             .Select(x => new ActorScope(x.EmId, x.SoId, x.Po.PoName)).SingleOrDefault();
         if (actor == null || actor.OfficeId != session.SoId || actor.Role != session.Po.PoName
-            || actor.Role is not ("管理者" or "営業" or "物流") || maintainingEmployeeId.HasValue && !actor.CanMaintain)
+            || actor.Role is not ("管理者" or "営業") || maintainingEmployeeId.HasValue && !actor.CanMaintain)
             throw new UnauthorizedAccessException(error);
         return actor;
     }

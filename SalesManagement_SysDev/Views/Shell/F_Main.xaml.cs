@@ -65,8 +65,8 @@ public partial class F_Main : Window
         Add("出荷管理", "Shipment", () => ShowListPage(() => new F_Shipment()), AppSession.IsAdmin || AppSession.IsSales);
 
         AddCategory("マスタ管理");
-        Add("顧客管理", "Customer", () => ShowListPage(() => new F_Client()), AppSession.IsAdmin || AppSession.IsSales || AppSession.IsLogistics);
-        Add("商品管理", "Product", () => ShowListPage(() => new F_Product()), AppSession.IsAdmin || AppSession.IsSales || AppSession.IsLogistics);
+        Add("顧客管理", "Customer", () => ShowListPage(() => new F_Client()), CustomerService.CanView);
+        Add("商品管理", "Product", () => ShowListPage(() => new F_Product()), ProductService.CanView);
         Add("社員管理", "Employee", () => ShowListPage(() => new F_Employee()), AppSession.IsAdmin);
         AddCategory("システム管理");
         Add("履歴管理", "History", ShowHistoryManagement, AppSession.IsAdmin || AppSession.IsSales, supportsUnreadBadge: true);
