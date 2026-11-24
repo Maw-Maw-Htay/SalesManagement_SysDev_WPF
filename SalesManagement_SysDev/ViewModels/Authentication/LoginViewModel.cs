@@ -120,6 +120,8 @@ public sealed class LoginViewModel : ViewModelBase
                     if ((missing & 2) != 0) OrderSchemaInitializer.EnsureReady(db);
                     if ((missing & 4) != 0) OrderHistoryService.EnsureReady(db);
                 }
+                failure = DatabaseCheckResult.SchemaFailed;
+                PurchaseSchemaInitializer.EnsureReady(db);
                 return DatabaseCheckResult.Ready;
             }
             catch (Exception exception)

@@ -182,7 +182,7 @@ public static partial class PurchaseOrderService
         EnsureCanView(actor);
 
         var headerQuery = db.THattyus.AsNoTracking();
-        if (!actor!.IsAdministrator) headerQuery = headerQuery.Where(x => x.HaFlag == ActiveFlag);
+        if (!actor!.IsAdministrator) headerQuery = headerQuery.Where(x => x.HaFlag == ActiveFlag && x.RegisteredOfficeId == actor.OfficeId);
         var headers = headerQuery.Select(x => new HeaderRow(
             x.HaId, x.HaDate, x.MaId, x.Ma.MaName, x.EmId, x.Em.EmName, x.HaFlag, x.HaHidden,
             x.THattyuDetails.Count())).ToList();
@@ -236,7 +236,7 @@ public static partial class PurchaseOrderService
         var actor = ResolveActor(db, AppSession.Employee!.EmId);
         EnsureCanView(actor);
         return db.THattyuDetails.AsNoTracking()
-            .Where(x => (actor!.IsAdministrator || x.Ha.HaFlag == ActiveFlag)
+            .Where(x => (actor!.IsAdministrator || (x.Ha.HaFlag == ActiveFlag && x.Ha.RegisteredOfficeId == actor.OfficeId))
                 && (x.Pr.PrName.Contains(term) || (x.Pr.PrJcode != null && x.Pr.PrJcode.Contains(term))
                     || ((x.PrId < 10 ? "P-000" : x.PrId < 100 ? "P-00" : x.PrId < 1000 ? "P-0" : "P-")
                         + x.PrId.ToString()).Contains(code)))
@@ -261,7 +261,7 @@ public static partial class PurchaseOrderService
         var actor = ResolveActor(db, AppSession.Employee!.EmId);
         EnsureCanView(actor);
         var header = db.THattyus.AsNoTracking()
-            .Where(x => x.HaId == orderId && (actor!.IsAdministrator || x.HaFlag == ActiveFlag))
+            .Where(x => x.HaId == orderId && (actor!.IsAdministrator || (x.HaFlag == ActiveFlag && x.RegisteredOfficeId == actor.OfficeId)))
             .Select(x => new HeaderRow(x.HaId, x.HaDate, x.MaId, x.Ma.MaName, x.EmId, x.Em.EmName,
                 x.HaFlag, x.HaHidden, x.THattyuDetails.Count()))
             .FirstOrDefault();
@@ -294,11 +294,18 @@ public static partial class PurchaseOrderService
                 : PurchaseProgress.Classify(lines.Select(x => (x.OrderedQuantity, x.ReceivedQuantity)).ToArray(), header.ProductLineCount),
             RecordedRemaining = lines.Sum(x => x.RemainingQuantity)
         };
-        var contact = db.THattyus.AsNoTracking().Where(x => x.HaId == orderId && (actor!.IsAdministrator || x.HaFlag == ActiveFlag))
-            .Select(x => new { x.Ma.MaPhone, x.Em.So.SoName, x.Em.So.SoPhone }).FirstOrDefault();
+        var contact = db.THattyus.AsNoTracking().Where(x => x.HaId == orderId && (actor!.IsAdministrator || (x.HaFlag == ActiveFlag && x.RegisteredOfficeId == actor.OfficeId)))
+            .Select(x => new
+            {
+                x.Ma.MaPhone,
+                SoName = db.MSalesOffices.Where(office => office.SoId == x.RegisteredOfficeId)
+                    .Select(office => office.SoName).FirstOrDefault(),
+                SoPhone = db.MSalesOffices.Where(office => office.SoId == x.RegisteredOfficeId)
+                    .Select(office => office.SoPhone).FirstOrDefault()
+            }).FirstOrDefault();
         return new(order, lines)
         {
-            Receipts = QueryReceipts(db, actor!.IsAdministrator, AppSession.Employee!.SoId, orderId).ToArray(),
+            Receipts = QueryReceipts(db, actor!.IsAdministrator, actor.OfficeId, orderId).ToArray(),
             SupplierPhone = contact?.MaPhone ?? "",
             OfficeName = contact?.SoName ?? "",
             OfficePhone = contact?.SoPhone ?? ""
@@ -311,13 +318,13 @@ public static partial class PurchaseOrderService
         using var db = new SalesManagementContext();
         var actor = ResolveActor(db, AppSession.Employee!.EmId);
         EnsureCanView(actor);
-        return QueryReceipts(db, actor!.IsAdministrator, AppSession.Employee!.SoId, null).ToArray();
+        return QueryReceipts(db, actor!.IsAdministrator, actor.OfficeId, null).ToArray();
     }
 
     private static IQueryable<PurchaseReceiptRecord> QueryReceipts(SalesManagementContext db, bool administrator, int officeId, int? orderId)
     {
         return db.TWarehousings.AsNoTracking()
-            .Where(x => (administrator || (x.WaFlag == ActiveFlag && x.Ha.HaFlag == ActiveFlag && x.Ha.Em.SoId == officeId))
+            .Where(x => (administrator || (x.WaFlag == ActiveFlag && x.Ha.HaFlag == ActiveFlag && x.Ha.RegisteredOfficeId == officeId))
                 && (!orderId.HasValue || x.HaId == orderId.Value))
             .OrderByDescending(x => x.WaDate).ThenByDescending(x => x.WaId)
             .Select(x => new PurchaseReceiptRecord(x.WaId, x.HaId, x.WaDate, x.Ha.Ma.MaName,
@@ -363,7 +370,7 @@ public static partial class PurchaseOrderService
         if (role == null || !string.Equals(role, AppSession.Role, StringComparison.Ordinal)) return null;
         var isAdmin = role == "管理者";
         var isLogistics = role == "物流";
-        return new(actorId, isAdmin, isLogistics);
+        return new(actorId, session.SoId, isAdmin, isLogistics);
     }
 
     private static void EnsureCanView()
@@ -384,7 +391,7 @@ public static partial class PurchaseOrderService
     private sealed record LineAggregate(int OrderId, int ProductId, int Quantity);
     private sealed record DetailLineRow(int DetailId, int ProductId, string ProductCode, string ProductName,
         int OrderedQuantity, int CurrentStock, int SafetyStock);
-    private sealed record PurchaseActor(int EmployeeId, bool IsAdministrator, bool IsLogistics)
+    private sealed record PurchaseActor(int EmployeeId, int OfficeId, bool IsAdministrator, bool IsLogistics)
     {
         public bool IsAllowedPurchaser => IsAdministrator || IsLogistics;
     }

@@ -270,6 +270,7 @@
                 <Button Style="{StaticResource InventoryToolbarButton}" Click="MovementHistory_Click" ToolTip="在庫移動の記録状況と関連する入庫・出庫履歴を確認">
                         <StackPanel Orientation="Horizontal"><local:LucideIcon Data="{StaticResource IconHistory}" Width="15" Height="15" Stroke="{StaticResource OrderText}" Margin="0,0,6,0" /><TextBlock Text="在庫移動履歴" VerticalAlignment="Center" /></StackPanel>
                     </Button>
+                <Button x:Name="RestoreStockButton" Click="RestoreStock_Click" Content="非表示在庫を復元" Style="{StaticResource InventoryToolbarButton}" />
                 <Button Click="Export_Click" Style="{StaticResource InventoryToolbarButton}" IsEnabled="{Binding CanExport}" ToolTip="絞り込みに一致する全ページを出力" AutomationProperties.Name="CSV出力">
                         <StackPanel Orientation="Horizontal"><local:LucideIcon Data="{StaticResource IconDetails}" Width="15" Height="15" Stroke="{StaticResource OrderText}" Margin="0,0,6,0" /><TextBlock Text="CSV出力" VerticalAlignment="Center" /></StackPanel>
                     </Button>

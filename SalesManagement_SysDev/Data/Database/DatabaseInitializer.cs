@@ -20,6 +20,7 @@ public static class DatabaseInitializer
         db.Database.EnsureCreated();
         EmployeeSchemaInitializer.EnsureReady(db);
         OrderSchemaInitializer.EnsureReady(db);
+        PurchaseSchemaInitializer.EnsureReady(db);
         SeedMinimumData(db);
         OrderHistoryService.EnsureReady(db);
     }
@@ -84,6 +85,7 @@ public static class DatabaseInitializer
         db.Database.EnsureCreated();
         EmployeeSchemaInitializer.EnsureReady(db);
         OrderSchemaInitializer.EnsureReady(db);
+        PurchaseSchemaInitializer.EnsureReady(db);
         SeedMinimumData(db);
 
         using var transaction = db.Database.BeginTransaction();
@@ -206,7 +208,7 @@ public static class DatabaseInitializer
                 {
                     var maker = makerList[(i - 1) % makerList.Count];
                     var employee = employeeList[(i - 1) % employeeList.Count];
-                    var row = new THattyu { MaId = maker.MaId, EmId = employee.EmId, HaDate = date, WaWarehouseFlag = i % 2, HaFlag = 0 };
+                    var row = new THattyu { MaId = maker.MaId, EmId = employee.EmId, RegisteredOfficeId = employee.SoId, HaDate = date, WaWarehouseFlag = i % 2, HaFlag = 0 };
                     db.THattyus.Add(row); db.SaveChanges();
                     var product = productList[(i - 1) % productList.Count];
                     db.THattyuDetails.Add(new THattyuDetail { HaId = row.HaId, PrId = product.PrId, HaQuantity = 5 + i % 20 });

@@ -28,7 +28,50 @@ public partial class InventoryManagementView : UserControl
         UpdateTabs(null);
     }
 
-    private async void InventoryView_Loaded(object sender, RoutedEventArgs e) => await ViewModel.LoadAsync();
+    private async void InventoryView_Loaded(object sender, RoutedEventArgs e)
+    {
+        RestoreStockButton.Visibility = InventoryService.CanRestore ? Visibility.Visible : Visibility.Collapsed;
+        await ViewModel.LoadAsync();
+    }
+
+    private async void RestoreStock_Click(object sender, RoutedEventArgs e)
+    {
+        if (!InventoryService.CanRestore) return;
+        var owner = Window.GetWindow(this);
+        RestoreStockButton.IsEnabled = false;
+        try
+        {
+            var rows = await Task.Run(InventoryService.LoadHiddenStocks);
+            if (rows.Count == 0)
+            {
+                F_OrderNotice.Show(owner, "在庫の復元", "非表示の在庫はありません。", OrderNoticeKind.Information);
+                return;
+            }
+            var list = new ListBox { ItemsSource = rows, DisplayMemberPath = nameof(InventoryService.HiddenStock.Label) };
+            var dialog = new Window { Title = "非表示在庫を復元", Owner = owner, Width = 520, Height = 360,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner, ShowInTaskbar = false };
+            var panel = new DockPanel { Margin = new Thickness(16) };
+            var restore = new Button { Content = "選択した在庫を復元", IsDefault = true, IsEnabled = false,
+                Margin = new Thickness(0, 8, 0, 0) };
+            DockPanel.SetDock(restore, Dock.Bottom);
+            panel.Children.Add(restore);
+            panel.Children.Add(list);
+            dialog.Content = panel;
+            list.SelectionChanged += (_, _) => restore.IsEnabled = list.SelectedItem != null;
+            restore.Click += (_, _) => dialog.DialogResult = true;
+            if (dialog.ShowDialog() != true || list.SelectedItem is not InventoryService.HiddenStock stock) return;
+            var result = await Task.Run(() => InventoryService.Restore(stock));
+            F_OrderNotice.Show(owner, "在庫の復元", result.Message,
+                result.Succeeded ? OrderNoticeKind.Success : OrderNoticeKind.Error);
+            if (result.Succeeded) await ViewModel.LoadAsync();
+        }
+        catch (Exception error)
+        {
+            System.Diagnostics.Trace.TraceError("非表示在庫の取得に失敗しました: {0}", error);
+            F_OrderNotice.Show(owner, "在庫の復元", "非表示在庫を取得できませんでした。", OrderNoticeKind.Error);
+        }
+        finally { RestoreStockButton.IsEnabled = true; }
+    }
     private void InventoryView_Unloaded(object sender, RoutedEventArgs e) => ViewModel.StopRequests();
     private async void AllTab_Click(object sender, RoutedEventArgs e) => await SetTabAsync(null);
     private async void NormalTab_Click(object sender, RoutedEventArgs e) => await SetTabAsync(InventoryCondition.Normal);
@@ -200,7 +243,7 @@ internal sealed class InventoryDetailDialog : Window
         };
         hide.Click += async (_, _) =>
         {
-            if (F_OrderNotice.Confirm(this, "在庫の非表示", $"{row.DisplayCode} の在庫を非表示にしますか？", "非表示にする"))
+            if (F_OrderNotice.Confirm(this, "在庫の非表示", $"{row.DisplayCode} の在庫を非表示にしますか？\n\n復元するまで、この商品の注文確定と棚入れ確定ができなくなります。復元は管理者が行えます。", "非表示にする"))
                 await ApplyAsync(() => InventoryService.Hide(row));
         };
 

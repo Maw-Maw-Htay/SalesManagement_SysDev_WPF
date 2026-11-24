@@ -28,7 +28,7 @@ public static class WarehousingService
         WarehouseActorResolver.EnsureCanUse(actor);
 
         var query = db.TWarehousings.AsNoTracking();
-        if (!actor!.IsAdministrator) query = query.Where(x => x.WaFlag == ActiveFlag && x.Ha.Em.SoId == actor.OfficeId);
+        if (!actor!.IsAdministrator) query = query.Where(x => x.WaFlag == ActiveFlag && x.Ha.RegisteredOfficeId == actor.OfficeId);
         var headers = query.OrderByDescending(x => x.WaDate).ThenByDescending(x => x.WaId)
             .Select(x => new
             {
@@ -72,7 +72,7 @@ public static class WarehousingService
         var actor = WarehouseActorResolver.Resolve(db, AppSession.Employee!.EmId);
         WarehouseActorResolver.EnsureCanUse(actor);
         var query = db.TWarehousings.AsNoTracking().Where(x => x.WaId == id);
-        if (!actor!.IsAdministrator) query = query.Where(x => x.WaFlag == ActiveFlag && x.Ha.Em.SoId == actor.OfficeId);
+        if (!actor!.IsAdministrator) query = query.Where(x => x.WaFlag == ActiveFlag && x.Ha.RegisteredOfficeId == actor.OfficeId);
         var header = query.Select(x => new
         {
             x.WaId, x.HaId, MakerId = x.Ha.MaId, x.WaDate, x.WaShelfFlag, x.WaFlag, x.WaHidden, x.EmId,
@@ -138,7 +138,7 @@ public static class WarehousingService
 
             var purchase = db.THattyus.Include(x => x.THattyuDetails)
                 .SingleOrDefault(x => x.HaId == receipt.HaId && (x.HaFlag == ActiveFlag || x.HaFlag == HiddenFlag)
-                    && (actor!.IsAdministrator || x.Em.SoId == actor.OfficeId));
+                    && (actor!.IsAdministrator || x.RegisteredOfficeId == actor.OfficeId));
             if (purchase == null) return Denied("関連する発注情報を確認できません。");
             var incoming = db.TWarehousingDetails.AsNoTracking().Where(x => x.WaId == warehousingId)
                 .Select(x => new WarehouseMovementLineInput(x.PrId, x.WaQuantity)).ToList();
@@ -214,7 +214,7 @@ public static class WarehousingService
                 $"SELECT * FROM dbo.T_Warehousing WITH (UPDLOCK, HOLDLOCK) WHERE WaID = {warehousingId}")
                 .SingleOrDefault();
             if (receipt == null) return Denied("対象の入庫が見つかりません。");
-            if (!actor.IsAdministrator && !db.THattyus.Any(x => x.HaId == receipt.HaId && x.Em.SoId == actor.OfficeId))
+            if (!actor.IsAdministrator && !db.THattyus.Any(x => x.HaId == receipt.HaId && x.RegisteredOfficeId == actor.OfficeId))
                 return Denied("自営業所の発注に紐づく入庫だけ非表示にできます。");
             if (WarehouseMovementRules.ValidateHide(receipt.WaFlag, receipt.WaShelfFlag) is { } stateError)
                 return Denied(stateError);

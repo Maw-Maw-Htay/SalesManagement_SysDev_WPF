@@ -17,9 +17,9 @@ public static partial class PurchaseOrderService
             EnsureCanView(actor);
             var order = db.THattyus.FromSqlInterpolated(
                     $"SELECT * FROM dbo.T_Hattyu WITH (UPDLOCK, HOLDLOCK) WHERE HaID = {orderId}")
-                .Include(x => x.Em).Include(x => x.THattyuDetails).SingleOrDefault();
+                .Include(x => x.THattyuDetails).SingleOrDefault();
             if (order == null || order.HaFlag != ActiveFlag
-                || (!actor!.IsAdministrator && order.Em.SoId != AppSession.Employee!.SoId))
+                || (!actor!.IsAdministrator && order.RegisteredOfficeId != actor.OfficeId))
                 return Denied("操作できる表示中の発注が見つかりません。");
             if (order.WaWarehouseFlag != 0 || db.TWarehousings.Any(x => x.HaId == orderId))
                 return Denied("この発注は確定済みか、関連する入庫がすでにあります。");
@@ -64,7 +64,7 @@ public static partial class PurchaseOrderService
         var actor = ResolveActor(db, actorId);
         if (actor is not { IsAllowedPurchaser: true }) return Denied("発注を非表示にする権限がありません。");
         var order = db.THattyus.FirstOrDefault(x => x.HaId == orderId && x.HaFlag == ActiveFlag
-            && (actor.IsAdministrator || x.Em.SoId == AppSession.Employee!.SoId));
+            && (actor.IsAdministrator || x.RegisteredOfficeId == actor.OfficeId));
         if (order == null) return Denied("対象の発注は見つからないか、すでに非表示です。");
 
         order.HaFlag = HiddenFlag;
@@ -114,6 +114,7 @@ public static partial class PurchaseOrderService
             {
                 MaId = makerId,
                 EmId = actor.EmployeeId,
+                RegisteredOfficeId = actor.OfficeId,
                 HaDate = orderDate!.Value.Date,
                 WaWarehouseFlag = 0,
                 HaFlag = ActiveFlag,

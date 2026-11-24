@@ -8,6 +8,63 @@ public static partial class InventoryService
     private const int ActiveStockFlag = 0;
     private const int HiddenStockFlag = 2;
 
+    public static bool CanRestore => CanView && AppSession.IsAdmin;
+
+    public sealed record HiddenStock(int Id, int ProductId, string ProductName, int Quantity)
+    {
+        public string Label => $"P-{ProductId:0000}  {ProductName}  在庫 {Quantity:N0}";
+    }
+
+    public static IReadOnlyList<HiddenStock> LoadHiddenStocks()
+    {
+        using var db = new SalesManagementContext();
+        EnsureCanRestore(db);
+        return db.TStocks.AsNoTracking().Where(x => x.StFlag == HiddenStockFlag)
+            .OrderBy(x => x.PrId).ThenBy(x => x.StId)
+            .Select(x => new HiddenStock(x.StId, x.PrId, x.Pr.PrName, x.StQuantity)).ToList();
+    }
+
+    public static (bool Succeeded, string Message) Restore(HiddenStock expected)
+    {
+        if (!CanRestore) return (false, "在庫の復元は管理者のみ実行できます。");
+        try
+        {
+            using var db = new SalesManagementContext();
+            using var transaction = db.Database.BeginTransaction(IsolationLevel.Serializable);
+            EnsureCanRestore(db);
+
+            var rows = db.TStocks.FromSqlInterpolated(
+                $"SELECT * FROM dbo.T_Stock WITH (UPDLOCK, HOLDLOCK) WHERE PrID = {expected.ProductId}").ToList();
+            var stock = rows.SingleOrDefault(x => x.StId == expected.Id && x.StFlag == HiddenStockFlag);
+            if (stock == null || stock.StQuantity != expected.Quantity)
+                return (false, "在庫の状態が変わりました。非表示在庫を開き直してください。");
+            if (stock.StQuantity < 0 || rows.Any(x => x.StFlag == ActiveStockFlag)
+                || !db.MProducts.Any(x => x.PrId == stock.PrId && x.PrFlag == ProductService.ActiveFlag))
+                return (false, "有効な在庫の重複、商品状態、または在庫数量を確認してください。");
+
+            stock.StFlag = ActiveStockFlag;
+            db.SaveChanges();
+            transaction.Commit();
+            return (true, "在庫を表示に戻しました。");
+        }
+        catch (UnauthorizedAccessException error)
+        {
+            return (false, error.Message);
+        }
+        catch (Exception error)
+        {
+            System.Diagnostics.Trace.TraceError("在庫の復元に失敗しました: {0}", error);
+            return (false, "在庫を復元できませんでした。");
+        }
+    }
+
+    private static void EnsureCanRestore(SalesManagementContext db)
+    {
+        if (!CanRestore || AppSession.Employee is not { } session
+            || WarehouseActorResolver.Resolve(db, session.EmId) is not { IsAdministrator: true })
+            throw new UnauthorizedAccessException("在庫の復元は管理者のみ実行できます。");
+    }
+
     public static bool CanMaintain(InventoryRowData row) =>
         CanView && row.StockId.HasValue && row.Quantity is >= 0;
 
