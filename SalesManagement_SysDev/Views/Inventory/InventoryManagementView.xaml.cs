@@ -142,9 +142,10 @@ public partial class InventoryManagementView : UserControl
         if (sender is Button { DataContext: InventoryRowData row }) OpenDetails(row);
     }
 
-    private void OpenDetails(InventoryRowData row)
+    private async void OpenDetails(InventoryRowData row)
     {
-        if (InventoryService.CanView) new InventoryDetailDialog(row, Window.GetWindow(this)).ShowDialog();
+        if (InventoryService.CanView && new InventoryDetailDialog(row, Window.GetWindow(this)).ShowDialog() == true)
+            await ViewModel.LoadAsync();
     }
 }
 
@@ -161,6 +162,7 @@ internal sealed class InventoryDetailDialog : Window
         header.Child = new TextBlock { Text = $"在庫詳細 — {row.DisplayCode}", FontSize = 20, FontWeight = FontWeights.Bold, Foreground = System.Windows.Media.Brushes.White };
         DockPanel.SetDock(header, Dock.Top); root.Children.Add(header);
         var footer = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(20) };
+        if (InventoryService.CanMaintain(row)) AddStockActions(footer, row);
         var close = new Button { Content = "閉じる", MinWidth = 100, IsDefault = true, IsCancel = true }; footer.Children.Add(close);
         DockPanel.SetDock(footer, Dock.Bottom); root.Children.Add(footer);
         var content = new StackPanel { Margin = new Thickness(16) };
@@ -175,6 +177,50 @@ internal sealed class InventoryDetailDialog : Window
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled });
         Content = root;
         close.Click += (_, _) => Close();
+    }
+
+    private void AddStockActions(StackPanel footer, InventoryRowData row)
+    {
+        var quantity = new TextBox { Text = row.Quantity!.Value.ToString(), Width = 95, MaxLength = 10,
+            Margin = new Thickness(0, 0, 8, 0) };
+        System.Windows.Automation.AutomationProperties.SetName(quantity, "更新後の在庫数");
+        var save = new Button { Content = "在庫数を更新", Margin = new Thickness(0, 0, 8, 0) };
+        var hide = new Button { Content = "非表示", Margin = new Thickness(0, 0, 8, 0) };
+        footer.Children.Add(quantity);
+        footer.Children.Add(save);
+        footer.Children.Add(hide);
+        save.Click += async (_, _) =>
+        {
+            if (!int.TryParse(quantity.Text, out var stock) || stock < 0)
+            {
+                ShowResult((false, "在庫数は0以上の整数で入力してください。"));
+                return;
+            }
+            await ApplyAsync(() => InventoryService.UpdateQuantity(row, stock));
+        };
+        hide.Click += async (_, _) =>
+        {
+            if (F_OrderNotice.Confirm(this, "在庫の非表示", $"{row.DisplayCode} の在庫を非表示にしますか？", "非表示にする"))
+                await ApplyAsync(() => InventoryService.Hide(row));
+        };
+
+        Closing += (_, e) => e.Cancel = !footer.IsEnabled;
+
+        async Task ApplyAsync(Func<(bool Succeeded, string Message)> operation)
+        {
+            footer.IsEnabled = false;
+            (bool Succeeded, string Message) result;
+            try { result = await Task.Run(operation); }
+            finally { footer.IsEnabled = true; }
+            ShowResult(result);
+        }
+    }
+
+    private void ShowResult((bool Succeeded, string Message) result)
+    {
+        F_OrderNotice.Show(this, "在庫管理", result.Message,
+            result.Succeeded ? OrderNoticeKind.Success : OrderNoticeKind.Error);
+        if (result.Succeeded && IsVisible) DialogResult = true;
     }
 
     private static Border Card(string title, params (string Label, string Value)[] fields)

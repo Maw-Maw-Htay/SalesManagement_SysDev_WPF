@@ -17,7 +17,7 @@ public static class WarehousingService
     public static bool CanHide => CanView;
     public static bool CanRestore => CanViewHidden;
     public static bool IsRestorable(WarehouseMovementRecord record) =>
-        record.Kind == WarehouseMovementKind.Inbound && record.ManagementFlag == HiddenFlag && record.IsConfirmed
+        record.Kind == WarehouseMovementKind.Inbound && record.ManagementFlag == HiddenFlag && (record.IsConfirmed || record.IsUnconfirmed)
         && !string.IsNullOrWhiteSpace(record.HiddenReason);
 
     public static WarehouseMovementDirectory Load()
@@ -28,7 +28,7 @@ public static class WarehousingService
         WarehouseActorResolver.EnsureCanUse(actor);
 
         var query = db.TWarehousings.AsNoTracking();
-        if (!actor!.IsAdministrator) query = query.Where(x => x.WaFlag == ActiveFlag);
+        if (!actor!.IsAdministrator) query = query.Where(x => x.WaFlag == ActiveFlag && x.Ha.Em.SoId == actor.OfficeId);
         var headers = query.OrderByDescending(x => x.WaDate).ThenByDescending(x => x.WaId)
             .Select(x => new
             {
@@ -72,7 +72,7 @@ public static class WarehousingService
         var actor = WarehouseActorResolver.Resolve(db, AppSession.Employee!.EmId);
         WarehouseActorResolver.EnsureCanUse(actor);
         var query = db.TWarehousings.AsNoTracking().Where(x => x.WaId == id);
-        if (!actor!.IsAdministrator) query = query.Where(x => x.WaFlag == ActiveFlag);
+        if (!actor!.IsAdministrator) query = query.Where(x => x.WaFlag == ActiveFlag && x.Ha.Em.SoId == actor.OfficeId);
         var header = query.Select(x => new
         {
             x.WaId, x.HaId, MakerId = x.Ha.MaId, x.WaDate, x.WaShelfFlag, x.WaFlag, x.WaHidden, x.EmId,
@@ -137,7 +137,8 @@ public static class WarehousingService
                 return Denied(stateError);
 
             var purchase = db.THattyus.Include(x => x.THattyuDetails)
-                .SingleOrDefault(x => x.HaId == receipt.HaId && (x.HaFlag == ActiveFlag || x.HaFlag == HiddenFlag));
+                .SingleOrDefault(x => x.HaId == receipt.HaId && (x.HaFlag == ActiveFlag || x.HaFlag == HiddenFlag)
+                    && (actor!.IsAdministrator || x.Em.SoId == actor.OfficeId));
             if (purchase == null) return Denied("関連する発注情報を確認できません。");
             var incoming = db.TWarehousingDetails.AsNoTracking().Where(x => x.WaId == warehousingId)
                 .Select(x => new WarehouseMovementLineInput(x.PrId, x.WaQuantity)).ToList();
@@ -241,7 +242,7 @@ public static class WarehousingService
     {
         if (!CanRestore || AppSession.Employee?.EmId != actorId)
             return Denied("入庫を復元する権限がありません。");
-        if (!IsRestorable(expected)) return Denied("非表示理由が記録された確定済みの入庫だけ復元できます。");
+        if (!IsRestorable(expected)) return Denied("非表示理由と有効な業務状態が記録された入庫だけ復元できます。");
         try
         {
             using var transaction = db.Database.BeginTransaction(IsolationLevel.Serializable);
@@ -249,7 +250,7 @@ public static class WarehousingService
                 return Denied("入庫を復元する権限がありません。");
             var receipt = db.TWarehousings.FromSqlInterpolated(
                 $"SELECT * FROM dbo.T_Warehousing WITH (UPDLOCK, HOLDLOCK) WHERE WaID = {expected.Id}").SingleOrDefault();
-            if (receipt == null || receipt.WaFlag != HiddenFlag || receipt.WaShelfFlag != ConfirmedState
+            if (receipt == null || receipt.WaFlag != HiddenFlag || (receipt.WaShelfFlag is not (UnconfirmedState or ConfirmedState) || receipt.WaShelfFlag != expected.BusinessState)
                 || receipt.WaHidden != expected.HiddenReason || receipt.HaId != expected.ReferenceId)
                 return Denied("入庫の状態が変更されました。再読込してからお試しください。");
             receipt.WaFlag = ActiveFlag;

@@ -55,8 +55,8 @@ public sealed record InventoryFilters(string QuickSearch, string Code, string Na
 public sealed record InventorySummary(int Registered, int Normal, int Low, int Empty, long TotalQuantity);
 public sealed record InventoryPage(IReadOnlyList<InventoryRowData> Rows, int MatchCount, int Number, InventorySummary? Summary);
 
-/// <summary>Reads current balances only. Stock changes belong to the existing business transactions.</summary>
-public static class InventoryService
+/// <summary>Reads and maintains shared product stock balances.</summary>
+public static partial class InventoryService
 {
     public static bool CanView => AppSession.Employee is { EmFlag: 0 }
         && (AppSession.IsAdmin || AppSession.IsLogistics);
@@ -160,7 +160,9 @@ public static class InventoryService
         var currentStock = QueryStockBalances(db.TStocks.AsNoTracking());
 
         // Active products remain visible even when a trusted balance is unavailable.
-        return from product in db.MProducts.AsNoTracking().Where(x => x.PrFlag == ProductService.ActiveFlag)
+        return from product in db.MProducts.AsNoTracking().Where(x => x.PrFlag == ProductService.ActiveFlag
+                   && (!db.TStocks.Any(s => s.PrId == x.PrId && s.StFlag == HiddenStockFlag)
+                       || db.TStocks.Any(s => s.PrId == x.PrId && s.StFlag == ActiveStockFlag)))
                join balance in currentStock on (int?)product.PrId equals balance.ProductId into balances
                from balance in balances.DefaultIfEmpty()
                select new Balance

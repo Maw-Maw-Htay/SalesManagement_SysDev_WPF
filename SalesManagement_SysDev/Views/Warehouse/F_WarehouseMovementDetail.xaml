@@ -96,7 +96,7 @@
                             </Border>
                             <TextBlock Text="{Binding HideRestrictionText}" Foreground="{StaticResource ThemeWarningText}" TextWrapping="Wrap" Margin="0,8,0,0"
                                        Visibility="{Binding CanShowHideRestriction, Converter={StaticResource BooleanVisibility}}"/>
-                            <TextBlock Text="非表示理由が記録された確定済みの入庫だけ復元できます。"
+                            <TextBlock Text="非表示理由と有効な業務状態が記録された入庫だけ復元できます。"
                                        Foreground="{StaticResource ThemeSecondaryText}" TextWrapping="Wrap" Margin="0,8,0,0"
                                        Visibility="{Binding ShowRestoreRestriction, Converter={StaticResource BooleanVisibility}}"/>
                         </StackPanel>

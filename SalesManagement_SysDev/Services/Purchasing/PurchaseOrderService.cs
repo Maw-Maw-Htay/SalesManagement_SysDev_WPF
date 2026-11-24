@@ -298,7 +298,7 @@ public static partial class PurchaseOrderService
             .Select(x => new { x.Ma.MaPhone, x.Em.So.SoName, x.Em.So.SoPhone }).FirstOrDefault();
         return new(order, lines)
         {
-            Receipts = QueryReceipts(db, actor!.IsAdministrator, orderId).ToArray(),
+            Receipts = QueryReceipts(db, actor!.IsAdministrator, AppSession.Employee!.SoId, orderId).ToArray(),
             SupplierPhone = contact?.MaPhone ?? "",
             OfficeName = contact?.SoName ?? "",
             OfficePhone = contact?.SoPhone ?? ""
@@ -311,13 +311,13 @@ public static partial class PurchaseOrderService
         using var db = new SalesManagementContext();
         var actor = ResolveActor(db, AppSession.Employee!.EmId);
         EnsureCanView(actor);
-        return QueryReceipts(db, actor!.IsAdministrator, null).ToArray();
+        return QueryReceipts(db, actor!.IsAdministrator, AppSession.Employee!.SoId, null).ToArray();
     }
 
-    private static IQueryable<PurchaseReceiptRecord> QueryReceipts(SalesManagementContext db, bool administrator, int? orderId)
+    private static IQueryable<PurchaseReceiptRecord> QueryReceipts(SalesManagementContext db, bool administrator, int officeId, int? orderId)
     {
         return db.TWarehousings.AsNoTracking()
-            .Where(x => (administrator || (x.WaFlag == ActiveFlag && x.Ha.HaFlag == ActiveFlag))
+            .Where(x => (administrator || (x.WaFlag == ActiveFlag && x.Ha.HaFlag == ActiveFlag && x.Ha.Em.SoId == officeId))
                 && (!orderId.HasValue || x.HaId == orderId.Value))
             .OrderByDescending(x => x.WaDate).ThenByDescending(x => x.WaId)
             .Select(x => new PurchaseReceiptRecord(x.WaId, x.HaId, x.WaDate, x.Ha.Ma.MaName,
