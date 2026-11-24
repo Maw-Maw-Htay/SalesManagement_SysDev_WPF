@@ -59,7 +59,7 @@ public sealed class LoginViewModel : ViewModelBase
     public string ConnectionMessage => connectionState switch
     {
         "Ready" => "システムに接続しました。ログインできます。",
-        "Failed" => "システムに接続できません。管理者へお問い合わせください。",
+        "Failed" => "データベースの準備を完了できませんでした。",
         _ => "システムに接続しています…"
     };
 
@@ -86,16 +86,19 @@ public sealed class LoginViewModel : ViewModelBase
 
     public bool PrepareDatabase() => ShowDatabaseResult(CheckDatabase(connectionState == "Failed"));
 
-    private static bool CheckDatabase(bool resetPool)
+    private enum DatabaseCheckResult { Ready, ConnectionFailed, SchemaFailed }
+
+    private static DatabaseCheckResult CheckDatabase(bool resetPool)
     {
+        var failure = DatabaseCheckResult.ConnectionFailed;
         for (var attempt = 0; attempt < 2; attempt++)
         {
             try
             {
                 if (SalesManagementContext.IsPracticeMode && !SalesManagementContext.IsDemoMode)
-                    DatabaseInitializer.EnsureReady();
+                    DatabaseInitializer.EnsureReady(resetPool || attempt > 0);
                 using var db = new SalesManagementContext();
-                if (resetPool || attempt > 0)
+                if ((resetPool || attempt > 0) && (!SalesManagementContext.IsPracticeMode || SalesManagementContext.IsDemoMode))
                     SqlConnection.ClearPool((SqlConnection)db.Database.GetDbConnection());
                 if (!(SalesManagementContext.IsDemoMode ? IsDemoReady(db) : db.Database.CanConnect()))
                     throw new InvalidOperationException($"{SalesManagementContext.CatalogName} に接続できません。");
@@ -103,6 +106,7 @@ public sealed class LoginViewModel : ViewModelBase
                 if (!SalesManagementContext.IsDemoMode && !SalesManagementContext.IsPracticeMode)
                 {
                     db.Database.OpenConnection();
+                    failure = DatabaseCheckResult.SchemaFailed;
                     using var probe = db.Database.GetDbConnection().CreateCommand();
                     probe.CommandText = """
                         SELECT
@@ -116,7 +120,7 @@ public sealed class LoginViewModel : ViewModelBase
                     if ((missing & 2) != 0) OrderSchemaInitializer.EnsureReady(db);
                     if ((missing & 4) != 0) OrderHistoryService.EnsureReady(db);
                 }
-                return true;
+                return DatabaseCheckResult.Ready;
             }
             catch (Exception exception)
             {
@@ -125,12 +129,12 @@ public sealed class LoginViewModel : ViewModelBase
             }
         }
 
-        return false;
+        return failure;
     }
 
-    private bool ShowDatabaseResult(bool success)
+    private bool ShowDatabaseResult(DatabaseCheckResult result)
     {
-        if (success)
+        if (result == DatabaseCheckResult.Ready)
         {
             SetConnection("Ready");
             ClearFieldErrors();
@@ -139,10 +143,14 @@ public sealed class LoginViewModel : ViewModelBase
         }
         SetConnection("Failed");
         ClearFieldErrors();
-        ShowFeedback(SalesManagementContext.IsDemoMode
-            ? "SalesManagement_Demo の準備を確認できませんでした。デモデータを準備してから「接続を再試行」を押してください。"
-            : $"接続を確認できませんでした。SQL Server LocalDB (MSSQLLocalDB) と {SalesManagementContext.CatalogName} データベースの状態を確認し、「接続を再試行」を押してください。",
-            LoginFeedback.ConnectionError);
+        var failureMessage = result switch
+        {
+            DatabaseCheckResult.SchemaFailed => "DBには接続できましたが、必要なテーブルや列を準備できませんでした。DB管理者にスキーマと更新権限の確認を依頼してください。",
+            _ when SalesManagementContext.IsDemoMode => "SalesManagement_Demo の準備を確認できませんでした。デモデータを準備してから「接続を再試行」を押してください。",
+            _ when SalesManagementContext.IsPracticeMode => "SalesManagement_Practice を準備できませんでした。SQL Server LocalDB (MSSQLLocalDB) の状態を確認し、「接続を再試行」を押してください。",
+            _ => "接続を確認できませんでした。設定したSQL Serverとデータベースの状態を確認し、「接続を再試行」を押してください。既定の接続先はLocalDBのSalesManagementです。"
+        };
+        ShowFeedback(failureMessage, LoginFeedback.ConnectionError);
         return false;
     }
 

@@ -74,7 +74,15 @@ public partial class SalesManagementContext : DbContext
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
-        optionsBuilder.UseSqlServer($"Data Source=(LocalDB)\\MSSQLLocalDB;Initial Catalog={CatalogName};Integrated Security=True");
+        if (optionsBuilder.IsConfigured) return;
+        var connectionString = IsDemoMode || IsPracticeMode
+            ? null
+            : Environment.GetEnvironmentVariable("SALESMANAGEMENT_CONNECTION_STRING");
+
+        if (string.IsNullOrWhiteSpace(connectionString))
+            connectionString = $"Data Source=(LocalDB)\\MSSQLLocalDB;Initial Catalog={CatalogName};Integrated Security=True";
+
+        optionsBuilder.UseSqlServer(connectionString);
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)

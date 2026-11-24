@@ -2,7 +2,7 @@
 
 ## 初めて使うPCでのログイン
 
-.NET 8が対象のWindows用SDKとSQL Server Express LocalDBを用意し、「練習用ログイン.cmd」を開きます。専用DB SalesManagement_Practice にサンプルデータを準備します。初期管理者の社員IDとパスワードはいずれも 1227 です。通常起動では既存の SalesManagement を使い、旧形式の社員認証列を必要に応じて更新します。
+.NET 8が対象のWindows用SDKとSQL Server Express LocalDBを用意し、「練習用ログイン.cmd」を開きます。専用DB SalesManagement_Practice にサンプルデータを準備します。初期管理者の社員IDとパスワードはいずれも 1227 です。通常起動では、接続先の既存DBで不足している列やテーブルを必要に応じて準備します。
 
 
 電子機器卸売業向けの販売・在庫管理デスクトップアプリケーションです。現在は `SalesManagement_SysDev` プロジェクトへ統合され、ログイン、メインメニュー、商品・顧客検索、受注登録、受注管理、受注詳細、在庫・出荷関連の業務画面を提供します。
@@ -11,17 +11,19 @@
 
 1. Visual Studio 2022 で `SalesManagement_SysDev.sln` を開く。
 2. `SalesManagement_SysDev` をスタートアッププロジェクトにする。
-3. LocalDB が利用できる状態で起動する。
-ログイン画面にはデータベース作成・サンプルデータ登録の操作ボタンはありません。起動時に既存の SQL Server LocalDB SalesManagement への接続を準備し、接続に失敗した場合はログイン画面のボタンから再試行できます。
+3. 接続先の SQL Server が利用できる状態で起動する。
+ログイン画面にはデータベース作成・サンプルデータ登録の操作ボタンはありません。起動時に既存のデータベースへ接続し、接続に失敗した場合はログイン画面のボタンから再試行できます。
 「パスワードを表示」で入力内容を確認できます。ログイン画面の「パスワード変更」から、社員IDと現在のパスワードを確認して新しいパスワードへ変更できます。変更後は新しいパスワードがログイン欄に入力されます。
 
-データベースは既存の SQL Server LocalDB `SalesManagement` を利用します。接続先や既存データを変更する場合は、担当者の合意を得てから行ってください。
+通常起動は環境変数 `SALESMANAGEMENT_CONNECTION_STRING` があればその接続先を使います。既定は SQL Server LocalDB の `SalesManagement` です。練習・デモ起動は専用のLocalDBを使います。
 
 架空の関西OA機器販売株式会社を使うデモは、別プロセスから `SalesManagement_Demo` に接続できます。デモの起動方法、データ構成、検証結果は [デモデータベースの手順](docs/demo-database/README.md) を参照してください。
 
 ### ログイン画面で接続を再試行と表示される場合
 
-`接続を確認できませんでした。` と表示された場合は、このPCのLocalDBが起動しているか確認してください。WindowsのPowerShellで次のコマンドを実行します。
+`DBには接続できましたが、必要なテーブルや列を準備できませんでした。` と表示された場合は、DB管理者にスキーマと更新権限の確認を依頼してください。
+
+`接続を確認できませんでした。` と表示された場合は、設定した接続先を確認してください。既定のLocalDBを使っている場合は、WindowsのPowerShellで次のコマンドを実行します。
 
 ```powershell
 SqlLocalDB info MSSQLLocalDB
