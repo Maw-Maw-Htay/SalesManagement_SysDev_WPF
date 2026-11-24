@@ -222,6 +222,8 @@ internal static class DemoVerification
             var actor = DemoData.Logistics(plan.Office);
             var maker = keys.Makers[plan.Supplier];
             var purchase = purchases.Single(x => x.MaId == maker && x.HaDate == plan.Date && x.EmId == actor);
+            Require(purchase.RegisteredOfficeId == keys.Offices[plan.Office],
+                $"Purchase {purchase.HaId} has an unexpected office. Run seed to initialize missing demo offices.");
             Require(purchase.HaFlag == 0 && purchase.THattyuDetails.All(line => keys.Products.Single(p => p.PrId == line.PrId).MaId == maker)
                 && purchase.THattyuDetails.Select(line => (line.PrId, line.HaQuantity)).OrderBy(line => line.PrId)
                     .SequenceEqual(plan.Lines.Select(line => (keys.Products[line.Product].PrId, line.Quantity)).OrderBy(line => line.PrId)),

@@ -206,6 +206,10 @@ public partial class PurchaseOrderManagementView : UserControl
             picker.SelectionChanged += (_, _) => save.IsEnabled = picker.SelectedItem != null;
             save.Click += (_, _) => dialog.DialogResult = true;
             if (dialog.ShowDialog() != true || picker.SelectedItem is not PurchaseOrderService.OfficeOption office) return;
+            if (!F_OrderNotice.Confirm(owner, "旧発注の営業所を設定",
+                $"発注番号 {row.Data.Code} の営業所を「{office.Name}」に設定します。\n\nこの画面から設定後の変更はできません。設定しますか？",
+                "この営業所に設定する"))
+                return;
             var result = await Task.Run(() => PurchaseOrderService.AssignOffice(actor.EmId, row.Data.Id, office.Id));
             F_OrderNotice.Show(owner, "旧発注の営業所を設定", result.Message,
                 result.Succeeded ? OrderNoticeKind.Success : OrderNoticeKind.Error);

@@ -25,11 +25,17 @@ internal static class Program
             var credentials = ReadCredentials();
             var ready = ReadProperty(db, "KansaiOADemoReady");
             Require(ready == null || ready == DemoData.Marker, "Unknown demo dataset version.");
-            if (mode == "seed") PurchaseSchemaInitializer.EnsureReady(db);
+            var seeder = new DemoSeeder(db, anchor, credentials);
+            if (mode == "seed")
+            {
+                PurchaseSchemaInitializer.EnsureReady(db);
+                var updated = seeder.FillLegacyPurchaseOffices();
+                if (updated > 0) Console.WriteLine($"Assigned offices to {updated} existing demo purchase orders.");
+            }
 
             if (mode == "seed" && ready == null)
             {
-                new DemoSeeder(db, anchor, credentials).Seed();
+                seeder.Seed();
                 var report = DemoVerification.Verify(db, anchor, credentials);
                 db.Database.ExecuteSqlRaw("""
                     IF DB_NAME() <> N'SalesManagement_Demo' THROW 51000, N'Invalid demo target.', 1;
@@ -44,7 +50,7 @@ internal static class Program
             if (mode == "smoke") DemoUiChecks.Run(credentials[DemoData.Admin]);
             else
             {
-                if (mode == "seed") Console.WriteLine("The completed fixture exists. Verifying it without writing fixture rows.");
+                if (mode == "seed") Console.WriteLine("The completed fixture exists. Verifying it after the purchase-office compatibility check.");
                 DemoVerification.Verify(db, anchor, credentials).Write(GetOption(args, "--report-dir"));
             }
             return 0;

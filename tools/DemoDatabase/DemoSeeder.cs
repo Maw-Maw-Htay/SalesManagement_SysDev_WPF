@@ -1,3 +1,4 @@
+using System.Data;
 using Microsoft.EntityFrameworkCore;
 using SalesManagement_SysDev;
 using static SalesManagement.Demo.Program;
@@ -9,6 +10,38 @@ internal sealed class DemoSeeder(SalesManagementContext db, DateTime anchor, IRe
     private const string HiddenReason = "【デモ】契約終了による参照専用データ";
     private static readonly TimeSpan JapanOffset = TimeSpan.FromHours(9);
     private DemoKeys keys = null!;
+
+    internal int FillLegacyPurchaseOffices()
+    {
+        if (!db.THattyus.Any(x => x.RegisteredOfficeId == null)) return 0;
+
+        using var transaction = db.Database.BeginTransaction(IsolationLevel.Serializable);
+        var demoKeys = DemoKeys.Read(db);
+        Require(EmployeePasswordHasher.Verify(credentials[DemoData.Admin], demoKeys.Employees[DemoData.Admin].EmPasswordHash),
+            "The encrypted demo administrator credential does not match the database.");
+
+        var updated = 0;
+        foreach (var plan in DemoData.Purchases(anchor))
+        {
+            var maker = demoKeys.Makers[plan.Supplier];
+            var employee = DemoData.Logistics(plan.Office);
+            var purchase = db.THattyus.Include(x => x.THattyuDetails).SingleOrDefault(x =>
+                x.MaId == maker && x.HaDate == plan.Date && x.EmId == employee);
+            if (purchase == null || purchase.RegisteredOfficeId.HasValue) continue;
+
+            var expected = plan.Lines.Select(x => (demoKeys.Products[x.Product].PrId, x.Quantity)).OrderBy(x => x.PrId);
+            var actual = purchase.THattyuDetails.Select(x => (x.PrId, x.HaQuantity)).OrderBy(x => x.PrId);
+            Require(actual.SequenceEqual(expected),
+                $"Purchase {purchase.HaId} does not match the demo plan. Its office was not assigned.");
+            purchase.RegisteredOfficeId = demoKeys.Offices[plan.Office];
+            updated++;
+        }
+
+        db.SaveChanges();
+        transaction.Commit();
+        db.ChangeTracker.Clear();
+        return updated;
+    }
 
     internal void Seed()
     {
