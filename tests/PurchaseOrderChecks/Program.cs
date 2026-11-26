@@ -49,15 +49,24 @@ internal static class Program
         var orders = new[]
         {
             Order(1, 0, ordered: 10, received: 3),
+            Order(5, 0, ordered: 2, received: 0),
             Order(2, 0, ordered: 4, received: 4),
             Order(3, 2, ordered: 8, received: 0),
             Order(4, 0, ordered: 5, received: 7)
         };
         var summary = PurchaseProgress.Summarize(orders);
-        Check(summary == new PurchaseOrderSummary(3, 1, 1), "summary uses visible orders and excludes hidden orders from progress counts");
-        Check(!orders[3].IsFullyReceived, "over-receipt is not counted as a normal completed purchase");
+        Check(summary == new PurchaseOrderSummary(4, 1, 1), "summary uses visible orders and excludes hidden orders from progress counts");
+        Check(!orders[4].IsFullyReceived, "over-receipt is not counted as a normal completed purchase");
         Check(orders[0].RemainingQuantity == 7, "remaining quantity is the nonnegative difference");
         Check(Order(4, 0, ordered: 5, received: 7).RemainingQuantity == 0, "excess received quantity never creates negative remainder");
+        var beforeArrival = Order(6, 0, 4, 0);
+        var atWarehouse = beforeArrival with { WarehouseFlag = 1 };
+        Check(PurchaseOrderFilter.MatchesProgress(beforeArrival, PurchaseProgressFilter.Waiting)
+            && !PurchaseOrderFilter.MatchesProgress(atWarehouse, PurchaseProgressFilter.Waiting)
+            && !PurchaseOrderFilter.MatchesProgress(beforeArrival with { WarehouseFlag = null }, PurchaseProgressFilter.Waiting),
+            "only warehouse flag zero appears in the outstanding list");
+        Check(atWarehouse.ProgressLabel == "棚入れ待ち" && atWarehouse.ReceivedQuantity == 0,
+            "warehouse arrival precedes shelf confirmation");
         Check(PurchaseOrderService.FormatCode(8) == "PO-000008", "database identity is formatted as a purchase code");
         Check(PurchaseProgress.Classify([(5, 7), (5, 3)], 2) == PurchaseReceiptStatus.Excess,
             "An over-receipt cannot offset a shortage on another product");
@@ -298,7 +307,7 @@ internal static class Program
     }
 
     private static PurchaseOrderRecord Order(int id, int flag, int ordered, int received) =>
-        new(id, new DateTime(2026, 10, 20), 1, "メーカー", 10, "物流担当者", flag, null, 1, ordered, received);
+        new(id, new DateTime(2026, 10, 20), 1, "メーカー", 10, "物流担当者", flag, null, 1, ordered, received) { WarehouseFlag = received == 0 ? 0 : 1 };
 
     private static MEmployee Employee(string role) => new()
     {

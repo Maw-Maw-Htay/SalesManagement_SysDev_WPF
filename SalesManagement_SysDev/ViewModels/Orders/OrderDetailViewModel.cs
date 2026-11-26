@@ -64,7 +64,6 @@ public sealed class OrderDetailHistoryRow : INotifyPropertyChanged
 public sealed class OrderDetailViewModel : INotifyPropertyChanged
 {
     private readonly OrderDetailSnapshot data;
-    private readonly DetailCommand editCommand;
     private readonly DetailCommand confirmCommand;
     private readonly DetailCommand hideCommand;
     private readonly bool readOnly;
@@ -73,12 +72,11 @@ public sealed class OrderDetailViewModel : INotifyPropertyChanged
     private string? historyError;
     private IReadOnlyList<OrderDetailHistoryRow> history = [];
 
-    public OrderDetailViewModel(OrderDetailSnapshot data, Action edit, Action confirm, Action hide, Action print, Action close, bool readOnly = false)
+    public OrderDetailViewModel(OrderDetailSnapshot data, Action confirm, Action hide, Action print, Action close, bool readOnly = false)
     {
         this.data = data;
         this.readOnly = readOnly;
         Items = data.Lines.Select((line, index) => new OrderDetailItemRow(line, index + 1)).ToArray();
-        editCommand = new DetailCommand(() => Run(edit), () => !IsBusy && CanEdit);
         confirmCommand = new DetailCommand(() => Run(confirm), () => !IsBusy && CanConfirm);
         hideCommand = new DetailCommand(() => Run(hide), () => !IsBusy && CanHide);
         PrintCommand = new DetailCommand(() => Run(print), () => !IsBusy && CanPrint);
@@ -118,13 +116,11 @@ public sealed class OrderDetailViewModel : INotifyPropertyChanged
     public string RoundingNotice => Items.Sum(line => line.Tax) == Tax ? "" : "消費税合計は税抜合計に対して計算するため、行ごとの税額の合計と端数差が生じる場合があります。";
     public bool CanManage => !readOnly && AppSession.CanManageOrders && AppSession.Employee != null
         && (AppSession.IsAdmin || AppSession.Employee.SoId == data.OfficeId);
-    public bool CanEdit => CanManage && data.StateFlag == 0 && data.ManagementFlag == 0;
-    public bool CanConfirm => CanEdit;
+    public bool CanConfirm => CanManage && data.StateFlag == 0 && data.ManagementFlag == 0;
     public bool CanHide => CanManage && data.ManagementFlag == 0;
     public bool CanPrint => CanManage && data.StateFlag == 1;
     public string ConfirmButtonText => data.StateFlag == 1 ? "確定済み" : "受注確定";
     public string ConfirmHint => data.StateFlag == 1 ? "この受注は確定済みです" : CanConfirm ? "未確定の受注を確定します" : "未確定かつ通常表示の受注だけ確定できます";
-    public string EditHint => data.StateFlag == 1 ? "確定済みの受注は更新できません" : IsHidden ? "非表示の受注は更新できません" : CanEdit ? "数量・備考を更新します" : "この受注の更新権限がありません";
     public string PrintHint => data.StateFlag == 1 ? CanPrint ? "受注伝票を印刷します" : "この受注の印刷権限がありません" : "受注確定後に印刷できます";
     public bool ShowPrintHint => !readOnly && data.StateFlag != 1;
     public bool IsBusy => isBusy;
@@ -151,7 +147,6 @@ public sealed class OrderDetailViewModel : INotifyPropertyChanged
         : History.FirstOrDefault(row => row.Display.Entry.Operation == OrderHistoryOperations.Created && row.Display.Entry.RecordedAt != default)
             ?.Display.Entry.RecordedAt.ToOffset(OrderHistoryService.JapanOffset).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? "未記録";
 
-    public ICommand EditCommand => editCommand;
     public ICommand ConfirmCommand => confirmCommand;
     public ICommand HideCommand => hideCommand;
     public ICommand PrintCommand { get; }
@@ -180,7 +175,6 @@ public sealed class OrderDetailViewModel : INotifyPropertyChanged
 
     private void RefreshCommands()
     {
-        editCommand.Refresh();
         confirmCommand.Refresh();
         hideCommand.Refresh();
         ((DetailCommand)PrintCommand).Refresh();

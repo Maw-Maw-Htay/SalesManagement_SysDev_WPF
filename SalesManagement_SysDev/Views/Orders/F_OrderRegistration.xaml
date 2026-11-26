@@ -145,11 +145,11 @@
                             </Border>
                             <Border Style="{StaticResource RegistrationCard}" Margin="0">
                                 <StackPanel>
-                                    <TextBlock Text="備考" Style="{StaticResource RegistrationHeading}" />
+                                    <TextBlock Text="顧客担当者名" Style="{StaticResource RegistrationHeading}" />
                                     <Grid>
                                         <TextBox x:Name="RemarksInput" Text="{Binding Remarks, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" MaxLength="50"
-                                                 Style="{StaticResource MultilineInput}" Height="64" AutomationProperties.Name="備考" IsEnabled="{Binding IsEditing}" />
-                                        <TextBlock Text="受注に関する備考を入力（任意）" Margin="10,8" FontSize="12" Foreground="{StaticResource ThemeSecondaryText}" TextWrapping="Wrap" IsHitTestVisible="False">
+                                                 Style="{StaticResource MultilineInput}" Height="64" AutomationProperties.Name="顧客担当者名" IsEnabled="{Binding IsEditing}" />
+                                        <TextBlock Text="注文された方のお名前（任意）" Margin="10,8" FontSize="12" Foreground="{StaticResource ThemeSecondaryText}" TextWrapping="Wrap" IsHitTestVisible="False">
                                             <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Visibility" Value="Collapsed" /><Style.Triggers><DataTrigger Binding="{Binding Remarks}" Value=""><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers></Style></TextBlock.Style>
                                         </TextBlock>
                                     </Grid>

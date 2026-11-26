@@ -43,7 +43,7 @@
                                 <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding Order.ProgressLabel}" Foreground="{StaticResource ThemeText}" FontWeight="SemiBold" Margin="0,5" />
                                 <TextBlock Grid.Row="2" Text="発注数量" Foreground="{StaticResource ThemeSecondaryText}" Margin="0,5" />
                                 <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding OrderedQuantityText}" Foreground="{StaticResource ThemeText}" Margin="0,5" />
-                                <TextBlock Grid.Row="3" Text="入庫済 / 未入庫" Foreground="{StaticResource ThemeSecondaryText}" Margin="0,5" />
+                                <TextBlock Grid.Row="3" Text="棚入れ済 / 棚入れ残" Foreground="{StaticResource ThemeSecondaryText}" Margin="0,5" />
                                 <TextBlock Grid.Row="3" Grid.Column="1" Foreground="{StaticResource ThemeText}" Margin="0,5">
                                     <Run Text="{Binding ReceivedQuantityText, Mode=OneWay}" /><Run Text=" / " /><Run Text="{Binding RemainingQuantityText, Mode=OneWay}" />
                                 </TextBlock>
@@ -72,8 +72,8 @@
                             <DataGridTextColumn Header="商品コード" Binding="{Binding ProductCode}" Width="120" />
                             <DataGridTextColumn Header="商品名" Binding="{Binding ProductName}" Width="*" ElementStyle="{StaticResource TableText}" />
                             <DataGridTextColumn Header="発注数量" Binding="{Binding OrderedQuantity, StringFormat={}{0:N0}}" Width="92" ElementStyle="{StaticResource TableNumber}" />
-                            <DataGridTextColumn Header="入庫済数量" Binding="{Binding ReceivedQuantity, StringFormat={}{0:N0}}" Width="100" ElementStyle="{StaticResource TableNumber}" />
-                            <DataGridTextColumn Header="未入庫数量" Binding="{Binding RemainingQuantity, StringFormat={}{0:N0}}" Width="100" ElementStyle="{StaticResource TableNumber}" />
+                            <DataGridTextColumn Header="棚入れ済数" Binding="{Binding ReceivedQuantity, StringFormat={}{0:N0}}" Width="100" ElementStyle="{StaticResource TableNumber}" />
+                            <DataGridTextColumn Header="棚入れ残数" Binding="{Binding RemainingQuantity, StringFormat={}{0:N0}}" Width="100" ElementStyle="{StaticResource TableNumber}" />
                         </DataGrid.Columns>
                     </DataGrid>
                     <TextBlock Text="仕入単価・金額・納品予定日・備考は未記録です。" Foreground="{StaticResource ThemeSecondaryText}" TextWrapping="Wrap" FontSize="12" Margin="0,8,0,0" />

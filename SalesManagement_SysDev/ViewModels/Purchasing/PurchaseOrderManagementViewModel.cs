@@ -23,14 +23,14 @@ public sealed class PurchaseOrderRow : ViewModelBase
     public Brush ProgressBackground => ProgressLabel switch
     {
         "入庫済" => AppTheme.SuccessSurface,
-        "一部入庫" or "入庫待ち" => AppTheme.WarningSurface,
+        "一部入庫" or "入庫待ち" or "棚入れ待ち" => AppTheme.WarningSurface,
         "数量超過" or "数量要確認" => AppTheme.DangerSurface,
         _ => AppTheme.Subtle
     };
     public Brush ProgressForeground => ProgressLabel switch
     {
         "入庫済" => AppTheme.SuccessText,
-        "一部入庫" or "入庫待ち" => AppTheme.WarningText,
+        "一部入庫" or "入庫待ち" or "棚入れ待ち" => AppTheme.WarningText,
         "数量超過" or "数量要確認" => AppTheme.DangerText,
         _ => AppTheme.SecondaryText
     };
@@ -116,7 +116,7 @@ public sealed class PurchaseOrderManagementViewModel : ViewModelBase, IDisposabl
     public int TotalCount => source.Count;
     public int VisibleCount => source.Count(x => x.ManagementFlag == PurchaseOrderService.ActiveFlag);
     public int HiddenCount => CanViewHidden ? source.Count(x => x.ManagementFlag == PurchaseOrderService.HiddenFlag) : 0;
-    public int WaitingCount => CountProgress(PurchaseReceiptStatus.Waiting);
+    public int WaitingCount => source.Count(x => x.ManagementFlag == PurchaseOrderService.ActiveFlag && x.IsOutstanding);
     public int PartialCount => CountProgress(PurchaseReceiptStatus.Partial);
     public int ReceivedCount => CountProgress(PurchaseReceiptStatus.Received);
     public string CountText => $"{matches.Count:N0} 件 / 全 {CurrentTabCount:N0} 件";
@@ -304,7 +304,7 @@ public sealed class PurchaseOrderManagementViewModel : ViewModelBase, IDisposabl
             if (revision != Volatile.Read(ref searchRevision) || isDisposed) return;
             var filtered = source.Where(x => PurchaseOrderFilter.Matches(x, criteria, tab,
                 CanViewHidden, productOrderIds, advancedProductOrders)
-                && MatchesProgress(x, tabProgress));
+                && PurchaseOrderFilter.MatchesProgress(x, tabProgress));
             matches = (sortKey == null ? filtered : sortDescending ? filtered.OrderByDescending(sortKey) : filtered.OrderBy(sortKey)).ToArray();
             SearchError = "";
             ShowPage(1);
@@ -324,14 +324,6 @@ public sealed class PurchaseOrderManagementViewModel : ViewModelBase, IDisposabl
 
     private int CountProgress(PurchaseReceiptStatus status) => source.Count(x =>
         x.ManagementFlag == PurchaseOrderService.ActiveFlag && x.ReceiptStatus == status);
-
-    private static bool MatchesProgress(PurchaseOrderRecord order, PurchaseProgressFilter progress) => progress switch
-    {
-        PurchaseProgressFilter.Waiting => order.ReceiptStatus == PurchaseReceiptStatus.Waiting,
-        PurchaseProgressFilter.Partial => order.ReceiptStatus == PurchaseReceiptStatus.Partial,
-        PurchaseProgressFilter.Received => order.ReceiptStatus == PurchaseReceiptStatus.Received,
-        _ => true
-    };
 
     public void GoToPage(int requested)
     {

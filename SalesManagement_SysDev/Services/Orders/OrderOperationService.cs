@@ -8,17 +8,24 @@ public sealed partial class BusinessService
         string? note, IReadOnlyCollection<OrderDetailUpdate> lines, out int orderId, out string message,
         DateTime? deliveryDate = null)
     {
+        using var db = new SalesManagementContext();
+        return CreateOrderCore(db, employeeId, customerId, officeId, orderDate, note, lines, out orderId, out message, deliveryDate);
+    }
+
+    internal static bool CreateOrderCore(SalesManagementContext db, int employeeId, int customerId, int officeId,
+        DateTime orderDate, string? customerContact, IReadOnlyCollection<OrderDetailUpdate> lines,
+        out int orderId, out string message, DateTime? deliveryDate = null)
+    {
         orderId = 0;
         message = "";
         if (!AppSession.CanManageOrders || AppSession.Employee?.EmId != employeeId)
         { message = "受注の登録権限がありません。"; return false; }
         if (!AppSession.IsAdmin && AppSession.Employee.SoId != officeId)
         { message = "所属営業所以外の受注は登録できません。"; return false; }
-        if (note?.Trim().Length > OrderUpdateRules.RemarksMaxLength)
-        { message = "備考は50文字以内で入力してください。"; return false; }
+        if (customerContact?.Trim().Length > OrderUpdateRules.RemarksMaxLength)
+        { message = "顧客担当者名は50文字以内で入力してください。"; return false; }
         if (lines.Count == 0 || lines.Any(x => !OrderUpdateRules.TrySubtotal(x.Quantity, x.UnitPrice, out _)))
         { message = "明細を1行以上指定し、数量と単価を確認してください。"; return false; }
-        using var db = new SalesManagementContext();
         using var transaction = db.Database.BeginTransaction();
         try
         {
@@ -32,7 +39,7 @@ public sealed partial class BusinessService
             {
                 EmId = employeeId, ClId = customerId, SoId = officeId, OrDate = orderDate.Date,
                 OrDeliveryDate = deliveryDate?.Date,
-                ClCharge = string.IsNullOrWhiteSpace(note) ? null : note.Trim(), OrStateFlag = 0, OrFlag = 0
+                ClCharge = string.IsNullOrWhiteSpace(customerContact) ? null : customerContact.Trim(), OrStateFlag = 0, OrFlag = 0
             };
             db.TOrders.Add(order);
             db.SaveChanges();

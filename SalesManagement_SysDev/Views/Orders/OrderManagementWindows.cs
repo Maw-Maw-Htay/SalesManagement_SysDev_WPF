@@ -864,21 +864,6 @@ public sealed partial class F_OrderManagement : Window
         return true;
     }
 
-    private void RowUpdateClick(object? sender, RoutedEventArgs e)
-    {
-        if ((sender as FrameworkElement)?.DataContext is not OrderListRow row) return;
-        if (!row.更新操作可能)
-        {
-            F_OrderNotice.Show(NavigationOwner ?? this, "受注更新", "未確定かつ表示中の受注だけを更新できます。", OrderNoticeKind.Warning);
-            return;
-        }
-        var snapshot = LoadOrderDetailSnapshot(row);
-        if (snapshot == null) return;
-        var detail = new F_OrderDetail(snapshot, NavigationOwner ?? this);
-        detail.OpenUpdateEditor();
-        LoadRows();
-    }
-
     private void OrderRowDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
         if (e.ChangedButton != System.Windows.Input.MouseButton.Left
@@ -977,7 +962,6 @@ public sealed partial class F_OrderManagement : Window
         public string 状態表示 => 状態 == "確認未定" ? "未確定" : 状態;
         public string 表示 { get; init; } = "";
         public bool 確定操作可能 => 状態 == "確認未定" && 表示 == "表示";
-        public bool 更新操作可能 => 確定操作可能;
         public bool 表示復帰操作可能 => 表示 == "非表示" && AppSession.IsAdmin;
     }
 }

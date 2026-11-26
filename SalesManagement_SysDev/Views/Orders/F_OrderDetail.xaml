@@ -31,9 +31,6 @@
                                     <Button.Style><Style TargetType="Button" BasedOn="{StaticResource DetailCompactPrimary}"><Style.Triggers><DataTrigger Binding="{Binding IsConfirmed}" Value="True"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger></Style.Triggers></Style></Button.Style>
                                     <StackPanel Orientation="Horizontal"><local:LucideIcon Data="{StaticResource IconCheck}" Width="14" Height="14" Stroke="White" Margin="0,0,5,0" /><TextBlock Text="受注確定" /></StackPanel>
                                 </Button>
-                                <Button x:Name="EditOrderButton" Command="{Binding EditCommand}" Style="{StaticResource DetailCompactSecondary}" Margin="0,0,6,0" ToolTip="{Binding EditHint}" ToolTipService.ShowOnDisabled="True" AutomationProperties.Name="受注内容を更新">
-                                    <StackPanel Orientation="Horizontal"><local:LucideIcon Data="{StaticResource IconEdit}" Width="14" Height="14" Stroke="{StaticResource ThemePrimary}" Margin="0,0,5,0" /><TextBlock Text="受注内容を更新" /></StackPanel>
-                                </Button>
                                 <Button x:Name="PrintOrderButton" Command="{Binding PrintCommand}" Style="{StaticResource DetailCompactSecondary}" ToolTip="{Binding PrintHint}" ToolTipService.ShowOnDisabled="True" AutomationProperties.Name="伝票印刷">
                                     <StackPanel Orientation="Horizontal"><local:LucideIcon Data="{StaticResource DetailPrintIcon}" Width="14" Height="14" Stroke="{StaticResource ThemePrimary}" Margin="0,0,5,0" /><TextBlock Text="伝票印刷" /></StackPanel>
                                 </Button>
@@ -63,7 +60,7 @@
                                 <HeaderedContentControl Header="納品希望日" Content="{Binding DisplayDeliveryDate}" Style="{StaticResource DetailInfoField}" />
                                 <HeaderedContentControl Header="受付担当者" Content="{Binding EmployeeName}" Style="{StaticResource DetailInfoField}" />
                                 <HeaderedContentControl Header="確定日時" Content="{Binding ConfirmedAt}" Style="{StaticResource DetailInfoField}" />
-                                <HeaderedContentControl Header="備考" Content="{Binding Remarks}" Style="{StaticResource DetailInfoField}" />
+                                <HeaderedContentControl Header="顧客担当者名" Content="{Binding Remarks}" Style="{StaticResource DetailInfoField}" />
                                 <HeaderedContentControl Header="非表示理由" Content="{Binding HiddenReason}">
                                     <HeaderedContentControl.Style><Style TargetType="HeaderedContentControl" BasedOn="{StaticResource DetailInfoField}"><Setter Property="Visibility" Value="Collapsed" /><Style.Triggers><DataTrigger Binding="{Binding IsHidden}" Value="True"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers></Style></HeaderedContentControl.Style>
                                 </HeaderedContentControl>

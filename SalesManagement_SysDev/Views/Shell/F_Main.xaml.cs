@@ -9,8 +9,6 @@ public partial class F_Main : Window
 {
     private F_OrderManagement? activeOrdersWindow;
     private F_OrderRegistration? activeOrderRegistration;
-    private F_OrderUpdate? activeOrderUpdate;
-    private UIElement? orderUpdateView;
     private UIElement? ordersView;
     private ManagementListPage? activeListPage;
     private UIElement homeView = null!;
@@ -32,7 +30,6 @@ public partial class F_Main : Window
             HistoryNotificationService.UnreadCountChanged -= OnHistoryUnreadCountChanged;
             activeListPage?.Dispose();
             activeOrderRegistration?.Dispose();
-            activeOrderUpdate?.Dispose();
             // This view is detached from the shell but remains a hidden Window.
             activeOrdersWindow?.Close();
         };
@@ -241,7 +238,7 @@ public partial class F_Main : Window
         DisposeOrderRegistrationIfLeaving(view);
         Title = title;
         var isOrderPage = title is "受注管理" or "受注履歴";
-        var isRegistrationPage = title is "受注登録" or "受注更新";
+        var isRegistrationPage = title == "受注登録";
         mainHeaderTitle.Text = isOrderPage ? "受注管理" : title;
         ApplyStandardHeaderStyle();
         if (view is F_Product { Content: ProductManagementView product } && ProductService.CanEdit)
@@ -364,36 +361,11 @@ public partial class F_Main : Window
         new F_OrderDetail(snapshot, this).ShowDialog();
     }
 
-    internal bool ShowOrderUpdate(OrderDetailSnapshot snapshot)
-    {
-        if (!AppSession.CanManageOrders || snapshot.StateFlag != 0 || snapshot.ManagementFlag != 0
-            || AppSession.Employee == null || !AppSession.IsAdmin && snapshot.OfficeId != AppSession.Employee.SoId)
-        {
-            F_OrderNotice.Show(this, "受注更新", "未確定・表示中で、更新権限のある受注だけを編集できます。", OrderNoticeKind.Warning);
-            return false;
-        }
-        if (!TryApprovePageLeave()) return false;
-        var editor = new F_OrderUpdate(snapshot, () => ShowOrders(false), ShowRegisteredOrderDetails);
-        var view = editor.DetachView();
-        ShowBusinessView("受注更新", view);
-        activeOrderUpdate = editor;
-        orderUpdateView = view;
-        return true;
-    }
-
     private bool TryApprovePageLeave() =>
-        (pageHost.Content is not F_OrderRegistration registration || registration.TryApproveNavigation())
-        && (activeOrderUpdate == null || !ReferenceEquals(pageHost.Content, orderUpdateView) || activeOrderUpdate.TryApproveNavigation());
+        pageHost.Content is not F_OrderRegistration registration || registration.TryApproveNavigation();
 
     private void DisposeOrderRegistrationIfLeaving(UIElement nextView)
     {
-        if (activeOrderUpdate != null && !ReferenceEquals(nextView, orderUpdateView)
-            && ReferenceEquals(pageHost.Content, orderUpdateView))
-        {
-            activeOrderUpdate.Dispose();
-            activeOrderUpdate = null;
-            orderUpdateView = null;
-        }
         if (activeOrderRegistration == null
             || ReferenceEquals(nextView, activeOrderRegistration)
             || !ReferenceEquals(pageHost.Content, activeOrderRegistration)) return;

@@ -22,6 +22,7 @@ public sealed record PurchaseOrderRecord(
     int ManagementFlag, string? HiddenReason, int ProductLineCount, int OrderedQuantity, int ReceivedQuantity)
 {
     public string Code => $"PO-{Id:000000}";
+    public int? WarehouseFlag { get; init; }
     public int? RegisteredOfficeId { get; init; }
     public PurchaseReceiptStatus? RecordedProgress { get; init; }
     public int? RecordedRemaining { get; init; }
@@ -36,13 +37,13 @@ public sealed record PurchaseOrderRecord(
     public int RemainingQuantity => RecordedRemaining ?? Math.Max(0, OrderedQuantity - ReceivedQuantity);
     public string ProgressLabel => ReceiptStatus switch
     {
-        PurchaseReceiptStatus.Waiting => "入庫待ち",
+        PurchaseReceiptStatus.Waiting => WarehouseFlag switch { 0 => "入庫待ち", 1 => "棚入れ待ち", _ => "要確認" },
         PurchaseReceiptStatus.Partial => "一部入庫",
         PurchaseReceiptStatus.Received => "入庫済",
         PurchaseReceiptStatus.Excess => "数量超過",
         _ => ProductLineCount == 0 ? "明細なし" : "数量要確認"
     };
-    public bool IsOutstanding => ProductLineCount > 0 && RemainingQuantity > 0;
+    public bool IsOutstanding => WarehouseFlag == 0;
     public bool IsFullyReceived => ReceiptStatus == PurchaseReceiptStatus.Received;
 }
 
@@ -151,9 +152,14 @@ public static class PurchaseOrderFilter
             if (!localMatch && (matchingProductOrders == null || !matchingProductOrders.Contains(order.Id))) return false;
         }
 
-        return criteria.Progress switch
+        return MatchesProgress(order, criteria.Progress);
+    }
+
+    public static bool MatchesProgress(PurchaseOrderRecord order, PurchaseProgressFilter progress)
+    {
+        return progress switch
         {
-            PurchaseProgressFilter.Waiting => order.ReceiptStatus == PurchaseReceiptStatus.Waiting,
+            PurchaseProgressFilter.Waiting => order.IsOutstanding,
             PurchaseProgressFilter.Partial => order.ReceiptStatus == PurchaseReceiptStatus.Partial,
             PurchaseProgressFilter.Received => order.IsFullyReceived,
             _ => true
@@ -186,7 +192,7 @@ public static partial class PurchaseOrderService
         if (!actor!.IsAdministrator) headerQuery = headerQuery.Where(x => x.HaFlag == ActiveFlag && x.RegisteredOfficeId == actor.OfficeId);
         var headers = headerQuery.Select(x => new HeaderRow(
             x.HaId, x.HaDate, x.MaId, x.Ma.MaName, x.EmId, x.Em.EmName, x.HaFlag, x.HaHidden,
-            x.THattyuDetails.Count(), x.RegisteredOfficeId)).ToList();
+            x.THattyuDetails.Count(), x.RegisteredOfficeId, x.WaWarehouseFlag)).ToList();
         var orderIds = headers.Select(x => x.Id).ToArray();
 
         var orderedLines = orderIds.Length == 0
@@ -215,6 +221,7 @@ public static partial class PurchaseOrderService
                 header.EmployeeId, header.EmployeeName, header.ManagementFlag, header.HiddenReason,
                 header.ProductLineCount, quantities.Sum(x => x.Ordered), quantities.Sum(x => x.Received))
             {
+                WarehouseFlag = header.WarehouseFlag,
                 RegisteredOfficeId = header.RegisteredOfficeId,
                 RecordedProgress = hasUnexpectedProduct ? PurchaseReceiptStatus.Unknown : PurchaseProgress.Classify(quantities, header.ProductLineCount),
                 RecordedRemaining = quantities.Sum(x => Math.Max(0, x.Ordered - x.Received))
@@ -265,7 +272,7 @@ public static partial class PurchaseOrderService
         var header = db.THattyus.AsNoTracking()
             .Where(x => x.HaId == orderId && (actor!.IsAdministrator || (x.HaFlag == ActiveFlag && x.RegisteredOfficeId == actor.OfficeId)))
             .Select(x => new HeaderRow(x.HaId, x.HaDate, x.MaId, x.Ma.MaName, x.EmId, x.Em.EmName,
-                x.HaFlag, x.HaHidden, x.THattyuDetails.Count(), x.RegisteredOfficeId))
+                x.HaFlag, x.HaHidden, x.THattyuDetails.Count(), x.RegisteredOfficeId, x.WaWarehouseFlag))
             .FirstOrDefault();
         if (header == null) return null;
 
@@ -292,6 +299,7 @@ public static partial class PurchaseOrderService
             header.EmployeeId, header.EmployeeName, header.ManagementFlag, header.HiddenReason,
             header.ProductLineCount, lines.Sum(x => x.OrderedQuantity), lines.Sum(x => x.ReceivedQuantity))
         {
+            WarehouseFlag = header.WarehouseFlag,
             RegisteredOfficeId = header.RegisteredOfficeId,
             RecordedProgress = receivedByProduct.Keys.Except(lines.Select(x => x.ProductId)).Any() ? PurchaseReceiptStatus.Unknown
                 : PurchaseProgress.Classify(lines.Select(x => (x.OrderedQuantity, x.ReceivedQuantity)).ToArray(), header.ProductLineCount),
@@ -342,20 +350,11 @@ public static partial class PurchaseOrderService
         var stocks = db.TStocks.AsNoTracking().Where(x => x.StFlag == ActiveFlag)
             .GroupBy(x => x.PrId).Select(g => new { ProductId = g.Key, Quantity = g.Sum(x => x.StQuantity) })
             .ToDictionary(x => x.ProductId, x => x.Quantity);
-        var orderedByLine = db.THattyuDetails.AsNoTracking()
-            .Where(x => x.Ha.HaFlag == ActiveFlag || x.Ha.HaFlag == HiddenFlag)
-            .GroupBy(x => new { x.HaId, x.PrId })
-            .Select(g => new LineAggregate(g.Key.HaId, g.Key.PrId, g.Sum(x => x.HaQuantity))).ToList();
-        var receivedByLine = db.TWarehousingDetails.AsNoTracking()
-            .Where(x => (x.Wa.Ha.HaFlag == ActiveFlag || x.Wa.Ha.HaFlag == HiddenFlag)
-                && x.Wa.WaFlag == ActiveFlag && x.Wa.WaShelfFlag == 1)
-            .GroupBy(x => new { x.Wa.HaId, x.PrId })
-            .Select(g => new LineAggregate(g.Key.HaId, g.Key.PrId, g.Sum(x => x.WaQuantity))).ToList()
-            .ToDictionary(x => (x.OrderId, x.ProductId), x => x.Quantity);
-        var outstandingByProduct = orderedByLine
-            .GroupBy(x => x.ProductId)
-            .ToDictionary(g => g.Key, g => g.Sum(line => Math.Max(0,
-                line.Quantity - receivedByLine.GetValueOrDefault((line.OrderId, line.ProductId)))));
+        var outstandingByProduct = db.THattyuDetails.AsNoTracking()
+            .Where(x => (x.Ha.HaFlag == ActiveFlag || x.Ha.HaFlag == HiddenFlag) && x.Ha.WaWarehouseFlag == 0)
+            .GroupBy(x => x.PrId)
+            .Select(g => new { ProductId = g.Key, Quantity = g.Sum(x => x.HaQuantity) })
+            .ToDictionary(x => x.ProductId, x => x.Quantity);
         return db.MProducts.AsNoTracking().Where(x => x.PrFlag == ActiveFlag && x.Ma.MaFlag == ActiveFlag)
             .OrderBy(x => x.Ma.MaName).ThenBy(x => x.PrName)
             .Select(x => new { x.PrId, x.MaId, Code = x.PrJcode ?? "", x.PrName, MakerName = x.Ma.MaName, x.PrSafetyStock })
@@ -390,7 +389,7 @@ public static partial class PurchaseOrderService
     private static PurchaseOperationResult Denied(string message) => new(false, null, message);
 
     private sealed record HeaderRow(int Id, DateTime OrderDate, int MakerId, string MakerName,
-        int EmployeeId, string EmployeeName, int ManagementFlag, string? HiddenReason, int ProductLineCount, int? RegisteredOfficeId);
+        int EmployeeId, string EmployeeName, int ManagementFlag, string? HiddenReason, int ProductLineCount, int? RegisteredOfficeId, int? WarehouseFlag);
     private sealed record LineAggregate(int OrderId, int ProductId, int Quantity);
     private sealed record DetailLineRow(int DetailId, int ProductId, string ProductCode, string ProductName,
         int OrderedQuantity, int CurrentStock, int SafetyStock);

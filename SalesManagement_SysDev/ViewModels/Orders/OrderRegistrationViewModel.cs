@@ -385,7 +385,7 @@ public sealed class OrderRegistrationViewModel : ViewModelBase, IDisposable
         : !IsOfficeValid ? "受付営業所を候補から選択してください。"
         : !IsClientValid ? "発注元顧客を候補から選択してください。"
         : DateInputError.Length > 0 ? DateInputError
-        : Remarks.Trim().Length > 50 ? "備考は50文字以内で入力してください。"
+        : Remarks.Trim().Length > 50 ? "顧客担当者名は50文字以内で入力してください。"
         : ProductInputInvalid ? "商品を候補から選択するか、商品欄をクリアしてください。"
         : !TryQuantity(out _) ? "数量は1以上の整数で入力してください。"
         : QuantityError.Length > 0 ? QuantityError

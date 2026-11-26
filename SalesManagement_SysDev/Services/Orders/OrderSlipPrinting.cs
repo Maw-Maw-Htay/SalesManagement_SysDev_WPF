@@ -203,7 +203,7 @@ public sealed class OrderSlipPrintPreviewWindow : Window
 
         if (!string.IsNullOrWhiteSpace(slip.Remarks))
         {
-            document.Blocks.Add(SectionHeading("備考"));
+            document.Blocks.Add(SectionHeading("顧客担当者名"));
             document.Blocks.Add(new Paragraph(new Run(slip.Remarks.Trim()))
             {
                 Margin = new Thickness(0),

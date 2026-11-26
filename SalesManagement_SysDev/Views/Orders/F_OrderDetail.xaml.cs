@@ -21,10 +21,10 @@ public partial class F_OrderDetail : Window
         this.data = data;
         this.readOnly = readOnly;
         Owner = owner;
-        viewModel = new OrderDetailViewModel(data, EditOrder, ConfirmOrder, HideOrder, PrintSlip, Close, readOnly);
+        viewModel = new OrderDetailViewModel(data, ConfirmOrder, HideOrder, PrintSlip, Close, readOnly);
         DataContext = viewModel;
         if (readOnly)
-            ConfirmOrderButton.Visibility = EditOrderButton.Visibility = HideOrderButton.Visibility = PrintOrderButton.Visibility = Visibility.Collapsed;
+            ConfirmOrderButton.Visibility = HideOrderButton.Visibility = PrintOrderButton.Visibility = Visibility.Collapsed;
         Title = $"受注詳細 - ORD-{data.OrderId:000000}";
         _ = new RegistrationWindowPlacement(this, preferredWidth: 900, preferredHeight: 640, minimumWidth: 760, minimumHeight: 460);
         Loaded += async (_, _) =>
@@ -38,31 +38,6 @@ public partial class F_OrderDetail : Window
             await LoadRecordedHistoryAsync();
         };
         Closed += (_, _) => detailClosed = true;
-    }
-
-    public void OpenUpdateEditor() => EditOrder();
-
-    private void EditOrder()
-    {
-        if (readOnly) return;
-        if (!AppSession.CanManageOrders || AppSession.Employee == null)
-        {
-            F_OrderNotice.Show(Owner ?? this, "権限エラー", "受注の更新は管理者または営業担当者のみ実行できます。", OrderNoticeKind.Warning);
-            return;
-        }
-        if (data.StateFlag != 0 || data.ManagementFlag != 0)
-        {
-            F_OrderNotice.Show(Owner ?? this, "受注更新", "未確定かつ表示中の受注だけを更新できます。", OrderNoticeKind.Warning);
-            return;
-        }
-        if ((Owner ?? this) is F_Main shell)
-        {
-            if (shell.ShowOrderUpdate(data) && IsVisible) Close();
-            return;
-        }
-        var dialog = new F_OrderUpdate(data) { Owner = Owner ?? this };
-        dialog.ShowDialog();
-        if (dialog.HasSaved && IsVisible) Close();
     }
 
     private async Task LoadRecordedHistoryAsync()
