@@ -23,6 +23,10 @@
           CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="OrderUpdateChecks" />
+  </ItemGroup>
+
 <ItemGroup>
     <Resource Include="Resources\Branding\SalesManagementLogo.png" />
   </ItemGroup>

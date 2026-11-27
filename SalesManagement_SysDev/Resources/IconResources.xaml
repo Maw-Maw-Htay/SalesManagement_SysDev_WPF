@@ -37,6 +37,10 @@
         <PathGeometry Figures="m12 19-7-7 7-7" />
         <PathGeometry Figures="M19 12H5" />
     </GeometryGroup>
+    <!-- undo-2 -->
+    <GeometryGroup x:Key="IconUndo">
+        <PathGeometry Figures="M9 14 4 9l5-5 M4 9h10.5a5.5 5.5 0 0 1 0 11H12" />
+    </GeometryGroup>
     <!-- log-in -->
     <GeometryGroup x:Key="IconLogIn">
         <PathGeometry Figures="m10 17 5-5-5-5" />
@@ -95,6 +99,13 @@
     <GeometryGroup x:Key="IconCustomer">
         <EllipseGeometry Center="12,8" RadiusX="5" RadiusY="5" />
         <PathGeometry Figures="M20 21a8 8 0 0 0-16 0" />
+    </GeometryGroup>
+    <GeometryGroup x:Key="IconMapPin">
+        <PathGeometry Figures="M20 10c0 5-8 11-8 11S4 15 4 10a8 8 0 1 1 16 0Z" />
+        <EllipseGeometry Center="12,10" RadiusX="2.5" RadiusY="2.5" />
+    </GeometryGroup>
+    <GeometryGroup x:Key="IconMessage">
+        <PathGeometry Figures="M21 11.5a8.5 8.5 0 0 1-8.5 8.5c-1.5 0-2.7-.3-3.8-.9L3 21l1.9-5.6A8.5 8.5 0 1 1 21 11.5Z M8 11.5h.01 M12 11.5h.01 M16 11.5h.01" />
     </GeometryGroup>
     <!-- package -->
     <GeometryGroup x:Key="IconProduct">

@@ -229,7 +229,6 @@ public partial class HistoryManagementView : UserControl
         if (resetPage) pageIndex = 0;
         loadCancellation?.Cancel();
         searchTimer.Stop();
-        loadCancellation?.Cancel();
         if (invalidDate != null && DateTime.TryParse(invalidDate.Text, CultureInfo.CurrentCulture, DateTimeStyles.None, out _)) invalidDate = null;
         if (invalidDate != null) { ShowError("操作日時を正しい日付で入力するか、条件をクリアしてください。"); return; }
         if (immediate) _ = ReloadAsync();

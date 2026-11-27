@@ -37,7 +37,7 @@
                               IsEnabled="{Binding CanHide}" Click="RowHideClick" />
                     <MenuItem Header="復元する" Icon="{StaticResource IconOrderReset}" Style="{StaticResource OrderRowMenuItem}"
                               Visibility="{Binding CanRestore, Converter={StaticResource OrderBooleanVisibility}}" Click="RowRestoreClick" />
-                    <MenuItem Header="下書きを削除する" Icon="{StaticResource IconTrash}" Style="{StaticResource OrderDraftMenuItem}" Click="RowDeleteDraftClick" />
+                    <MenuItem Header="下書きを削除する" Icon="{StaticResource IconTrash}" Style="{StaticResource OrderDeleteDraftMenuItem}" Click="RowDeleteDraftClick" />
                 </ContextMenu>
             </Grid.Resources>
             <Grid.RowDefinitions>
@@ -362,12 +362,20 @@
                                 <TextBlock Text="CSV取込" VerticalAlignment="Center" />
                             </StackPanel>
                         </Button>
-                        <Button Command="{Binding PrintCommand}" Style="{StaticResource ThemePrimaryButton}" Height="32" Padding="10,3" FontSize="13"
+                        <Button Command="{Binding PrintCommand}" Style="{StaticResource ThemePrimaryButton}" Height="32" Padding="10,3" FontSize="13" Margin="0,0,5,0"
                                 ToolTip="表示中の検索条件と並べ替えを適用した登録済み受注をA4横でプレビュー" AutomationProperties.Name="印刷">
                             <StackPanel Orientation="Horizontal">
                                 <local:LucideIcon Data="M6,9 L6,2 L18,2 L18,9 M6,17 L3,17 L3,9 L21,9 L21,17 L18,17 M6,14 L18,14 L18,22 L6,22 Z M17,11 L18,11"
                                                   Width="15" Height="15" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" Margin="0,0,6,0" />
                                 <TextBlock Text="印刷" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="saveOrdersButton" Command="{Binding SaveCommand}" Style="{StaticResource ThemePrimaryButton}"
+                                Height="32" Padding="10,3" FontSize="13" ToolTip="選択した行、または検索結果をPDF・Excel・CSVで保存" AutomationProperties.Name="保存">
+                            <StackPanel Orientation="Horizontal">
+                                <local:LucideIcon Data="{StaticResource IconSave}" Width="15" Height="15" Margin="0,0,6,0"
+                                                  Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
+                                <TextBlock Text="保存" VerticalAlignment="Center" />
                             </StackPanel>
                         </Button>
                     </StackPanel>
@@ -407,9 +415,17 @@
                     </WrapPanel>
                     <WrapPanel x:Name="listActions" Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Center">
                         <Button Content="選択を確定" Tag="{StaticResource IconCheckCircle}" Command="{Binding ConfirmSelectedCommand}"
+                                Visibility="{Binding ShowsActiveOrderActions, Converter={StaticResource OrderBooleanVisibility}}"
                                 ToolTip="チェックした未確定・表示中の受注を確定" Style="{StaticResource OrderBulkButton}" />
                         <Button Content="選択を非表示" Tag="{StaticResource IconEyeOff}" Command="{Binding HideSelectedCommand}"
-                                ToolTip="チェックした受注を理由付きで非表示" Style="{StaticResource OrderBulkHideButton}" Margin="5,0,0,0" />
+                                Visibility="{Binding ShowsActiveOrderActions, Converter={StaticResource OrderBooleanVisibility}}"
+                                ToolTip="チェックした受注を理由付きで非表示" Style="{StaticResource OrderBulkDangerButton}" Margin="5,0,0,0" />
+                        <Button Content="復元" Tag="{StaticResource IconOrderReset}" Command="{Binding RestoreSelectedCommand}"
+                                Visibility="{Binding ShowsRestoreAction, Converter={StaticResource OrderBooleanVisibility}}"
+                                ToolTip="全ページでチェックした非表示受注を復元" Style="{StaticResource OrderBulkButton}" />
+                        <Button Content="選択を削除" Tag="{StaticResource IconTrash}" Command="{Binding DeleteSelectedDraftsCommand}"
+                                Visibility="{Binding IsDraftTab, Converter={StaticResource OrderBooleanVisibility}}"
+                                ToolTip="全ページでチェックした下書きを削除" Style="{StaticResource OrderBulkDangerButton}" />
                         <Button Content="選択を解除" Tag="{StaticResource IconX}" Command="{Binding ClearSelectionCommand}"
                                 ToolTip="全ページの選択を解除" Style="{StaticResource OrderBulkButton}" Margin="5,0,0,0" />
                     </WrapPanel>
@@ -604,6 +620,55 @@
                     </Grid>
                 </Border>
             </Grid>
+            </Border>
+
+            <Border x:Name="orderExportProgress" Grid.RowSpan="4" Panel.ZIndex="10" HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                    Margin="0,0,8,53" Padding="12,8" CornerRadius="8" Background="{StaticResource OrderSurface}"
+                    BorderBrush="{StaticResource OrderDivider}" BorderThickness="1" Width="268"
+                    Visibility="{Binding ShowExportProgress, Converter={StaticResource OrderBooleanVisibility}}">
+                <Grid>
+                    <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                    <StackPanel Margin="0,0,10,0" VerticalAlignment="Center">
+                        <TextBlock Text="保存しています..." Foreground="{StaticResource ThemePrimary}" Margin="0,0,0,6" />
+                        <ProgressBar Height="4" IsIndeterminate="True" Foreground="{StaticResource ThemePrimary}" AutomationProperties.Name="保存しています" />
+                    </StackPanel>
+                    <Button Grid.Column="1" Content="キャンセル" Height="29" Click="CancelOrderExport" Style="{StaticResource OrderToolbarButton}" />
+                </Grid>
+            </Border>
+
+            <Border x:Name="orderExportNotice" Grid.RowSpan="4" Panel.ZIndex="11" HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                    Margin="0,0,8,53" Padding="12,8" CornerRadius="8" BorderThickness="1" Width="342"
+                    Visibility="{Binding ShowExportNotice, Converter={StaticResource OrderBooleanVisibility}}">
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Setter Property="Background" Value="{StaticResource ThemeDangerSurface}" />
+                        <Setter Property="BorderBrush" Value="{StaticResource ThemeDangerBorder}" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding ExportSucceeded}" Value="True">
+                                <Setter Property="Background" Value="{StaticResource ThemeSuccessSurface}" />
+                                <Setter Property="BorderBrush" Value="{StaticResource ThemeSuccess}" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
+                <Grid>
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                    <local:LucideIcon Data="{StaticResource IconCheckCircle}" Width="17" Height="17" Stroke="{StaticResource ThemeSuccess}"
+                                      VerticalAlignment="Top" Margin="0,4,8,0" Visibility="{Binding ExportSucceeded, Converter={StaticResource OrderBooleanVisibility}}" />
+                    <StackPanel Grid.Column="1">
+                        <TextBlock Text="{Binding ExportHeading}" FontWeight="SemiBold" Foreground="{StaticResource ThemePrimary}" Margin="0,1,0,3" />
+                        <TextBlock Text="{Binding ExportDetail}" Foreground="{StaticResource OrderText}" TextWrapping="Wrap" MaxHeight="52"
+                                   TextTrimming="CharacterEllipsis" ToolTip="{Binding ExportDetail}" />
+                        <StackPanel Orientation="Horizontal" Margin="0,7,0,0" Visibility="{Binding ExportSucceeded, Converter={StaticResource OrderBooleanVisibility}}">
+                            <Button Content="保存場所を開く" Click="OpenExportFolder" Style="{StaticResource OrderToolbarButton}" Height="28" Padding="7,2" FontSize="12" Margin="0,0,5,0" />
+                            <Button Content="ファイルを開く" Click="OpenExportFile" Style="{StaticResource OrderToolbarButton}" Height="28" Padding="7,2" FontSize="12" />
+                        </StackPanel>
+                    </StackPanel>
+                    <Button Grid.Column="2" Width="24" Height="24" Padding="0" Margin="6,0,0,0" VerticalAlignment="Top"
+                            Click="DismissOrderExportNotice" Style="{StaticResource ThemeIconButton}" ToolTip="閉じる" AutomationProperties.Name="保存通知を閉じる">
+                        <local:LucideIcon Data="{StaticResource IconX}" Width="13" Height="13" Stroke="{StaticResource ThemePrimary}" />
+                    </Button>
+                </Grid>
             </Border>
         </Grid>
     </Grid>

@@ -6,6 +6,7 @@ using System.Runtime.InteropServices;
 using System.Windows.Interop;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -51,15 +52,23 @@ internal static partial class Program
             PresentationTraceSources.DataBindingSource.Switch.Level = SourceLevels.Error;
             PresentationTraceSources.DataBindingSource.Listeners.Add(new BindingListener());
             SetRole("管理者");
+            if (args.Contains("--export-only"))
+            {
+                CheckOrderExportFiles(args.Contains("--benchmark"));
+                Console.WriteLine($"PASS: {checks} order export file checks. Output: {output}");
+                app.Shutdown();
+                return 0;
+            }
+            var updateDatabaseOnly = args.Contains("--update-database-only");
             if(args.Contains("--draft-only")) CheckDraftNavigation();
             else if(args.Contains("--preview-only")) RenderLayout(1150,720,"update-ux-preview",true,count:2);
             else if(args.Contains("--layout-only")) CheckLayouts();
-            else if(args.Contains("--database-only")) { }
-            else { CheckViewModel(); CheckQuantityInputs(); CheckDraftNavigation(); CheckUpdateWorkflow(); CheckInventoryStatus(); CheckUpdateNavigation(); CheckCompletionRoutes(); CheckConcurrencySnapshot(); CheckLayouts(); }
+            else if(args.Contains("--database-only") || updateDatabaseOnly) { }
+            else { CheckViewModel(); CheckQuantityInputs(); CheckDraftNavigation(); CheckUpdateWorkflow(); CheckUpdateDeletion(); CheckInventoryStatus(); CheckUpdateNavigation(); CheckCompletionRoutes(); CheckConcurrencySnapshot(); CheckLayouts(); }
             if (!args.Contains("--skip-database"))
             {
                 if (!args.Contains("--draft-only")) CheckDatabase();
-                CheckDraftDatabase();
+                if (!updateDatabaseOnly) CheckDraftDatabase();
             }
             else Console.WriteLine("SKIPPED: database integration tests (--skip-database).");
             Check(bindingErrors.Count == 0, "XAML binding errors: " + string.Join(" | ", bindingErrors));
@@ -80,10 +89,11 @@ internal static partial class Program
         EmId = 1, EmName = "高谷春男", SoId = office, Po = new MPosition { PoName = role },
         So = new MSalesOffice { SoId = office, SoName = "北大阪営業所" }
     };
-    private static OrderDetailSnapshot Sample(int count = 2, int state = 0, int hidden = 0, int employeeId = 1) => new()
+    private static OrderDetailSnapshot Sample(int count = 2, int state = 0, int hidden = 0, int employeeId = 1,
+        int officeId = 1, string officeName = "北大阪営業所") => new()
     {
         OrderId = 165, CustomerId = 1, CustomerName = "INATUGI", CustomerAddress = "大阪府茨木市横江2-5-60 本館3階 商品受入窓口",
-        CustomerPhone = "072-02-5171", OfficeId = 1, OfficeName = "北大阪営業所", EmployeeId = employeeId, EmployeeName = "佐藤一郎",
+        CustomerPhone = "072-02-5171", OfficeId = officeId, OfficeName = officeName, EmployeeId = employeeId, EmployeeName = "佐藤一郎",
         OrderDate = new DateTime(2026, 10, 20), DeliveryDate = new DateTime(2026, 10, 29), StateFlag = state, ManagementFlag = hidden,
         Lines = Enumerable.Range(1, count).Select(index => new OrderDetailLine
         {
@@ -149,7 +159,8 @@ internal static partial class Program
         foreach (var sample in new[] { Sample(state: 1), Sample(hidden: 2) })
         {
             var locked = new OrderUpdateViewModel(sample, _ => { }); locked.Remarks = "変更";
-            Check(!locked.CanEdit && !locked.CanSave, "confirmed/hidden read-only");
+            Check(!locked.CanEdit && !locked.CanSave && !locked.RemoveAllLinesCommand.CanExecute(null)
+                && !locked.UndoRemoveLineCommand.CanExecute(null), "confirmed/hidden read-only, including detail actions");
         }
         SetRole("営業"); Check(new OrderUpdateViewModel(Sample(), _ => { }).CanEdit, "sales can edit quantity and remarks");
         SetRole("物流"); Check(!new OrderUpdateViewModel(Sample(), _ => { }).CanEdit, "role deny by default");
@@ -197,7 +208,7 @@ internal static partial class Program
         Check(vm.Lines.Count==3 && added.IsNew && added.UnitPrice==2000 && vm.Remarks=="更新する備考" && source.Calls==0,
             "new product uses catalog price and preserves remarks without a database write");
         Check(vm.RemoveLineCommand.CanExecute(vm.Lines[0]),"existing saved detail can be removed during an order update");
-        vm.RemoveLineCommand.Execute(added);Check(vm.Lines.Count==2 && vm.HasUndo,"new draft row removal reuses registration Undo");
+        vm.RemoveLineCommand.Execute(added);Check(vm.Lines.Count==2 && vm.HasUndo,"new draft row removal enables update Undo");
         vm.UndoRemoveLineCommand.Execute(null);added=vm.Lines.Single(line=>line.ProductId==3);
         Check(vm.Lines.Count==3 && added.Quantity=="4" && vm.Subtotal==amount && added.UnitPrice==2000,"shared Undo restores quantity, original price and totals");
         lookups.StockState=InventoryStockState.Available;
@@ -222,6 +233,91 @@ internal static partial class Program
             && source.SubmittedLines!.Single(line=>line.ProductId==3).DetailId==null,
             "save submits original concurrency snapshot separately from edited header and newly added detail");
         Wait(vm.SaveAsync());Check(source.Calls==1 && !vm.CanEdit && !vm.HasUnsavedChanges,"successful save retains read-only contents and prevents a second save");
+    }
+
+    private static void CheckUpdateDeletion()
+    {
+        var original = Sample(3, employeeId: 17);
+        var source = new ControlledSource();
+        var confirm = false;
+        using var editor = new OrderUpdateViewModel(original, _ => { }, source, new UpdateLookupSource(), confirmDeleteAll: () => confirm);
+        editor.Load();
+        var originalRows = editor.Lines.ToArray();
+        Check(editor.RemoveAllLinesCommand.CanExecute(null) && !editor.UndoRemoveLineCommand.CanExecute(null),
+            "update starts with Delete All available and Undo disabled");
+
+        editor.Remarks = "編集中の備考";
+        editor.OrderDate = original.OrderDate.AddDays(1);
+        editor.DeliveryDate = null;
+        editor.RemoveLineCommand.Execute(originalRows[1]);
+        originalRows[0].Quantity = "3";
+        editor.UndoRemoveLineCommand.Execute(null);
+        Check(editor.Lines.SequenceEqual(originalRows) && editor.QuantitySummary == "3 品目 / 7 点"
+            && editor.Subtotal == 8638 && editor.Tax == 864 && editor.Total == 9502 && !editor.HasUndo,
+            "individual Undo restores the same row in its original position and retains edits on other rows");
+
+        originalRows[2].Quantity = "5";
+        originalRows[2].Quantity = "abc";
+        editor.RemoveAllLinesCommand.Execute(null);
+        Check(editor.Lines.SequenceEqual(originalRows) && !editor.HasUndo, "declining Delete All preserves every row");
+        confirm = true;
+        editor.RemoveAllLinesCommand.Execute(null);
+        Wait(editor.SaveAsync());
+        Check(editor.Lines.Count == 0 && editor.QuantitySummary == "0 品目 / 0 点"
+            && editor.Subtotal == 0 && editor.Tax == 0 && editor.Total == 0
+            && !editor.CanSave && !editor.RemoveAllLinesCommand.CanExecute(null) && editor.UndoRemoveLineCommand.CanExecute(null)
+            && editor.HasUnsavedChanges && source.Calls == 0, "Delete All clears local details and blocks saving an empty order");
+        Check(editor.OrderDate == original.OrderDate.AddDays(1) && editor.DeliveryDate == null
+            && editor.Remarks == "編集中の備考" && editor.Detail.EmployeeName == original.EmployeeName
+            && editor.Entry.SelectedOffice?.SoId == original.OfficeId && editor.CustomerName == original.CustomerName,
+            "Delete All keeps the customer, receiving office, employee, edited dates and remarks");
+        editor.Entry.SelectedProduct = editor.Entry.Products.Single(product => product.PrId == 4);
+        editor.AddLineCommand.Execute(null);
+        editor.UndoRemoveLineCommand.Execute(null);
+        Check(editor.Lines.Take(3).SequenceEqual(originalRows) && editor.Lines[3].ProductId == 4
+            && editor.Lines[2].Quantity == "abc" && editor.Lines[2].Preview.Quantity == 5 && !editor.CanSave
+            && editor.Subtotal == 14340 && editor.Tax == 1434 && editor.Total == 15774 && !editor.HasUndo,
+            "bulk Undo restores order and pending quantities, keeps newly added rows and revalidates all details");
+
+        originalRows[2].Quantity = "5";
+        editor.RemoveAllLinesCommand.Execute(null);
+        editor.Entry.SelectedProduct = editor.Entry.Products.Single(product => product.PrId == originalRows[2].ProductId);
+        editor.Entry.Quantity = "2";
+        editor.AddLineCommand.Execute(null);
+        editor.UndoRemoveLineCommand.Execute(null);
+        Check(editor.Lines.Count == 4 && ReferenceEquals(editor.Lines[2], originalRows[2]) && editor.Lines[2].Quantity == "7"
+            && editor.Lines[2].UnitPrice == original.Lines[2].UnitPrice && editor.CanSave,
+            "bulk Undo merges quantities for a re-added product while retaining the saved detail ID and price");
+
+        editor.RemoveAllLinesCommand.Execute(null);
+        editor.Entry.SelectedProduct = editor.Entry.Products.Single(product => product.PrId == originalRows[0].ProductId);
+        editor.Entry.Quantity = editor.Entry.MaximumQuantity.ToString(CultureInfo.InvariantCulture);
+        editor.AddLineCommand.Execute(null);
+        var readded = editor.Lines.Single();
+        editor.UndoRemoveLineCommand.Execute(null);
+        Check(editor.Lines.SequenceEqual(new[] { readded }) && editor.HasUndo && editor.Feedback.Contains("行合計"),
+            "Undo validates a merged amount before changing any rows and keeps the snapshot available on failure");
+        readded.Quantity = "1";
+        editor.UndoRemoveLineCommand.Execute(null);
+        Check(editor.Lines.Take(3).SequenceEqual(originalRows) && originalRows[0].Quantity == "4" && !editor.HasUndo,
+            "Undo can be retried after adjusting an amount that exceeded the existing limit");
+
+        editor.RemoveLineCommand.Execute(originalRows[1]);
+        source.Pending = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        var failed = editor.SaveAsync();
+        Check(editor.IsBusy && !editor.RemoveAllLinesCommand.CanExecute(null) && !editor.UndoRemoveLineCommand.CanExecute(null),
+            "detail actions are disabled while saving");
+        source.Pending.SetResult(new(false, "検証用の保存失敗"));
+        Wait(failed);
+        Check(editor.HasUndo && editor.UndoRemoveLineCommand.CanExecute(null) && editor.Lines.Count == 3
+            && editor.Feedback == "検証用の保存失敗", "a failed save leaves the unsaved deletion and Undo available");
+        source.Pending = null;
+        Wait(editor.SaveAsync());
+        Check(editor.HasSaved && !editor.HasUndo && !editor.UndoRemoveLineCommand.CanExecute(null)
+            && !editor.RemoveAllLinesCommand.CanExecute(null) && source.Calls == 2
+            && source.Expected == original && source.Edited!.EmployeeId == original.EmployeeId
+            && source.SubmittedLines!.All(line => line.DetailId != originalRows[1].DetailId),
+            "successful save clears Undo and submits the edited detail set through the existing update path");
     }
 
     private static void CheckInventoryStatus()
@@ -321,7 +417,8 @@ internal static partial class Program
     {
         var source = new ControlledSource();
         var returns = 0;
-        using var editor = new F_OrderUpdate(Sample(6, employeeId: 17), () => returns++,
+        var order = Sample(6, employeeId: 17, officeId: 2, officeName: "南営業所");
+        using var editor = new F_OrderUpdate(order, () => returns++,
             updateSource: source, lookupSource: new UpdateLookupSource());
         var root = (FrameworkElement)editor.DetachView();
         var model = (OrderUpdateViewModel)root.DataContext;
@@ -340,25 +437,49 @@ internal static partial class Program
                 .Invoke(shell, ["受注更新", root]);
             shell.Show(); shell.UpdateLayout(); FlushBindings();
             var status = (TextBlock)shell.FindName("status");
+            var sessionPanel = (FrameworkElement)shell.FindName("orderEntrySession");
+            var sessionText = Descendants<TextBlock>(sessionPanel).Where(text => text.IsVisible).Select(text => text.Text).ToArray();
             var employee = AppSession.Employee!;
             Check(((TextBlock)shell.FindName("mainHeaderTitle")).Text == "受注更新"
                 && ((LucideIcon)shell.FindName("orderHeaderIcon")).IsVisible
-                && status.Text.EndsWith($"役職：{employee.Po.PoName}　営業所：{employee.So.SoName}", StringComparison.Ordinal)
-                && !status.Text.Contains(employee.EmName, StringComparison.Ordinal)
+                && sessionPanel.IsVisible && !status.IsVisible
+                && sessionText is [var name, var role, var office] && name.EndsWith(employee.EmName, StringComparison.Ordinal)
+                && role == employee.Po.PoName && office == order.OfficeName && office != employee.So.SoName
+                && model.Entry.SelectedOffice?.SoId == order.OfficeId
                 && Equals(sidebar.Background, Application.Current.FindResource("ThemeOrderEntryNavy")),
-                "embedded update shares the registration header and sidebar styling and session values");
+                "embedded update shows the signed-in employee and the order's own branch in the shared registration header");
             Check(Descendants<TextBlock>(root).Any(text => text.Text == model.Detail.OrderNumber && text.IsVisible)
-                && !Descendants<TextBlock>(root).Any(text => text.Text == "受注受付担当者" || text.Text == model.Detail.EmployeeName),
-                "the update form retains its read-only order number and omits the duplicate employee row");
+                && !Descendants<TextBlock>(root).Any(text => text.IsVisible
+                    && (text.Text is "受注受付担当者" or "受付営業所" || text.Text == model.Detail.EmployeeName || text.Text == order.OfficeName)),
+                "the update form keeps the order number and uses the header for the branch");
             model.Remarks = "入力中の変更内容";
             shell.UpdateLayout(); FlushBindings();
             Render((FrameworkElement)shell.Content, "update-shell-desktop");
+
+            var (deleteAll, undo) = DetailActionButtons((FrameworkElement)editor.FindName("DetailActions"));
+            Check(Descendants<TextBlock>(root).Count(text => text.IsVisible && text.Text == model.QuantitySummary) == 1,
+                "the update editor displays its quantity summary once in the detail heading");
+            foreach (var confirm in new[] { false, true })
+            {
+                CheckDeleteAllPrompt(shell, deleteAll, confirm, render: confirm);
+                FlushBindings();
+                Check(model.Lines.Count == (confirm ? 0 : 6) && model.Remarks == "入力中の変更内容" && source.Calls == 0,
+                    "Delete All confirmation affects local details only");
+            }
+            Check(!deleteAll.IsVisible && undo.IsVisible && undo.IsEnabled && !((Button)editor.FindName("SaveButton")).IsEnabled
+                && Descendants<TextBlock>(root).Any(text => text.Text == "商品が追加されていません。" && text.IsVisible)
+                && Descendants<TextBlock>(root).Any(text => text.Text == "左側から商品を選択して追加してください。" && text.IsVisible),
+                "empty update details show guidance and Undo, hide Delete All and disable Save");
+            undo.Command.Execute(null); FlushBindings();
+            Check(model.Lines.Count == 6 && deleteAll.IsEnabled && !undo.IsEnabled, "the fixed Undo button restores all rows and updates the action state");
+
             shell.Width = shell.MinWidth; shell.Height = shell.MinHeight;
             shell.UpdateLayout(); FlushBindings();
             CheckUpdateFooter(editor, "minimum shell with expanded sidebar");
             sidebarModel.ToggleSidebarCommand.Execute(null);
             shell.UpdateLayout(); FlushBindings();
             CheckUpdateFooter(editor, "minimum shell with collapsed sidebar");
+            model.RemoveLineCommand.Execute(model.Lines[0]);
             foreach (var route in new[] { "Continue", "Escape", "Discard" })
             {
                 Exception? failure = null;
@@ -379,13 +500,37 @@ internal static partial class Program
                     }
                     catch (Exception ex) { failure = ex; notice.Close(); }
                 }));
-                ((Button)editor.FindName("ReturnToListButton")).Command.Execute(null);
+                ((Button)editor.FindName("CancelButton")).Command.Execute(null);
                 if (failure != null) throw failure;
-                Check(returns == (route == "Discard" ? 1 : 0) && source.Calls == 0 && model.Remarks == "入力中の変更内容",
-                    "update navigation preserves edits until explicit discard: " + route);
+                Check(returns == (route == "Discard" ? 1 : 0) && source.Calls == 0 && model.Remarks == "入力中の変更内容"
+                    && model.Lines.Count == 5 && model.HasUndo,
+                    "Cancel protects unsaved edits and performs no write: " + route);
             }
+            editor.Dispose();
+            Check(!model.HasUndo && !model.UndoRemoveLineCommand.CanExecute(null), "leaving the editor clears the local undo snapshot");
         }
         finally { shell.Close(); }
+    }
+
+    private static void CheckDeleteAllPrompt(Window owner, Button deleteAll, bool confirm, bool render = false)
+    {
+        InteractWithModal(owner, () => deleteAll.Command.Execute(null), modal =>
+        {
+            modal.UpdateLayout(); FlushBindings();
+            var notice = (OrderNoticeViewModel)modal.DataContext;
+            var buttons = Descendants<Button>(modal).Where(button => button.IsVisible).ToArray();
+            var delete = buttons.Single(button => Equals(button.Content, "すべて削除"));
+            var cancel = buttons.Single(button => Equals(button.Content, "キャンセル"));
+            Check(notice.Title == "すべての商品を削除しますか？"
+                && notice.Message == "受注明細のすべての商品を削除します。受注情報や備考は削除されません。"
+                && delete.TranslatePoint(new Point(delete.ActualWidth, 0), modal).X < cancel.TranslatePoint(new Point(), modal).X
+                && Equals(Descendants<LucideIcon>(delete).Single().Data, Application.Current.FindResource("IconTrash"))
+                && Equals(Descendants<LucideIcon>(cancel).Single().Data, Application.Current.FindResource("IconX"))
+                && cancel.IsDefault && cancel.IsCancel && !delete.IsDefault,
+                "the confirmation places the trash action to the left of Cancel and shows the X icon on Cancel");
+            if (render) Render((FrameworkElement)modal.Content, "delete-all-confirmation");
+            (confirm ? delete : cancel).Command.Execute(null);
+        });
     }
 
     private static void CheckQuantityInputs()
@@ -403,19 +548,28 @@ internal static partial class Program
             "update uses the same five detail columns as registration");
         CheckManufacturerLayout(editor);
         var productInput = (OrderProductInput)editor.FindName("ProductInput");
-        var maker = (ComboBox)productInput.FindName("ManufacturerFilter");
+        var maker = (RegistrationLookup)productInput.FindName("ManufacturerFilter");
         var originalLines = vm.Lines.ToArray();
-        maker.SelectedItem = vm.Entry.MakerOptions.Single(option => option.Name == "Dell");
-        FlushBindings();
+        ChooseManufacturer(maker, "ell");
         Check(vm.Entry.Products.All(product => product.MakerName == "Dell") && vm.Lines.SequenceEqual(originalLines)
             && !vm.HasUnsavedChanges && !vm.CanSave, "the manufacturer filter changes suggestions only and retains existing order rows");
-        maker.SelectedIndex = 0;
+        ChooseManufacturer(maker, "すべてのメーカー");
         lookups.TestedProductId = 3;
         vm.Entry.SelectedProduct = vm.Entry.Products.Single(product => product.PrId == 3);
+        FlushBindings();
+        var stockPanel = (Border)productInput.FindName("ProductInputStockPanel");
+        var stockHint = (TextBlock)productInput.FindName("ProductInputStockHint");
+        Check(vm.Entry.HasSufficientStock && stockPanel.Visibility == Visibility.Collapsed,
+            "update collapses the stock notice when stock is sufficient");
         lookups.StockState = InventoryStockState.MissingRecord;
         Wait(vm.RefreshInventoryAsync()); FlushBindings();
-        Check(Descendants<TextBlock>(productInput).Any(text => text.Text == "未登録" && text.IsVisible)
-            && vm.Lines.SequenceEqual(originalLines), "refreshed stock for an unadded product updates the shared quantity badge");
+        Check(stockHint.IsVisible && stockHint.Text == "在庫情報が未登録です"
+            && Descendants<TextBlock>(productInput).Any(text => text.Text == "未登録" && text.IsVisible)
+            && vm.Lines.SequenceEqual(originalLines), "update shows a refreshed missing-stock warning and badge for an unadded product");
+        lookups.StockState = InventoryStockState.Available;
+        Wait(vm.RefreshInventoryAsync()); FlushBindings();
+        Check(stockPanel.Visibility == Visibility.Collapsed && vm.Entry.HasSufficientStock,
+            "update collapses the stock notice when a refresh restores sufficient stock");
         vm.Entry.SelectedProduct = null;
         lookups.TestedProductId = 1;
         lookups.StockState = InventoryStockState.Available;
@@ -489,18 +643,30 @@ internal static partial class Program
     private static void CheckRegistrationInputs()
     {
         var source = new QuantityRegistrationSource();
-        using var vm = new OrderRegistrationViewModel(() => { }, source: source);
+        var host = new Window { Width=1224, Height=626, Left=-30000, Top=-30000,
+            WindowStyle=WindowStyle.None, ShowInTaskbar=false, ShowActivated=false };
+        using var vm = new OrderRegistrationViewModel(() => { }, source: source,
+            confirmDeleteAll: () => F_OrderNotice.ConfirmDeleteAll(host));
         vm.Load();
         Check(source.StockBatches == 1 && source.StockSelections == 0
             && vm.Products[0].StockLabel == "在庫：5点" && vm.Products[1].StockLabel == "在庫：0点"
             && vm.Products[2].StockLabel == "在庫：未登録", "registration stock options use one batch with available, zero and missing stock");
-        Check(vm.QuantityLabel=="数量 *", "unit is hidden until a product is selected");
+        Check(vm.QuantityLabel=="数量", "unit is hidden until a product is selected");
         Check(!vm.CanRegister && !vm.AddLineCommand.CanExecute(null) && !vm.ShowProductDetailsCommand.CanExecute(null), "empty registration commands disabled");
         var view = new F_OrderRegistration { DataContext=vm };
         var root = (FrameworkElement)view.Content; view.Content=null;
-        var host = new Window { Content=root, DataContext=vm, Width=1224, Height=626, Left=-30000, Top=-30000,
-            WindowStyle=WindowStyle.None, ShowInTaskbar=false, ShowActivated=false };
+        host.Content = root;
+        host.DataContext = vm;
         host.Show(); host.UpdateLayout(); FlushBindings();
+        var detailActions = (ContentControl)view.FindName("DetailActions");
+        detailActions.ApplyTemplate();
+        var (deleteAll, undo) = DetailActionButtons(detailActions);
+        Check(detailActions.Visibility == Visibility.Collapsed && detailActions.DesiredSize.Height == 0
+            && !deleteAll.IsVisible && !undo.IsVisible
+            && Descendants<TextBlock>(root).Any(label => label.IsVisible && label.Text == "商品が追加されていません。"),
+            "empty registration shows guidance and reserves no space for detail actions");
+        Render(root, "registration-empty");
+        CheckRegistrationLabels(root);
         var productInput = (OrderProductInput)view.FindName("ProductInput");
         var editor=(QuantityUpDown)productInput.FindName("QuantityInput"); editor.ApplyTemplate();
         var inputScroller=(ScrollViewer)view.FindName("InputScroll");
@@ -513,7 +679,7 @@ internal static partial class Program
         var details=(Button)productInput.FindName("ProductDetailsButton");
         Check(!details.IsEnabled && Equals(details.Background, Application.Current.FindResource("ThemeBorder")),
             "product details is disabled and gray before selecting a product");
-        var manufacturer = (ComboBox)productInput.FindName("ManufacturerFilter");
+        var manufacturer = (RegistrationLookup)productInput.FindName("ManufacturerFilter");
         CheckManufacturerFiltering(vm, source, manufacturer, (RegistrationLookup)productInput.FindName("ProductLookup"), details);
         vm.SelectedClient=source.LoadClients(1)[0]; vm.Remarks="入力内容を保持";
         var option = (FrameworkElement)((DataTemplate)view.Resources["RegistrationProductSuggestion"]).LoadContent();
@@ -521,6 +687,9 @@ internal static partial class Program
         option.DataContext = missingProduct;
         FlushBindings();
         var optionText = Descendants<TextBlock>(option).Select(text => text.Text).ToArray();
+        var remarksCounter = (TextBlock)view.FindName("RemarksCounter");
+        Check(remarksCounter.Text == $"{vm.Remarks.Length} / {OrderUpdateRules.RemarksMaxLength}",
+            "the remarks counter tracks the actual text and keeps the existing limit");
         Check(optionText.Contains(missingProduct.ProductCode) && optionText.Contains(missingProduct.ProductName)
             && optionText.Contains("メーカー：Dell | 在庫：未登録") && optionText.Contains("¥2,000"),
             "product option renders code, name, manufacturer, stock and price");
@@ -533,15 +702,18 @@ internal static partial class Program
         vm.SelectedProduct=source.LoadProducts()[0]; FlushBindings();
         var stockPanel = (Border)productInput.FindName("ProductInputStockPanel");
         var stockHint = (TextBlock)productInput.FindName("ProductInputStockHint");
-        Check(vm.CurrentStockDisplay == "5 個" && vm.HasSufficientStock && stockPanel.IsVisible
-            && stockHint.Text == "在庫あり：5個" && stockPanel.Background is SolidColorBrush { Color: var stockColor }
-            && stockColor == Color.FromRgb(0xEC, 0xFD, 0xF3)
-            && Descendants<TextBlock>(stockPanel).Any(text => text.IsVisible && text.Text == "注文数量を満たしています。"),
-            $"sufficient stock shows the live count, green status, and fulfillment message ({vm.CurrentStockDisplay}, {stockHint.Text}, {stockPanel.Background}, visible {stockPanel.IsVisible})");
+        host.UpdateLayout();
+        var visibleProductText = Descendants<TextBlock>(productInput).Where(text => text.IsVisible).Select(text => text.Text).ToArray();
+        Check(vm.CurrentStockDisplay == "5 個" && vm.HasSufficientStock && stockPanel.Visibility == Visibility.Collapsed
+            && stockPanel.DesiredSize.Height == 0
+            && visibleProductText.Count(text => text == vm.CurrentStockDisplay) == 1
+            && visibleProductText.Count(text => text == vm.UnitPriceDisplay) == 1,
+            "registration displays the stock badge and unit price once without reserving notice space");
         input.Text="37"; FlushBindings();
         Check(details.IsEnabled, "product details is enabled for a valid selection");
-        Check(vm.QuantityLabel=="数量 *（個）", "selected product displays the existing item-count unit");
-        Check(vm.CanAddProduct && !vm.HasSufficientStock && stockHint.Text == "在庫不足：32点" && vm.StockStatus.Tooltip.Contains("受注数量：37点"),
+        Check(vm.QuantityLabel=="数量（個）", "selected product displays the existing item-count unit");
+        Check(vm.CanAddProduct && !vm.HasSufficientStock && stockHint.IsVisible && stockHint.Text == "在庫不足：32点"
+            && vm.StockStatus.Tooltip.Contains("受注数量：37点"),
             "direct input shows a shortage without stock blocking");
         var enter=new KeyEventArgs(Keyboard.PrimaryDevice,PresentationSource.FromVisual(input),Environment.TickCount,Key.Enter) { RoutedEvent=Keyboard.PreviewKeyDownEvent };
         input.RaiseEvent(enter); FlushBindings();
@@ -562,6 +734,9 @@ internal static partial class Program
         vm.AddLineCommand.Execute(null); FlushBindings();
         Check(!details.IsEnabled, "product details is disabled again after clearing selection");
         Check(vm.Lines.Single().Quantity==37 && vm.Lines.Single().UnitName=="個" && vm.Quantity=="1" && vm.SelectedProduct==null && vm.UnitPriceDisplay=="商品選択後に表示", "addition retains unit and resets only product input");
+        Check(detailActions.IsVisible && deleteAll.IsVisible && deleteAll.IsEnabled && undo.IsVisible && !undo.IsEnabled
+            && Descendants<TextBlock>(root).Count(text => text.IsVisible && text.Text == vm.QuantitySummary) == 1,
+            "adding the first product displays the detail actions and a single quantity summary in the heading");
         Check(vm.SelectedClient!=null && vm.Remarks=="入力内容を保持" && vm.CanRegister, "header and remarks retained; stock shortage can register");
         var addedLine = vm.Lines.Single();
         var totalBeforeFilter = vm.Total;
@@ -594,13 +769,12 @@ internal static partial class Program
         vm.SelectedProduct=source.LoadProducts()[0]; vm.Quantity="2"; vm.AddLineCommand.Execute(null);
         vm.UndoRemoveLineCommand.Execute(null);
         Check(vm.Lines.Count==1 && vm.Lines[0].Quantity==12, "Undo after re-add merges without duplicate rows");
-        vm.SelectedProduct=source.LoadProducts()[1];
-        Check(vm.StockStatus.Text=="在庫がありません" && vm.CanAddProduct, "zero stock is explicit and nonblocking");
-        vm.SelectedProduct=source.LoadProducts()[2];
-        Check(vm.StockStatus.Text=="在庫情報が未登録です" && vm.CanAddProduct, "missing stock is explicit and nonblocking");
-        FlushBindings();
-        Check(!stockPanel.IsVisible && vm.CurrentStockDisplay == "未登録",
-            "missing stock shows on the input badge and stays off the status panel");
+        vm.SelectedProduct=source.LoadProducts()[1]; FlushBindings();
+        Check(stockHint.IsVisible && stockHint.Text == "在庫がありません" && vm.CurrentStockDisplay == "0 個"
+            && vm.CanAddProduct, "zero stock shows a warning without blocking addition");
+        vm.SelectedProduct=source.LoadProducts()[2]; FlushBindings();
+        Check(stockHint.IsVisible && stockHint.Text == "在庫情報が未登録です" && vm.CurrentStockDisplay == "未登録"
+            && vm.CanAddProduct, "unregistered stock shows a warning without blocking addition");
         CheckOrderProductDetails(view, root, vm);
         vm.SelectedProduct=source.LoadProducts()[0]; vm.Quantity=vm.MaximumQuantity.ToString(CultureInfo.InvariantCulture); FlushBindings();
         Check(!plus.IsEnabled && minus.IsEnabled, "plus disables at existing amount-derived maximum");
@@ -610,6 +784,32 @@ internal static partial class Program
             && !Descendants<TextBox>(root).Any(box => System.Windows.Automation.AutomationProperties.GetName(box) == "単価（参照専用）"),
             "the registration form omits the employee row and keeps the unit price read-only");
         foreach(var product in source.LoadProducts().Skip(1)) { vm.SelectedProduct=product; vm.AddLineCommand.Execute(null); }
+        FlushBindings();
+        var originalLines = vm.Lines.Select(line => (line.ProductId, line.Quantity, line.UnitPrice)).ToArray();
+        var originalTotals = (vm.Subtotal, vm.Tax, vm.Total, vm.QuantitySummary);
+        var originalHeader = (vm.SelectedClient, vm.SelectedOffice, vm.OrderDate, vm.DeliveryDate, vm.Remarks);
+        CheckDeleteAllPrompt(host, deleteAll, confirm: false);
+        Check(vm.Lines.Count == originalLines.Length && (vm.Subtotal, vm.Tax, vm.Total, vm.QuantitySummary) == originalTotals && !undo.IsEnabled,
+            "Cancel in the registration confirmation leaves the details and undo state intact");
+        CheckDeleteAllPrompt(host, deleteAll, confirm: true);
+        FlushBindings();
+        Check(vm.Lines.Count == 0 && vm.Subtotal == 0 && vm.Tax == 0 && vm.Total == 0 && vm.QuantitySummary == "0 品目 / 0 点"
+            && (vm.SelectedClient, vm.SelectedOffice, vm.OrderDate, vm.DeliveryDate, vm.Remarks) == originalHeader
+            && !vm.CanRegister && !deleteAll.IsVisible && undo.IsVisible && undo.IsEnabled,
+            "confirmed registration removal clears only the editable lines and recalculates the totals");
+        undo.Command.Execute(null); FlushBindings();
+        Check(vm.Lines.Select(line => (line.ProductId, line.Quantity, line.UnitPrice)).SequenceEqual(originalLines)
+            && (vm.Subtotal, vm.Tax, vm.Total, vm.QuantitySummary) == originalTotals && vm.CanRegister && deleteAll.IsEnabled && !undo.IsEnabled,
+            "registration Undo restores the original line order, quantities, prices and totals");
+        var aboveMaximum = (vm.Lines[0].MaximumQuantity + 1).ToString(CultureInfo.InvariantCulture);
+        vm.Lines[0].QuantityText = aboveMaximum;
+        vm.Lines[1].QuantityText = "0";
+        CheckDeleteAllPrompt(host, deleteAll, confirm: true);
+        undo.Command.Execute(null); FlushBindings();
+        Check(vm.Lines.Count == originalLines.Length && vm.Lines[0].QuantityText == aboveMaximum && vm.Lines[1].QuantityText == "0"
+            && !vm.CanRegister && !vm.HasUndo, "registration Undo preserves unfinished quantity edits and their validation");
+        vm.Lines[0].Quantity = originalLines[0].Quantity;
+        vm.Lines[1].Quantity = originalLines[1].Quantity;
         foreach(var (width,height) in new[] { (1280,720),(1366,768),(1600,900),(1920,1080) })
         {
             host.Width=width-56; host.Height=height-94; host.UpdateLayout(); FlushBindings();
@@ -619,6 +819,7 @@ internal static partial class Program
             var footerTop=footer.TransformToAncestor(root).Transform(new Point()).Y;
             var totalTop=totals.TransformToAncestor(root).Transform(new Point()).Y;
             Check(footerTop+footer.ActualHeight<=root.ActualHeight+1 && totalTop+totals.ActualHeight<=footerTop+1, "fixed footer and totals fit "+width+"x"+height);
+            CheckDetailActionLayout(detailActions, grid, totals, root, $"registration {width}x{height}");
             Check(Descendants<ScrollViewer>(root).All(scroll=>scroll.ScrollableWidth<1), "registration has no horizontal scroll "+width+"x"+height);
             grid.ScrollIntoView(vm.Lines[^1]); host.UpdateLayout(); FlushBindings();
             Check(grid.ItemContainerGenerator.ContainerFromItem(vm.Lines[^1])!=null && Math.Abs(totals.TransformToAncestor(root).Transform(new Point()).Y-totalTop)<1, "only detail list scrolls above totals "+width+"x"+height);
@@ -633,38 +834,60 @@ internal static partial class Program
                 CheckRegistrationRow(root, grid, vm);
                 CheckRegistrationFooter(view, "desktop");
                 var helper = (TextBlock)view.FindName("RegistrationFeedbackText");
-                var back = (Button)view.FindName("ReturnToListButton");
+                var cancel = (Button)view.FindName("CancelButton");
                 Check(helper.IsVisible && helper.Text == "入力内容を確認して登録してください。"
-                    && helper.TranslatePoint(new Point(), root).X > back.TranslatePoint(new Point(back.ActualWidth, 0), root).X,
-                    "the ready helper appears immediately to the right of Back");
+                    && helper.TranslatePoint(new Point(helper.ActualWidth, 0), root).X < cancel.TranslatePoint(new Point(), root).X,
+                    "the ready helper stays to the left of the grouped actions");
                 Check(Descendants<TextBlock>(totals).Any(text => text.Text == vm.TaxLabel),
                     "the fixed totals card displays the tax label from the calculation rate");
             }
             Render(root,"registration-"+width+"x"+height);
         }
         host.Width=420; host.Height=420; host.UpdateLayout(); FlushBindings();
-        CheckRegistrationFooter(view, "420-DIP pane", stacked: true);
+        CheckRegistrationFooter(view, "420-DIP pane");
         Check(!((TextBlock)view.FindName("RegistrationFeedbackText")).IsVisible, "the passive helper yields space on a narrow pane");
         var detailScroll = Descendants<ScrollViewer>(grid).Single(scroll => scroll.Name == "DG_ScrollViewer");
         Check(detailScroll.ScrollableWidth > 0 && grid.Columns[2].ActualWidth >= 108 && grid.Columns[4].ActualWidth >= 44,
             "the narrow detail table scrolls horizontally while preserving the quantity and remove control widths");
         var fixedFooter = (FrameworkElement)view.FindName("RegistrationFooter");
         var fixedTotals = (FrameworkElement)view.FindName("OrderTotalsCard");
+        CheckDetailActionLayout(detailActions, grid, fixedTotals, root, "narrow registration");
+        var actionsPosition = detailActions.TranslatePoint(new Point(), root);
         var footerPosition = fixedFooter.TranslatePoint(new Point(), root);
         var totalsPosition = fixedTotals.TranslatePoint(new Point(), root);
         inputScroller.ScrollToBottom(); grid.ScrollIntoView(vm.Lines[^1]); host.UpdateLayout(); FlushBindings();
         Check(inputScroller.VerticalOffset > 0 && grid.ItemContainerGenerator.ContainerFromItem(vm.Lines[^1]) != null
             && fixedTotals.TranslatePoint(new Point(), root) == totalsPosition && fixedFooter.TranslatePoint(new Point(), root) == footerPosition
+            && detailActions.TranslatePoint(new Point(), root) == actionsPosition
             && footerPosition.Y + fixedFooter.ActualHeight <= root.ActualHeight + 1,
-            "scrolling either pane at short height keeps the totals and footer fixed");
+            "scrolling either pane at short height keeps the deletion bar, totals and footer fixed");
         Render(root, "registration-narrow-actions");
-        vm.RemoveLineCommand.Execute(vm.Lines[0]);
+        CheckDeleteAllPrompt(host, deleteAll, confirm: true);
         Wait(Task.Delay(6500));
-        Check(!vm.HasUndo && !vm.UndoRemoveLineCommand.CanExecute(null), "Undo notification expires");
+        Check(vm.Lines.Count == 0 && !vm.HasUndo && detailActions.Visibility == Visibility.Collapsed && !undo.IsVisible,
+            "the empty detail footer collapses when the last deletion can no longer be undone");
+        var previewProduct = vm.Products[0];
+        vm.SelectedProduct = previewProduct;
+        vm.Quantity = "2";
+        vm.AddLineCommand.Execute(null);
+        vm.SelectedProduct = previewProduct;
         host.Content = null; host.Close();
         CheckRegistrationShell(view, root, vm);
         view.Dispose();
         CheckRegistrationSubmission();
+    }
+
+    private static void CheckRegistrationLabels(FrameworkElement root)
+    {
+        var indicators = Descendants<TextBlock>(root).Where(text => text.Name == "RequiredFieldMarker").ToArray();
+        var captions = indicators.Select(star => Descendants<TextBlock>(star.Parent).Single(text => text.Name == "RequiredFieldCaption").Text).ToArray();
+        Check(indicators.Length == 5
+            && captions.ToHashSet().SetEquals(new[] { "受注元顧客", "受注日", "納品希望日", "商品コード・商品名", "数量" })
+            && indicators.All(star => star.Text == "*" && star.IsVisible && star.Foreground is SolidColorBrush { Color: var color }
+                && color == Color.FromRgb(0xDC, 0x26, 0x26)),
+            "all five required labels use one red asterisk and optional labels have none (" + string.Join(", ", captions) + ")");
+        Check(!Descendants<TextBlock>(root).Any(text => text.IsVisible && text.Text == "受付営業所"),
+            "the registration form omits the office field");
     }
 
     private static void CheckRegistrationShell(F_OrderRegistration view, FrameworkElement root, OrderRegistrationViewModel model)
@@ -672,7 +895,7 @@ internal static partial class Program
         root.DataContext = model;
         var shell = new F_Main
         {
-            Width = 1100, Height = 760, Left = -30000, Top = -30000, WindowStyle = WindowStyle.None,
+            Width = 1440, Height = 960, Left = -30000, Top = -30000, WindowStyle = WindowStyle.None,
             WindowStartupLocation = WindowStartupLocation.Manual, ShowInTaskbar = false, ShowActivated = false
         };
         var showBusinessView = typeof(F_Main).GetMethod("ShowBusinessView", BindingFlags.Instance | BindingFlags.NonPublic)!;
@@ -682,6 +905,7 @@ internal static partial class Program
         var sidebarModel = (SidebarViewModel)sidebar.DataContext;
         var title = (TextBlock)shell.FindName("mainHeaderTitle");
         var icon = (LucideIcon)shell.FindName("orderHeaderIcon");
+        var sessionPanel = (FrameworkElement)shell.FindName("orderEntrySession");
         var employee = AppSession.Employee!;
         try
         {
@@ -689,11 +913,15 @@ internal static partial class Program
             sidebarModel.MenuItems.Single(entry => entry.Label == "受注管理").IsActive = true;
             showBusinessView.Invoke(shell, ["受注登録", root]);
             shell.Show(); shell.UpdateLayout(); FlushBindings();
+            var sessionText = Descendants<TextBlock>(sessionPanel).Where(text => text.IsVisible).Select(text => text.Text).ToArray();
             Check(title.Text == "受注登録" && icon.IsVisible
-                && status.Text.EndsWith($"役職：{employee.Po.PoName}　営業所：{employee.So.SoName}", StringComparison.Ordinal)
-                && !status.Text.Contains(employee.EmName, StringComparison.Ordinal)
+                && sessionPanel.IsVisible && !status.IsVisible
+                && sessionText is [var name, var role, var office] && name.EndsWith(employee.EmName, StringComparison.Ordinal)
+                && role == employee.Po.PoName && office == employee.So.SoName
                 && Equals(sidebar.Background, Application.Current.FindResource("ThemeOrderEntryNavy")),
-                "registration header displays the session role and office with the registration sidebar and icon");
+                "registration header shows the signed-in employee, role and office");
+            Check(model.SelectedOffice?.SoId == employee.SoId && !((TextBlock)view.FindName("OfficeErrorText")).IsVisible,
+                "the session office is assigned automatically without adding a field to the registration form");
             ((ScrollViewer)view.FindName("InputScroll")).ScrollToTop();
             var grid = (DataGrid)view.FindName("OrderItemsGrid");
             grid.ScrollIntoView(model.Lines[0], grid.Columns[0]);
@@ -707,7 +935,8 @@ internal static partial class Program
             shell.UpdateLayout(); FlushBindings();
             CheckRegistrationFooter(view, "minimum shell size with sidebar collapsed");
             showBusinessView.Invoke(shell, ["受注管理", new Grid()]);
-            Check(status.Text == standardStatus, "other pages restore the existing session header");
+            Check(status.Text == standardStatus && status.IsVisible && !sessionPanel.IsVisible,
+                "other pages restore the existing session header");
         }
         finally { shell.Close(); }
     }
@@ -775,7 +1004,13 @@ internal static partial class Program
         var source=new RegistrationSubmissionSource();
         var listReturns=0; var nextOrderStarts=0;
         using var vm=new OrderRegistrationViewModel(()=>listReturns++,source:source,startNextOrder:()=>nextOrderStarts++);
-        vm.Load(); vm.SelectedClient=source.LoadClients(1)[0]; vm.SelectedProduct=source.LoadProducts()[0]; vm.AddLineCommand.Execute(null);
+        vm.Load();
+        var otherOffice = source.LoadOffices().First();
+        Check(otherOffice.SoId != AppSession.Employee!.SoId && !vm.SelectOfficeCommand.CanExecute(otherOffice),
+            "the registration model disables office selection even for administrators");
+        vm.SelectedOffice = otherOffice;
+        vm.OfficeSearch = otherOffice.SoName;
+        vm.SelectedClient=source.LoadClients(1)[0]; vm.SelectedProduct=source.LoadProducts()[0]; vm.AddLineCommand.Execute(null);
         vm.Remarks="最初の受注";
         var view=new F_OrderRegistration { DataContext=vm };
         var root=(FrameworkElement)view.Content; view.Content=null;
@@ -796,7 +1031,8 @@ internal static partial class Program
         vm.RegisterCommand.Execute(null); source.AllowCompletion.Set();
         for(var i=0;i<200 && vm.IsBusy;i++) Wait(Task.Delay(10));
         Check(source.Calls==1 && vm.IsSuccess && vm.IsCompletionDialogVisible && vm.RegisteredOrderNumber=="ORD-000237", "single successful submission preserves existing completion and numbering");
-        Check(source.EmployeeId == AppSession.Employee!.EmId, "registration still sends the signed-in employee ID to the data source");
+        Check(source.EmployeeId == AppSession.Employee!.EmId && source.OfficeId == AppSession.Employee.SoId,
+            "registration sends the signed-in employee and assigned office IDs to the data source");
         Check(vm.Lines.Count==1 && !vm.RegisterCommand.CanExecute(null), "completion stays on registration screen without duplicate submission");
         host.UpdateLayout(); FlushBindings();
         var dismissButton=(Button)view.FindName("DismissCompletionButton");
@@ -879,7 +1115,51 @@ internal static partial class Program
         Check(!failed.IsSuccess && failed.Lines.Count==1 && failed.RegisterCommand.CanExecute(null)
             && footerFeedback.IsVisible && footerFeedback.Text==failed.Feedback && footerFeedback.Text=="検証用の登録失敗",
             "registration failure remains visible on a narrow footer and restores retry state");
+        CheckRegistrationSessionOffice(view, host);
         host.Close(); view.Dispose();
+    }
+
+    private static void CheckRegistrationSessionOffice(F_OrderRegistration view, Window host)
+    {
+        var previous = AppSession.Employee;
+        try
+        {
+            foreach (var officeId in new[] { 0, 8, 99 })
+            {
+                SetRole("管理者", office: officeId);
+                var source = new RegistrationSubmissionSource();
+                using var model = new OrderRegistrationViewModel(() => { }, source: source);
+                model.Load();
+                model.SelectedOffice = source.LoadOffices()[0];
+                model.SelectedProduct = source.LoadProducts()[0];
+                model.AddLineCommand.Execute(null);
+                host.DataContext = model;
+                host.UpdateLayout(); FlushBindings();
+                model.RegisterCommand.Execute(null);
+                var error = (TextBlock)view.FindName("OfficeErrorText");
+                Check(model.SelectedOffice == null && model.OfficeDisplay == "未設定" && error.IsVisible
+                    && error.Text == "所属営業所を確認できません。" && !((Button)view.FindName("RegisterButton")).IsEnabled && source.Calls == 0,
+                    "missing, inactive and unknown session offices block submission without a fallback: " + officeId);
+            }
+
+            AppSession.Employee = previous;
+            var header = new OrderDraftHeader(new(9, "以前の営業所"), new(77, "以前の顧客"), new(DateTime.Today, ""),
+                new(DateTime.Today.AddDays(7), ""), "以前の備考", new(null, ""), null, "1");
+            var token = new OrderDraftToken(Guid.NewGuid(), BitConverter.GetBytes(1L));
+            var draft = new OrderDraftSnapshot(token, DateTimeOffset.Now, new(header, [new(1, "PR-0001", "キーボード", 2000, 2, "2")]));
+            using var reopened = new OrderRegistrationViewModel(() => { }, source: new RegistrationSubmissionSource(), draft: draft);
+            reopened.Load();
+            Check(reopened.IsDraft && reopened.SelectedOffice?.SoId == previous!.SoId && reopened.SelectedClient == null
+                && reopened.CustomerSearch == "以前の顧客" && reopened.Remarks == "以前の備考" && reopened.Lines.Single().Quantity == 2 && !reopened.CanRegister,
+                "an older draft keeps the inputs and uses the assigned office with customer validation");
+
+            SetRole("管理者", office: 9);
+            using var update = new OrderUpdateViewModel(Sample(), _ => { }, source: new ControlledSource(), lookups: new RegistrationSubmissionSource());
+            update.Load();
+            Check(update.CanEdit && update.Entry.SelectedOffice?.SoId == 1,
+                "the update model continues to use the existing order office when the administrator belongs to a different office");
+        }
+        finally { AppSession.Employee = previous; }
     }
 
     private static bool IsWithin(DependencyObject element, DependencyObject ancestor)
@@ -944,22 +1224,23 @@ internal static partial class Program
         RenderLayout(420, 400, "update-narrow-footer", true, embedded: true);
     }
 
-    private static void CheckUpdateFooter(F_OrderUpdate editor, string layout, bool stacked = false)
+    private static void CheckUpdateFooter(F_OrderUpdate editor, string layout)
     {
         var footer = (Border)editor.FindName("Footer");
-        var back = (Button)editor.FindName("ReturnToListButton");
+        var cancel = (Button)editor.FindName("CancelButton");
         var save = (Button)editor.FindName("SaveButton");
         Rect Bounds(Button button) => button.TransformToAncestor(footer).TransformBounds(new Rect(button.RenderSize));
-        var backBounds = Bounds(back);
+        var cancelBounds = Bounds(cancel);
         var saveBounds = Bounds(save);
-        Check(Descendants<Button>(footer).SequenceEqual(new[] { back, save })
-            && Equals(back.Content, "一覧に戻る") && Equals(save.Content, "変更を保存")
-            && Math.Abs(backBounds.Height - 42) < 1 && Math.Abs(saveBounds.Height - 42) < 1
-            && back.IsVisible && save.IsVisible && Math.Abs(backBounds.Left - footer.Padding.Left) < 1
+        var gap = footer.ActualWidth < 480 ? 10 : 12;
+        Check(Descendants<Button>(footer).SequenceEqual(new[] { cancel, save })
+            && Equals(cancel.Content, "キャンセル") && Equals(save.Content, "変更を保存")
+            && Math.Abs(cancelBounds.Height - 42) < 1 && Math.Abs(saveBounds.Height - 42) < 1
+            && cancel.IsVisible && save.IsVisible && cancelBounds.Left >= footer.Padding.Left - 1
             && Math.Abs(footer.ActualWidth - saveBounds.Right - footer.Padding.Right) < 1
-            && backBounds.Top >= 0 && saveBounds.Bottom <= footer.ActualHeight + 1
-            && (stacked ? backBounds.Bottom < saveBounds.Top : backBounds.Right < saveBounds.Left && Math.Abs(backBounds.Top - saveBounds.Top) < 1),
-            "the two update actions stay fixed, fully visible and aligned at " + layout);
+            && cancelBounds.Top >= 0 && saveBounds.Bottom <= footer.ActualHeight + 1
+            && Math.Abs(saveBounds.Left - cancelBounds.Right - gap) < 1 && Math.Abs(cancelBounds.Top - saveBounds.Top) < 1,
+            "Cancel and Save stay fixed, fully visible and grouped on the right at " + layout);
     }
 
     private static void RenderLayout(double width, double height, string name, bool saveImage, bool invalid = false,int count=30, bool embedded = false)
@@ -982,7 +1263,13 @@ internal static partial class Program
         Check((embedded ? !header.IsVisible : Math.Abs(header.ActualHeight-64)<1)
             && footer.ActualHeight>=64 && (width<800 || footer.ActualHeight<=65),
             "fixed header and footer use the shared dimensions " + name);
-        CheckUpdateFooter(editor, name, stacked: width < 480);
+        if (!embedded)
+        {
+            var sessionText = Descendants<TextBlock>(header).Where(text => text.IsVisible && text.Name.StartsWith("Session", StringComparison.Ordinal));
+            Check(sessionText.Select(text => text.Text).SequenceEqual(new[] { vm.HeaderSession.EmployeeName, vm.HeaderSession.Role, vm.HeaderSession.OfficeName }),
+                "standalone update displays the same employee, role and branch header " + name);
+        }
+        CheckUpdateFooter(editor, name);
         var buttonPoint = save.TransformToAncestor(root).Transform(new Point());
         Check(buttonPoint.X >= 0 && buttonPoint.X + save.ActualWidth <= root.ActualWidth + 1
             && buttonPoint.Y + save.ActualHeight <= root.ActualHeight + 1, "save button visible " + name);
@@ -1008,9 +1295,12 @@ internal static partial class Program
         if (saveImage) Render(root, name);
         var totals = (FrameworkElement)editor.FindName("AmountSummary");
         var itemsHeading = (FrameworkElement)editor.FindName("ItemsHeading");
+        var detailActions = (FrameworkElement)editor.FindName("DetailActions");
         var footerPosition = footer.TranslatePoint(new Point(), root);
         var totalsPosition = totals.TranslatePoint(new Point(), root);
         var headingPosition = itemsHeading.TranslatePoint(new Point(), root);
+        var actionsPosition = detailActions.TranslatePoint(new Point(), root);
+        CheckDetailActionLayout(detailActions, grid, totals, root, name);
         var panels = (FrameworkElement)editor.FindName("RegistrationPanels");
         Check(panels.ActualHeight >= 420 || Descendants<TextBlock>(totals).All(text => text.Text != vm.RoundingNotice || !text.IsVisible),
             "the rounding explanation leaves more detail-list room at short heights " + name);
@@ -1022,11 +1312,35 @@ internal static partial class Program
         Check(point.Y>=-1 && point.Y+remarks.ActualHeight<=scroller.ActualHeight+1,"remarks accessible in independent input pane "+name);
         Check(totalsPosition.Y + totals.ActualHeight <= footerPosition.Y + 1
             && totals.TranslatePoint(new Point(), root) == totalsPosition && footer.TranslatePoint(new Point(), root) == footerPosition
-            && itemsHeading.TranslatePoint(new Point(), root) == headingPosition, "detail heading, totals and actions remain fixed while scrolling " + name);
+            && itemsHeading.TranslatePoint(new Point(), root) == headingPosition && detailActions.TranslatePoint(new Point(), root) == actionsPosition,
+            "detail heading, deletion bar, totals and footer remain fixed while scrolling " + name);
         Check(editor.InputBindings.OfType<KeyBinding>().Any(key => key.Key == Key.Escape), "Escape close route " + name);
         if (invalid) vm.Lines[0].Quantity = "2";
         host.Close(); editor.Dispose();
     }
+
+    private static (Button DeleteAll, Button Undo) DetailActionButtons(FrameworkElement actions)
+    {
+        var buttons = Descendants<Button>(actions).ToArray();
+        return (buttons.Single(button => Equals(button.Content, "すべて削除")),
+            buttons.Single(button => Equals(button.Content, "元に戻す")));
+    }
+
+    private static void CheckDetailActionLayout(FrameworkElement actions, DataGrid grid, FrameworkElement totals, FrameworkElement root, string name)
+    {
+        var (deleteAll, undo) = DetailActionButtons(actions);
+        var actionsPosition = actions.TranslatePoint(new Point(), root);
+        var totalsPosition = totals.TranslatePoint(new Point(), root);
+        var gridBottom = grid.TranslatePoint(new Point(0, grid.ActualHeight), root).Y;
+        Check(actions.IsVisible && Math.Abs(deleteAll.ActualHeight - undo.ActualHeight) < 1
+            && Math.Abs(undo.TranslatePoint(new Point(), actions).X - deleteAll.ActualWidth - 10) < 1
+            && undo.TranslatePoint(new Point(undo.ActualWidth, 0), actions).X <= actions.ActualWidth + 1
+            && actionsPosition.Y >= gridBottom - 0.5
+            && actionsPosition.Y + actions.ActualHeight <= totalsPosition.Y + 0.5
+            && actionsPosition.X + actions.ActualWidth <= totalsPosition.X + totals.ActualWidth + 0.5,
+            "the Delete All and Undo bar fits below the detail grid and above the totals " + name);
+    }
+
     private static IEnumerable<T> Descendants<T>(DependencyObject item) where T : DependencyObject
     {
         for (var index = 0; index < VisualTreeHelper.GetChildrenCount(item); index++)
@@ -1193,9 +1507,14 @@ internal static partial class Program
         {
             Check(!Save(original,"ヘッダー・追加行のロールバック",edits,customerId,orderDate,deliveryDate).Succeeded,
                 "SQL failure rejects the combined header and added-product update");
+            Check(!Save(original,"全商品削除後の差し替えをロールバック",edits.Where(line => !line.DetailId.HasValue).ToArray(),
+                customerId, orderDate, deliveryDate).Succeeded, "SQL failure rejects replacing all saved details");
             using var db=TestContext();var order=db.TOrders.Include(order=>order.TOrderDetails).Single();
             Check(order.ClId==original.CustomerId && order.OrDate==original.OrderDate && order.TOrderDetails.Count==original.Lines.Count
-                && db.OrderOperationHistories.Count()==historyCount,"failed combined update rolls back customer, dates, added rows and audit atomically");
+                && original.Lines.All(line => order.TOrderDetails.Any(detail => detail.OrDetailId == line.DetailId
+                    && detail.OrQuantity == line.Quantity && detail.OrTotalPrice == line.Subtotal))
+                && db.OrderOperationHistories.Count()==historyCount,
+                "failed combined update rolls back deleted and added rows, customer, dates and audit atomically");
         }
         finally {using var db=TestContext();db.Database.ExecuteSqlRaw("DROP TRIGGER OrderUpdateChecksFailure");}
         Check(Save(original,"顧客・日付・商品を更新",edits,customerId,orderDate,deliveryDate).Succeeded,"existing service commits customer, dates and an additional product");
@@ -1287,7 +1606,7 @@ internal static partial class Program
         public InventoryStockState StockState=InventoryStockState.MissingRecord;
         public int StockQuantity=5;
         public bool ThrowOnStock;
-        public IReadOnlyList<MSalesOffice> LoadOffices()=>catalog.LoadOffices();
+        public IReadOnlyList<MSalesOffice> LoadOffices() => [.. catalog.LoadOffices(), new MSalesOffice { SoId = 2, SoName = "南営業所" }];
         public IReadOnlyList<MClient> LoadClients(int officeId)=>[..catalog.LoadClients(officeId),new MClient {ClId=8,ClName="変更先の顧客",SoId=officeId}];
         public IReadOnlyList<RegistrationProduct> LoadProducts()=>catalog.LoadProducts();
         public InventoryStockLookup LoadStock(int productId)=>productId==TestedProductId
@@ -1304,14 +1623,21 @@ internal static partial class Program
         public readonly ManualResetEventSlim AllowCompletion=new(false);
         public int Calls;
         public int EmployeeId { get; private set; }
+        public int OfficeId { get; private set; }
         public bool Fail;
-        public IReadOnlyList<MSalesOffice> LoadOffices()=>[new MSalesOffice { SoId=1,SoName="北大阪営業所" }];
+        public IReadOnlyList<MSalesOffice> LoadOffices() =>
+        [
+            new MSalesOffice { SoId = 9, SoName = "南営業所" },
+            new MSalesOffice { SoId = 1, SoName = "北大阪営業所" },
+            new MSalesOffice { SoId = 8, SoName = "休止中の営業所", SoFlag = 1 }
+        ];
         public IReadOnlyList<MClient> LoadClients(int officeId)=>[new MClient { ClId=1,ClName="INATUGI",SoId=officeId }];
         public IReadOnlyList<RegistrationProduct> LoadProducts()=>[new RegistrationProduct { PrId=1,ProductCode="PR-0001",ProductName="キーボード",UnitPrice=2000,Stock=0 }];
         public bool Register(int employeeId,int customerId,int officeId,DateTime orderDate,DateTime deliveryDate,
             string remarks,IReadOnlyCollection<OrderDetailUpdate> details,out int orderId,out string message)
         {
             EmployeeId = employeeId;
+            OfficeId = officeId;
             Interlocked.Increment(ref Calls); AllowCompletion.Wait(TimeSpan.FromSeconds(10));
             orderId=Fail ? 0 : 236+Calls; message=Fail ? "検証用の登録失敗" : "登録完了"; return !Fail;
         }

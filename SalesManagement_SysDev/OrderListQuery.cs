@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Linq.Expressions;
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 
 namespace SalesManagement_SysDev;
@@ -105,14 +106,37 @@ internal static class OrderListQuery
         }).ToArray();
     }
 
+    internal static IQueryable<OrderExportRow> ExportRows(SalesManagementContext db, OrderListRequest request,
+        int? officeScope, IReadOnlyList<int> selectedIds)
+    {
+        var query = ApplyStatusTab(Filter(db, request.Criteria, officeScope), request.Tab);
+        if (selectedIds.Count > 0)
+        {
+            // A single SQL parameter also supports selections spanning many pages.
+            var ids = db.Database.SqlQuery<int>(
+                $"SELECT [Value] FROM OPENJSON({JsonSerializer.Serialize(selectedIds)}) WITH ([Value] int '$')");
+            query = query.Where(order => ids.Contains(order.OrId));
+        }
+
+        return Sort(Project(query), request.Sort, request.Direction)
+            .Select(row => new OrderExportRow(row.OrderId, row.OrderDate, row.DeliveryDate, row.CustomerName,
+                row.LineCount, row.EmployeeName, row.OfficeName, row.Subtotal,
+                row.ManagementFlag == 2 ? "非表示" : row.StateFlag == 1 ? "確定" : "未確定"));
+    }
+
     internal static int PageCount(int total, int size) => total == 0 ? 1 : (total - 1) / size + 1;
 
     private static IQueryable<TOrder> Filter(SalesManagementContext db, OrderSearchCriteria criteria)
     {
         if (!AppSession.CanManageOrders || AppSession.Employee is not { } employee)
             throw new UnauthorizedAccessException("受注一覧を表示する権限がありません。");
+        return Filter(db, criteria, AppSession.IsAdmin ? null : employee.SoId);
+    }
+
+    private static IQueryable<TOrder> Filter(SalesManagementContext db, OrderSearchCriteria criteria, int? officeScope)
+    {
         var query = db.TOrders.AsNoTracking();
-        if (!AppSession.IsAdmin) query = query.Where(order => order.SoId == employee.SoId);
+        if (officeScope is int officeId) query = query.Where(order => order.SoId == officeId);
         return criteria.ApplyTo(query);
     }
 

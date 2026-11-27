@@ -146,8 +146,10 @@ public sealed class OrderRegistrationViewModel : ViewModelBase, IDisposable
     private readonly Action close;
     private readonly Action startNextOrder;
     private readonly Func<OrderDraftNavigationChoice> confirmNavigation;
+    private readonly Func<bool> confirmDeleteAll;
     private readonly IOrderDraftStore draftStore;
     private readonly Action<OrderDetailSnapshot> showDetails;
+    private readonly bool allowOfficeSelection;
     private IReadOnlyList<MSalesOffice> availableOffices = [];
     private IReadOnlyList<MClient> availableClients = [];
     private IReadOnlyList<RegistrationProduct> availableProducts = [];
@@ -156,6 +158,7 @@ public sealed class OrderRegistrationViewModel : ViewModelBase, IDisposable
     private IReadOnlyList<RegistrationProduct> products = [];
     private IReadOnlyList<ProductMasterOption> makerOptions = [AllMakers];
     private int selectedMakerId;
+    private string makerSearch = "";
     private MSalesOffice? selectedOffice;
     private MClient? selectedClient;
     private RegistrationProduct? selectedProduct;
@@ -163,8 +166,7 @@ public sealed class OrderRegistrationViewModel : ViewModelBase, IDisposable
     private string quantity = "1", remarks = "", feedback = "";
     private readonly HashSet<RegistrationLine> observedLines = [];
     private readonly DispatcherTimer undoTimer = new() { Interval = TimeSpan.FromSeconds(6) };
-    private RegistrationLine? deletedLine;
-    private int deletedIndex;
+    private (RegistrationLine Line, int Index)[] deletedLines = [];
     private bool isProductDetailsVisible;
     private RegistrationProduct? productDetails;
     private DateTime initialOrderDate = DateTime.Today;
@@ -182,11 +184,14 @@ public sealed class OrderRegistrationViewModel : ViewModelBase, IDisposable
 
     public OrderRegistrationViewModel(Action close, Func<OrderDraftNavigationChoice>? confirmNavigation = null,
         IOrderRegistrationDataSource? source = null, Action<OrderDetailSnapshot>? showDetails = null, Action? startNextOrder = null,
-        IOrderDraftStore? draftStore = null, OrderDraftSnapshot? draft = null)
+        IOrderDraftStore? draftStore = null, OrderDraftSnapshot? draft = null, bool allowOfficeSelection = false,
+        Func<bool>? confirmDeleteAll = null)
     {
         this.close = close;
+        this.allowOfficeSelection = allowOfficeSelection;
         this.startNextOrder = startNextOrder ?? close;
         this.confirmNavigation = confirmNavigation ?? (() => OrderDraftNavigationChoice.ContinueEditing);
+        this.confirmDeleteAll = confirmDeleteAll ?? (() => false);
         this.draftStore = draftStore ?? new OrderDraftService();
         draftToRestore = draft;
         this.source = source ?? new OrderRegistrationDataSource();
@@ -194,7 +199,7 @@ public sealed class OrderRegistrationViewModel : ViewModelBase, IDisposable
         CloseCommand = new RelayCommand(async () => await RequestCloseAsync(), () => !isBusy);
         EscapeCommand = new RelayCommand(async () => await HandleEscapeAsync(), () => !isBusy);
         DismissCompletionCommand = new RelayCommand(DismissCompletionDialog, () => !isBusy && isCompletionDialogVisible);
-        UndoRemoveLineCommand = new RelayCommand(UndoRemoveLine, () => !isBusy && !isSuccess && deletedLine != null);
+        UndoRemoveLineCommand = new RelayCommand(UndoRemoveLine, () => !disposed && !isBusy && !isSuccess && !isProductDetailsVisible && HasUndo);
         ShowProductDetailsCommand = new RelayCommand(() =>
         {
             productDetails = selectedProduct;
@@ -206,14 +211,18 @@ public sealed class OrderRegistrationViewModel : ViewModelBase, IDisposable
         AddLineCommand = new RelayCommand(AddLine, () => !isBusy && !isSuccess && CanAddProduct);
         RemoveLineCommand = new RelayCommand(RemoveLine,
             row => !isBusy && !isSuccess && row is RegistrationLine line && Lines.Contains(line));
+        RemoveAllLinesCommand = new RelayCommand(RemoveAllLines, () => CanRemoveAllLines);
         RegisterCommand = new RelayCommand(async () => await RegisterAsync(), () => !isBusy && CanRegister);
         SaveDraftCommand = new RelayCommand(async () => await SaveDraftAsync(), () => CanSaveDraft);
         ShowRegisteredOrderCommand = new RelayCommand(async () => await ShowRegisteredOrderAsync(), () => !isBusy && isSuccess && registeredOrderId > 0);
         ReturnToListCommand = new RelayCommand(async () => await RequestCloseAsync(), () => !isBusy && isSuccess);
         StartNextOrderCommand = new RelayCommand(StartNextOrder, () => !isBusy && isSuccess);
-        SelectOfficeCommand = new RelayCommand(row => { if (row is MSalesOffice office) SelectedOffice = office; }, _ => !isBusy && !isSuccess);
+        SelectOfficeCommand = new RelayCommand(row => { if (row is MSalesOffice office) SelectedOffice = office; },
+            _ => allowOfficeSelection && !isBusy && !isSuccess);
         SelectClientCommand = new RelayCommand(row => { if (row is MClient client) SelectedClient = client; }, _ => !isBusy && !isSuccess);
         SelectProductCommand = new RelayCommand(row => { if (row is RegistrationProduct product) SelectedProduct = product; }, _ => !isBusy && !isSuccess);
+        SelectMakerCommand = new RelayCommand(row => { if (row is ProductMasterOption maker) SelectedMakerId = maker.Id; },
+            row => !isBusy && !isSuccess && row is ProductMasterOption maker && makerOptions.Contains(maker));
         Lines.CollectionChanged += (_, _) => LinesChanged();
         savedForm = CaptureForm();
     }
@@ -223,17 +232,26 @@ public sealed class OrderRegistrationViewModel : ViewModelBase, IDisposable
     public IReadOnlyList<MClient> Clients => clients;
     public IReadOnlyList<RegistrationProduct> Products => products;
     public IReadOnlyList<ProductMasterOption> MakerOptions => makerOptions;
+    public IReadOnlyList<ProductMasterOption> MakerSuggestions
+    {
+        get
+        {
+            var query = MakerSearch.Trim();
+            return query.Length == 0 || query == SelectedMakerText ? makerOptions
+                : makerOptions.Where(maker => Matches(maker.Name, query)).ToArray();
+        }
+    }
     public RelayCommand CloseCommand { get; }
     public RelayCommand EscapeCommand { get; }
     public RelayCommand DismissCompletionCommand { get; }
     public RelayCommand UndoRemoveLineCommand { get; }
     public RelayCommand ShowProductDetailsCommand { get; }
     public RelayCommand CloseProductDetailsCommand { get; }
-    public bool HasUndo => deletedLine != null;
+    public bool HasUndo => deletedLines.Length > 0;
     public bool IsProductDetailsVisible => isProductDetailsVisible;
     public RegistrationProduct? ProductDetails => productDetails;
     public bool HasSelectedProduct => IsProductValid;
-    public string QuantityLabel => IsProductValid ? $"数量 *（{selectedProduct!.UnitName}）" : "数量 *";
+    public string QuantityLabel => IsProductValid ? $"数量（{selectedProduct!.UnitName}）" : "数量";
     public int MaximumQuantity => RegistrationQuantity.Maximum(selectedProduct?.UnitPrice ?? 0);
     public string CurrentStockDisplay => !IsProductValid ? "—" : selectedProduct!.StockState switch
     {
@@ -254,6 +272,7 @@ public sealed class OrderRegistrationViewModel : ViewModelBase, IDisposable
     }
     public RelayCommand AddLineCommand { get; }
     public RelayCommand RemoveLineCommand { get; }
+    public RelayCommand RemoveAllLinesCommand { get; }
     public RelayCommand RegisterCommand { get; }
     public RelayCommand SaveDraftCommand { get; }
     public RelayCommand ShowRegisteredOrderCommand { get; }
@@ -262,6 +281,7 @@ public sealed class OrderRegistrationViewModel : ViewModelBase, IDisposable
     public RelayCommand SelectOfficeCommand { get; }
     public RelayCommand SelectClientCommand { get; }
     public RelayCommand SelectProductCommand { get; }
+    public RelayCommand SelectMakerCommand { get; }
     public event Action<string>? RegistrationCompleted;
     public bool IsBusy => isBusy;
     public bool IsSuccess => isSuccess;
@@ -290,6 +310,9 @@ public sealed class OrderRegistrationViewModel : ViewModelBase, IDisposable
     public string PreviewPhone => IsClientValid ? preview.CustomerPhone : "未設定";
     public string PreviewAddress => IsClientValid ? preview.CustomerAddress : "未設定";
     public string PreviewOffice => IsOfficeValid ? selectedOffice!.SoName : "未選択";
+    public string OfficeDisplay => IsOfficeValid ? selectedOffice!.SoName : "未設定";
+    public string OfficeInputError => IsOfficeValid ? "" : allowOfficeSelection
+        ? "受付営業所を候補から選択してください。" : "所属営業所を確認できません。";
     public string PreviewOrderDate => EffectiveOrderDate?.ToString("yyyy/MM/dd") ?? "未設定";
     public string PreviewDeliveryDate => EffectiveDeliveryDate?.ToString("yyyy/MM/dd") ?? "未設定";
     public string PreviewRemarks => string.IsNullOrWhiteSpace(Remarks) ? "未入力" : Remarks;
@@ -299,7 +322,7 @@ public sealed class OrderRegistrationViewModel : ViewModelBase, IDisposable
         get => officeSearch;
         set
         {
-            if (!Set(ref officeSearch, value) || settingSearch) return;
+            if (!allowOfficeSelection || !Set(ref officeSearch, value) || settingSearch) return;
             if (selectedOffice != null && value != selectedOffice.SoName) SetOffice(null);
             FilterOffices(); RefreshPreview(); StateChanged();
         }
@@ -333,7 +356,9 @@ public sealed class OrderRegistrationViewModel : ViewModelBase, IDisposable
         get => selectedOffice;
         set
         {
-            var canonical = availableOffices.FirstOrDefault(office => office.SoId == value?.SoId);
+            var officeId = allowOfficeSelection ? value?.SoId : AppSession.Employee?.SoId;
+            var canonical = allowOfficeSelection || officeId is > 0
+                ? availableOffices.FirstOrDefault(office => office.SoId == officeId) : null;
             SetOffice(canonical);
             SetSearch(ref officeSearch, canonical?.SoName ?? "", nameof(OfficeSearch));
             FilterOffices(); RefreshPreview(); StateChanged();
@@ -350,12 +375,24 @@ public sealed class OrderRegistrationViewModel : ViewModelBase, IDisposable
             FilterClients(); RefreshPreview(); StateChanged();
         }
     }
+    public string MakerSearch
+    {
+        get => makerSearch;
+        set { if (Set(ref makerSearch, value ?? "")) Notify(nameof(MakerSuggestions)); }
+    }
+    public string SelectedMakerText => selectedMakerId == AllMakers.Id ? ""
+        : makerOptions.FirstOrDefault(maker => maker.Id == selectedMakerId)?.Name ?? "";
     public int SelectedMakerId
     {
         get => selectedMakerId;
         set
         {
-            if (!Set(ref selectedMakerId, value)) return;
+            var maker = makerOptions.FirstOrDefault(option => option.Id == value) ?? AllMakers;
+            var changed = Set(ref selectedMakerId, maker.Id);
+            Notify(nameof(SelectedMakerText));
+            Set(ref makerSearch, SelectedMakerText, nameof(MakerSearch));
+            Notify(nameof(MakerSuggestions));
+            if (!changed) return;
             if (selectedProduct != null && !MatchesMaker(selectedProduct)) SelectedProduct = null;
             else FilterProducts();
         }
@@ -417,8 +454,8 @@ public sealed class OrderRegistrationViewModel : ViewModelBase, IDisposable
         StateChanged();
     }
 
-    private bool IsOfficeValid => selectedOffice != null && availableOffices.Contains(selectedOffice) && officeSearch == selectedOffice.SoName
-        && (AppSession.IsAdmin || selectedOffice.SoId == AppSession.Employee?.SoId);
+    private bool IsOfficeValid => selectedOffice is { SoFlag: 0 } && availableOffices.Contains(selectedOffice) && officeSearch == selectedOffice.SoName
+        && (allowOfficeSelection && AppSession.IsAdmin || selectedOffice.SoId == AppSession.Employee?.SoId);
     private bool IsClientValid => IsOfficeValid && selectedClient != null && availableClients.Contains(selectedClient)
         && selectedClient.ClFlag == 0 && selectedClient.SoId == selectedOffice!.SoId && customerSearch == selectedClient.ClName;
     private bool IsProductValid => selectedProduct != null && availableProducts.Contains(selectedProduct) && selectedProduct.IsActive
@@ -445,7 +482,7 @@ public sealed class OrderRegistrationViewModel : ViewModelBase, IDisposable
             || Lines.Where((line, index) => CaptureLine(line) != saved.Lines[index]).Any());
     public string ValidationSummary => isBusy ? busyMessage
         : CanRegister ? "入力内容を確認して登録してください。"
-        : !IsOfficeValid ? "受付営業所を候補から選択してください。"
+        : !IsOfficeValid ? OfficeInputError
         : !IsClientValid ? "受注元顧客を候補から選択してください。"
         : DateInputError.Length > 0 ? DateInputError
         : Remarks.Trim().Length > OrderUpdateRules.RemarksMaxLength ? "備考は50文字以内で入力してください。"
@@ -473,9 +510,14 @@ public sealed class OrderRegistrationViewModel : ViewModelBase, IDisposable
                 .ThenBy(product => product.MakerId)
                 .Select(product => new ProductMasterOption(product.MakerId, product.MakerDisplayName))];
             Notify(nameof(MakerOptions));
+            SelectedMakerId = selectedMakerId;
             if (includeOptionStock) LoadOptionStock();
             if (draftToRestore is { } draft) RestoreDraft(draft);
-            else SelectedOffice = availableOffices.FirstOrDefault(office => office.SoId == AppSession.Employee?.SoId) ?? availableOffices.FirstOrDefault();
+            else
+            {
+                var assignedOffice = availableOffices.FirstOrDefault(office => office.SoId == AppSession.Employee?.SoId);
+                SelectedOffice = assignedOffice ?? (allowOfficeSelection ? availableOffices.FirstOrDefault() : null);
+            }
             draftToRestore = null;
             savedForm = CaptureForm();
             FilterProducts(); isLoaded = true; RefreshPreview(); StateChanged();
@@ -497,7 +539,8 @@ public sealed class OrderRegistrationViewModel : ViewModelBase, IDisposable
     }
 
     private OrderDraftHeader CaptureHeader() => new(
-        new OrderDraftSelection(selectedOffice?.SoId, OfficeSearch), new OrderDraftSelection(selectedClient?.ClId, CustomerSearch),
+        !allowOfficeSelection && !IsOfficeValid ? new OrderDraftSelection(null, "") : new OrderDraftSelection(selectedOffice?.SoId, OfficeSearch),
+        new OrderDraftSelection(selectedClient?.ClId, CustomerSearch),
         CaptureDate(EffectiveOrderDate, orderDateText), CaptureDate(EffectiveDeliveryDate, deliveryDateText), Remarks,
         new OrderDraftSelection(selectedProduct?.PrId, ProductSearch), selectedProduct?.UnitPrice, Quantity);
 
@@ -512,7 +555,7 @@ public sealed class OrderRegistrationViewModel : ViewModelBase, IDisposable
     {
         var header = draft.Form.Header;
         SelectedOffice = availableOffices.FirstOrDefault(office => office.SoId == header.Office.Id);
-        if (SelectedOffice == null) OfficeSearch = header.Office.Text;
+        if (allowOfficeSelection && SelectedOffice == null) OfficeSearch = header.Office.Text;
         SelectedClient = availableClients.FirstOrDefault(client => client.ClId == header.Customer.Id);
         if (SelectedClient == null) CustomerSearch = header.Customer.Text;
         OrderDate = header.OrderDate.Value;
@@ -620,28 +663,68 @@ public sealed class OrderRegistrationViewModel : ViewModelBase, IDisposable
     private void RemoveLine(object? row)
     {
         if (row is not RegistrationLine line) return;
-        deletedIndex = Lines.IndexOf(line);
-        deletedLine = new RegistrationLine { SourceDetailId = line.SourceDetailId, ProductId = line.ProductId, ProductCode = line.ProductCode,
-            ProductName = line.ProductName, UnitPrice = line.UnitPrice, Stock = line.Stock, StockState = line.StockState, Quantity = line.Quantity };
+        deletedLines = [(CopyLineForUndo(line), Lines.IndexOf(line))];
         Lines.Remove(line);
-        undoTimer.Stop(); undoTimer.Start();
+        StartUndoTimer();
+    }
+
+    private bool CanRemoveAllLines => !disposed && !isBusy && !isSuccess && !isProductDetailsVisible && AppSession.CanManageOrders && HasItems;
+
+    private void RemoveAllLines()
+    {
+        if (!confirmDeleteAll() || !CanRemoveAllLines) return;
+        deletedLines = Lines.Select((line, index) => (CopyLineForUndo(line), index)).ToArray();
+        Lines.Clear();
+        StartUndoTimer();
+    }
+
+    private static RegistrationLine CopyLineForUndo(RegistrationLine line) => new()
+    {
+        SourceDetailId = line.SourceDetailId, ProductId = line.ProductId, ProductCode = line.ProductCode,
+        ProductName = line.ProductName, UnitPrice = line.UnitPrice, Stock = line.Stock, StockState = line.StockState,
+        Quantity = line.Quantity, QuantityText = line.QuantityText
+    };
+
+    private void StartUndoTimer()
+    {
+        undoTimer.Stop();
+        undoTimer.Start();
         Notify(nameof(HasUndo)); UndoRemoveLineCommand.Refresh();
     }
+
     private void UndoRemoveLine()
     {
-        if (deletedLine is not { } saved) return;
-        var duplicate = Lines.FirstOrDefault(line => line.ProductId == saved.ProductId);
-        var quantity = (long)saved.Quantity + (duplicate?.Quantity ?? 0);
-        if (quantity > int.MaxValue || !OrderUpdateRules.TrySubtotal((int)quantity, saved.UnitPrice, out _))
-        { ShowFeedback("合算後の数量・行合計が上限を超えるため復元できません。数量を調整してください。"); return; }
-        if (duplicate != null) Lines.Remove(duplicate);
-        saved.Quantity = (int)quantity;
-        Lines.Insert(Math.Min(deletedIndex, Lines.Count), saved);
+        var unmatchedLines = Lines.ToList();
+        var restoredLines = new List<(RegistrationLine Line, int Index, RegistrationLine? Duplicate, int Quantity)>();
+        foreach (var (line, index) in deletedLines)
+        {
+            var duplicate = unmatchedLines.FirstOrDefault(current => current.ProductId == line.ProductId);
+            var quantity = (long)line.Quantity + (duplicate?.Quantity ?? 0);
+            if (duplicate != null && (quantity > int.MaxValue || !OrderUpdateRules.TrySubtotal((int)quantity, line.UnitPrice, out _)))
+            {
+                ShowFeedback("合算後の数量・行合計が上限を超えるため復元できません。数量を調整してください。");
+                return;
+            }
+            if (duplicate != null) unmatchedLines.Remove(duplicate);
+            restoredLines.Add((line, index, duplicate, (int)quantity));
+        }
+
+        foreach (var (line, index, duplicate, quantity) in restoredLines)
+        {
+            if (duplicate != null)
+            {
+                Lines.Remove(duplicate);
+                line.Quantity = quantity;
+            }
+            Lines.Insert(Math.Min(index, Lines.Count), line);
+        }
         ClearUndo();
     }
+
     private void ClearUndo()
     {
-        undoTimer.Stop(); deletedLine = null;
+        undoTimer.Stop();
+        deletedLines = [];
         Notify(nameof(HasUndo)); UndoRemoveLineCommand.Refresh();
     }
     private void CloseProductDetails()
@@ -788,8 +871,9 @@ public sealed class OrderRegistrationViewModel : ViewModelBase, IDisposable
         if (isDraftSaveFeedback && HasUnsavedChanges) ShowFeedback("");
         foreach (var name in new[] { nameof(CanRegister), nameof(CanAddProduct), nameof(ValidationSummary), nameof(QuantityError), nameof(MaximumQuantity), nameof(HasSelectedProduct), nameof(StockStatus),
             nameof(CurrentStockDisplay), nameof(HasSufficientStock), nameof(QuantityLabel), nameof(DateInputError), nameof(UnitPriceDisplay),
-            nameof(CustomerInputInvalid), nameof(OfficeInputInvalid), nameof(ProductInputInvalid), nameof(HasUnsavedChanges) }) Notify(name);
-        AddLineCommand.Refresh(); RemoveLineCommand.Refresh(); RegisterCommand.Refresh(); SaveDraftCommand.Refresh();
+            nameof(CustomerInputInvalid), nameof(OfficeInputInvalid), nameof(OfficeDisplay), nameof(OfficeInputError), nameof(ProductInputInvalid),
+            nameof(HasUnsavedChanges) }) Notify(name);
+        AddLineCommand.Refresh(); RemoveLineCommand.Refresh(); RemoveAllLinesCommand.Refresh(); RegisterCommand.Refresh(); SaveDraftCommand.Refresh();
         ShowProductDetailsCommand.Refresh(); CloseProductDetailsCommand.Refresh(); UndoRemoveLineCommand.Refresh();
     }
     private void ShowFeedback(string message, bool success = false, bool draftSaved = false)
@@ -837,7 +921,7 @@ public sealed class OrderRegistrationViewModel : ViewModelBase, IDisposable
             selectedOffice = null; selectedClient = null; selectedProduct = null;
             availableOffices = []; availableClients = []; availableProducts = [];
             offices = []; clients = []; products = [];
-            makerOptions = [AllMakers]; selectedMakerId = AllMakers.Id;
+            makerOptions = [AllMakers]; selectedMakerId = AllMakers.Id; makerSearch = "";
             officeSearch = ""; customerSearch = ""; productSearch = "";
             quantity = "1"; remarks = "";
             initialOrderDate = DateTime.Today;
@@ -848,7 +932,8 @@ public sealed class OrderRegistrationViewModel : ViewModelBase, IDisposable
             foreach (var name in new[] { nameof(IsSuccess), nameof(IsEditing), nameof(IsDraft), nameof(IsDraftSaveFeedback), nameof(RegisteredOrderId), nameof(RegisteredOrderNumber),
                 nameof(Feedback), nameof(CompletionError), nameof(CompletionMessage), nameof(IsProductDetailsVisible), nameof(ProductDetails),
                 nameof(SelectedOffice), nameof(SelectedClient), nameof(SelectedProduct), nameof(OfficeSearch), nameof(CustomerSearch),
-                nameof(ProductSearch), nameof(Offices), nameof(Clients), nameof(Products), nameof(MakerOptions), nameof(SelectedMakerId), nameof(Quantity), nameof(Remarks),
+                nameof(ProductSearch), nameof(Offices), nameof(Clients), nameof(Products), nameof(MakerOptions), nameof(MakerSuggestions),
+                nameof(SelectedMakerId), nameof(SelectedMakerText), nameof(MakerSearch), nameof(Quantity), nameof(Remarks),
                 nameof(OrderDate), nameof(DeliveryDate), nameof(PreviewOrderDate), nameof(PreviewDeliveryDate), nameof(PreviewRemarks) }) Notify(name);
             Load();
             RefreshPreview(); StateChanged();
@@ -860,8 +945,8 @@ public sealed class OrderRegistrationViewModel : ViewModelBase, IDisposable
         isBusy = busy; busyMessage = message;
         Notify(nameof(IsBusy)); Notify(nameof(CanRegister)); Notify(nameof(RegisterButtonText)); Notify(nameof(ValidationSummary));
         Notify(nameof(HasUnsavedChanges));
-        foreach (var command in new[] { CloseCommand, AddLineCommand, RemoveLineCommand, RegisterCommand, SaveDraftCommand, UndoRemoveLineCommand, ShowProductDetailsCommand, CloseProductDetailsCommand,
-            SelectOfficeCommand, SelectClientCommand, SelectProductCommand, ShowRegisteredOrderCommand, ReturnToListCommand, StartNextOrderCommand,
+        foreach (var command in new[] { CloseCommand, AddLineCommand, RemoveLineCommand, RemoveAllLinesCommand, RegisterCommand, SaveDraftCommand, UndoRemoveLineCommand, ShowProductDetailsCommand, CloseProductDetailsCommand,
+            SelectOfficeCommand, SelectClientCommand, SelectProductCommand, SelectMakerCommand, ShowRegisteredOrderCommand, ReturnToListCommand, StartNextOrderCommand,
             EscapeCommand, DismissCompletionCommand }) command.Refresh();
     }
     public async Task<bool> TryApproveCloseAsync()
@@ -891,7 +976,7 @@ public sealed class OrderRegistrationViewModel : ViewModelBase, IDisposable
         if (disposed) return;
         disposed = true;
         HideCompletionDialog();
-        undoTimer.Stop();
+        ClearUndo();
         foreach (var line in observedLines) line.PropertyChanged -= LineChanged;
         observedLines.Clear(); source.Dispose();
     }

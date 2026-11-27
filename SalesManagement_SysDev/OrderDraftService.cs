@@ -33,14 +33,8 @@ public sealed class OrderDraftService : IOrderDraftStore
         var session = RequireSession();
         var employee = await ReadEmployee(db, session.EmId).SingleOrDefaultAsync(token);
         var actor = VerifyActor(session, employee);
-        // Older databases can have no drafts yet. Listing registered orders needs no DDL privileges.
-        var tableExists = await db.Database.SqlQueryRaw<int>(
-            "SELECT CASE WHEN OBJECT_ID(N'dbo.T_OrderDraft', N'U') IS NULL THEN 0 ELSE 1 END AS [Value]").SingleAsync(token);
-        if (tableExists == 0) return new OrderDraftPage([], [], 0, 1);
-
-        var scoped = db.Set<OrderDraftListEntry>().Where(row => row.EmployeeId == actor.EmployeeId
-            && (actor.IsAdmin || row.ScopeOfficeId == actor.OfficeId));
-        var filtered = OrderDraftListQuery.ApplyFilters(db, scoped, request.Criteria);
+        var filtered = await ReadFilteredListAsync(db, request, actor.EmployeeId, actor.IsAdmin ? null : actor.OfficeId, token);
+        if (filtered == null) return new OrderDraftPage([], [], 0, 1);
         var count = await filtered.CountAsync(token);
         var page = Math.Clamp(pageNumber, 1, OrderListQuery.PageCount(count, pageSize));
         if (request.Tab != OrderStatusTab.Draft || count == 0) return new OrderDraftPage([], [], count, page);
@@ -51,6 +45,34 @@ public sealed class OrderDraftService : IOrderDraftStore
             : await filtered.Where(row => offPageIds.Contains(row.DraftId)).ToListAsync(token);
         return new OrderDraftPage(rows.Select(row => row.ToListRow()).ToArray(),
             checkedOffPage.Select(row => row.ToListRow()).ToArray(), count, page);
+    }
+
+    internal static async Task<IQueryable<OrderExportRow>?> ReadExportQueryAsync(SalesManagementContext db,
+        OrderListRequest request, int employeeId, int? officeScope, IReadOnlyList<Guid> selectedIds, CancellationToken token)
+    {
+        var filtered = await ReadFilteredListAsync(db, request, employeeId, officeScope, token).ConfigureAwait(false);
+        if (filtered == null) return null;
+        if (selectedIds.Count > 0)
+        {
+            var ids = db.Database.SqlQuery<Guid>(
+                $"SELECT [Value] FROM OPENJSON({JsonSerializer.Serialize(selectedIds)}) WITH ([Value] uniqueidentifier '$')");
+            filtered = filtered.Where(row => ids.Contains(row.DraftId));
+        }
+        return OrderDraftListQuery.Sort(filtered, request).Select(row => new OrderExportRow(null, row.OrderDate, row.DeliveryDate,
+            row.CustomerName, row.LineCount, row.EmployeeName, row.OfficeName, row.Subtotal, "下書き"));
+    }
+
+    private static async Task<IQueryable<OrderDraftListEntry>?> ReadFilteredListAsync(SalesManagementContext db,
+        OrderListRequest request, int employeeId, int? officeScope, CancellationToken token)
+    {
+        // Read-only on databases created before the drafts feature.
+        var tableExists = await db.Database.SqlQueryRaw<int>(
+            "SELECT CASE WHEN OBJECT_ID(N'dbo.T_OrderDraft', N'U') IS NULL THEN 0 ELSE 1 END AS [Value]").SingleAsync(token)
+            .ConfigureAwait(false);
+        if (tableExists == 0) return null;
+        var scoped = db.Set<OrderDraftListEntry>().AsNoTracking().Where(row => row.EmployeeId == employeeId);
+        if (officeScope is int officeId) scoped = scoped.Where(row => row.ScopeOfficeId == officeId);
+        return OrderDraftListQuery.ApplyFilters(db, scoped, request.Criteria);
     }
 
     public OrderDraftSnapshot Open(Guid id)
@@ -88,17 +110,25 @@ public sealed class OrderDraftService : IOrderDraftStore
         return ToToken(draft);
     }
 
-    public void Delete(OrderDraftToken token)
+    public void Delete(OrderDraftToken token) => DeleteDrafts([token]);
+
+    internal void DeleteDrafts(IReadOnlyList<OrderDraftToken> tokens)
     {
+        if (tokens.Count == 0) return;
         using var db = OpenDraftContext();
         using var transaction = db.Database.BeginTransaction(IsolationLevel.RepeatableRead);
         var actor = Authorize(db);
-        var draft = LockDraft(db, actor, token.Id);
-        if (draft == null || draft.RegisteredOrderId != null) throw new OrderDraftException(Unavailable);
-        if (draft.FormJson == null) return;
-        EnsureWritableVersion(draft, token);
-        draft.FormJson = null;
-        draft.UpdatedAt = DateTimeOffset.UtcNow;
+        var now = DateTimeOffset.UtcNow;
+        // Acquire draft locks in the same order for overlapping selections.
+        foreach (var token in tokens.OrderBy(token => token.Id))
+        {
+            var draft = LockDraft(db, actor, token.Id);
+            if (draft == null || draft.RegisteredOrderId != null) throw new OrderDraftException(Unavailable);
+            if (draft.FormJson == null) continue;
+            EnsureWritableVersion(draft, token);
+            draft.FormJson = null;
+            draft.UpdatedAt = now;
+        }
         db.SaveChanges();
         transaction.Commit();
     }

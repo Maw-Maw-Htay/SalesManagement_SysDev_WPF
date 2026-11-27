@@ -180,7 +180,8 @@ internal static class Program
     private static void CheckOrderDetails()
     {
         var prints=0; var edits=0; var confirmations=0; var hides=0;
-        OrderDetailViewModel Model(OrderDetailSnapshot sample)=>new(sample,()=>edits++,()=>confirmations++,()=>hides++,()=>prints++,()=>{});
+        OrderDetailViewModel Model(OrderDetailSnapshot sample, bool readOnly = false) =>
+            new(sample, () => edits++, () => confirmations++, () => hides++, () => prints++, () => { }, readOnly);
         var draft=Model(DetailSample()); var confirmed=Model(DetailSample(1)); var hidden=Model(DetailSample(1,2));
         Check(draft.HeaderStatus==new OrderDetailBadge("未確定","Warning") && draft.CanEdit && draft.CanConfirm && !draft.CanPrint,
             "draft details expose confirmation/editing and an orange status while printing is unavailable");
@@ -226,8 +227,12 @@ internal static class Program
             var body=(ScrollViewer)view.FindName("DetailBodyScroll");
             var header=(FrameworkElement)view.FindName("DetailHeader");
             var footer=(FrameworkElement)view.FindName("DetailFooter");
-            var edit=(Button)view.FindName("EditOrderButton");
-            var print=(Button)view.FindName("PrintOrderButton");
+            var actionBar = (Grid)view.FindName("DetailActionBar");
+            var actionButtons = FindVisualChildren<Button>(actionBar).ToArray();
+            Button[] VisibleActions() => actionButtons.Where(button => button.IsVisible).ToArray();
+            var visibleActions = VisibleActions();
+            string[] expectedActions = state == 0 ? ["ConfirmOrderButton", "EditOrderButton", "HideOrderButton"]
+                : ["PrintOrderButton", "HideOrderButton"];
             var expander=(Expander)view.FindName("DetailHistoryExpander");
             var historyGrid=(DataGrid)view.FindName("DetailHistoryGrid");
             var itemsGrid=(DataGrid)view.FindName("DetailItemsGrid");
@@ -236,9 +241,10 @@ internal static class Program
                 && vm.HeaderSummary.Contains("2026/11/02") && vm.HeaderSummary.Contains(sample.OfficeName),
                 "fixed header uses the selected order number, date and office");
             Check(((TextBlock)view.FindName("DetailHistoryCount")).Text=="24件", "collapsed history shows the actual retrieved count");
-            Check(edit.Visibility==Visibility.Visible && edit.IsEnabled==(state==0) && print.IsEnabled==(state==1)
-                && !expander.IsExpanded && ((Button)view.FindName("ConfirmOrderButton")).Visibility==(state==1 ? Visibility.Collapsed : Visibility.Visible),
+            Check(visibleActions.Select(button => button.Name).SequenceEqual(expectedActions)
+                && visibleActions.All(button => button.IsEnabled) && !expander.IsExpanded,
                 "compact action bar respects order rules and initially collapses history, state "+state);
+            var firstAction = visibleActions[0];
             foreach(var (width,height,label) in DetailLayoutSizes())
             {
                 host.Width=width; host.Height=height; host.UpdateLayout(); Pump();
@@ -251,12 +257,9 @@ internal static class Program
                 var itemScroll=FindVisualChild<ScrollViewer>(itemsGrid)!;
                 Check(itemsGrid.Columns.All(column=>column.ActualWidth>=28) && itemScroll.ScrollableWidth<1,
                     "all item columns fit without horizontal scrolling at width "+width);
-                var actions=(Grid)view.FindName("DetailActionBar");
                 var badge=(FrameworkElement)view.FindName("HeaderStatusBadge");
-                var confirm=(Button)view.FindName("ConfirmOrderButton");
-                var first=state==0 ? confirm : edit;
-                Check(badge.TransformToAncestor(actions).Transform(new Point(badge.ActualWidth,0)).X
-                    <=first.TransformToAncestor(actions).Transform(new Point()).X,
+                Check(badge.TransformToAncestor(actionBar).Transform(new Point(badge.ActualWidth,0)).X
+                    <=firstAction.TransformToAncestor(actionBar).Transform(new Point()).X,
                     "status badge and existing actions do not overlap at width "+width);
             }
             Check(itemsGrid.Columns.Select(column=>column.Header.ToString())
@@ -358,6 +361,12 @@ internal static class Program
                     $"compact order layout fits without hiding management information (overflow={body.ScrollableHeight}, body={body.ActualHeight}, history={historyGrid.ActualHeight}, footer={preview.FooterSummary})");
                 expander.IsExpanded=true;host.UpdateLayout();body.ScrollToBottom();Pump();
                 Render(root,"order-detail-reference-expanded");
+                host.DataContext = hidden;
+                Pump();
+                Check(VisibleActions() is [{ Name: "PrintOrderButton", IsEnabled: true }], "hidden confirmed detail shows the available print action");
+                host.DataContext = Model(sample, readOnly: true);
+                Pump();
+                Check(actionButtons.All(button => button.Visibility == Visibility.Collapsed), "read-only details hide the entire set of order actions");
                 host.DataContext=vm;host.UpdateLayout();Pump();
             }
             ((Button)view.FindName("DetailCloseButton")).Command.Execute(null);
@@ -640,7 +649,9 @@ internal static class Program
         host.Close();view.Close();owner.Close();
         Check(!db.ChangeTracker.HasChanges(),"read-only verification leaves the existing database unchanged");
         var login=new LoginViewModel(()=>throw new InvalidOperationException("Connection checks must not authenticate."),()=>{});
-        Check(login.PrepareDatabase() && login.DatabaseReady && login.LoginLabel=="ログイン",
+        var prepare = login.PrepareDatabaseAsync();
+        Wait(prepare);
+        Check(prepare.Result && login.DatabaseReady && login.LoginLabel=="ログイン",
             "the login screen's actual connection check reaches Ready without authenticating or initializing data");
     }
     private static OrderHideResult Hide(int id, string? reason=" 重複登録\r\n確認済み ", int? employee=null)
@@ -660,6 +671,7 @@ internal static class Program
         try
         {
             using (var db=Context()) { db.Database.EnsureCreated(); created=true; Seed(db); }
+            CheckLoginAgainstFixture();
             Check(!Hide(1,"　\r\n").Succeeded && !Hide(0).Succeeded && !Hide(99999).Succeeded, "service rejects whitespace, invalid and missing targets");
             SetRole("物流"); Check(!Hide(1).Succeeded,"service role denial");
             AppSession.Employee=null; Check(!Hide(1).Succeeded,"service unauthenticated denial");
@@ -708,6 +720,37 @@ internal static class Program
             if (created) {using var db=Context();db.Database.EnsureDeleted();Console.WriteLine("Disposable database removed: "+catalog);}
         }
     }
+
+    private static void CheckLoginAgainstFixture()
+    {
+        const string setting = "SALESMANAGEMENT_CONNECTION_STRING";
+        var original = Environment.GetEnvironmentVariable(setting);
+        Environment.SetEnvironmentVariable(setting, testConnection);
+        try
+        {
+            var rejected = BusinessService.LoginAsync(1, "wrong");
+            Wait(rejected);
+            Check(rejected.Result == null, "async login rejects an incorrect password");
+            using (var db = Context())
+                Check(db.MEmployees.Single().EmPasswordHash == null, "an incorrect password does not migrate legacy credentials");
+
+            var migrated = BusinessService.LoginAsync(1, "test");
+            Wait(migrated);
+            Check(migrated.Result is { EmId: 1, Po.PoName: "営業", EmPasswordHash: null },
+                "async login returns the assigned role without the password hash");
+            using (var db = Context())
+            {
+                var employee = db.MEmployees.Single();
+                Check(employee.EmPassword != "test" && EmployeePasswordHasher.Verify("test", employee.EmPasswordHash),
+                    "async login migrates the valid legacy password in the disposable database");
+            }
+            var signedIn = BusinessService.LoginAsync(1, "test");
+            Wait(signedIn);
+            Check(signedIn.Result?.EmId == 1, "async login accepts the migrated password on the next attempt");
+        }
+        finally { Environment.SetEnvironmentVariable(setting, original); }
+    }
+
     private static void Seed(SalesManagementContext db)
     {
         var office=new MSalesOffice {SoName="北大阪営業所"};

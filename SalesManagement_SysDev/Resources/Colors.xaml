@@ -30,9 +30,11 @@
     <SolidColorBrush x:Key="ThemeOrderNavy" Color="#091B38" />
     <SolidColorBrush x:Key="ThemeOrderText" Color="#0F172A" />
     <SolidColorBrush x:Key="ThemeOrderEntryNavy" Color="#081C3D" />
+    <SolidColorBrush x:Key="ThemeOrderEntryAccent" Color="#2563EB" />
     <SolidColorBrush x:Key="ThemeOrderEntryCanvas" Color="#F3F6FA" />
     <SolidColorBrush x:Key="ThemeOrderEntryBorder" Color="#D9E3EE" />
     <SolidColorBrush x:Key="ThemeOrderEntryText" Color="#10294B" />
+    <SolidColorBrush x:Key="ThemeOrderEntryHighlight" Color="#DCE8FC" />
     <SolidColorBrush x:Key="ThemeOrderDialogBorder" Color="#DCE4EF" />
     <SolidColorBrush x:Key="ThemeStockNormalText" Color="#15803D" />
     <SolidColorBrush x:Key="ThemeStockLowText" Color="#B45309" />

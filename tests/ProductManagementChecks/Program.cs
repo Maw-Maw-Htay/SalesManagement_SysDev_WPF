@@ -1,3 +1,4 @@
+using System.Collections.Specialized;
 using System.Diagnostics;
 using System.Reflection;
 using System.Windows;
@@ -95,6 +96,7 @@ internal static partial class Program
     private static void CheckWindows(bool renderPreview)
     {
         var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+        SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext());
         AppSession.Employee = Employee("管理者");
         try
         {
@@ -159,8 +161,19 @@ internal static partial class Program
             vm.ReleaseFrom = new DateTime(2025, 1, 7); vm.ReleaseTo = new DateTime(2025, 1, 2);
             WaitFor(() => vm.FilterError.Contains("発売日") && vm.Rows.Count == 0, "reversed release date range shows validation");
             vm.ClearConditions();
+            int selectionNotifications = 0;
+            vm.PropertyChanged += (_, e) => { if (e.PropertyName == nameof(vm.SelectedCount)) selectionNotifications++; };
             vm.SelectAllVisible(true);
             Check(vm.Rows.Count == 10 && vm.PageNumber == 1 && vm.SelectedRows.Count == 45, "clear resets the page while select all covers filtered pages");
+            Check(selectionNotifications == 1 && vm.VisibleSelectionState == true,
+                "bulk selection publishes one final selection update across all pages");
+            int pageResets = 0;
+            vm.Rows.CollectionChanged += (_, e) => { if (e.Action == NotifyCollectionChangedAction.Reset) pageResets++; };
+            var reload = vm.LoadAsync();
+            WaitFor(() => reload.IsCompleted, "product catalog reload completes");
+            reload.GetAwaiter().GetResult();
+            Check(pageResets == 1 && vm.SelectedRows.Count == 45,
+                "a catalog reload publishes the page once and retains eligible selections");
             Check(rows[3].Inventory.QuantityText == "未登録" && rows[2].Inventory.Condition == InventoryCondition.Low,
                 "product stock display distinguishes missing balances and uses the inventory rules");
 
@@ -227,6 +240,18 @@ internal static partial class Program
             "inventory displays each shortage row once after scrolling the previous page");
         Check(!ReferenceEquals(originalRows, vm.Rows) && originalRows.Count == 20,
             "inventory gives the grid a complete replacement page without mutating the previous page");
+        var save = (Button)view.FindName("SaveButton");
+        var saveMenu = save.ContextMenu;
+        save.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Check(saveMenu.IsOpen && ((MenuItem)saveMenu.Items[0]).IsEnabled && ((MenuItem)saveMenu.Items[2]).IsEnabled
+            && !((MenuItem)saveMenu.Items[1]).IsEnabled, "inventory offers filtered and all rows, with no checked rows yet");
+        saveMenu.IsOpen = false;
+        vm.Rows[0].IsMarked = true;
+        save.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Check(((MenuItem)saveMenu.Items[1]).IsEnabled, "inventory enables saving checked rows on the current page");
+        saveMenu.IsOpen = false;
+        vm.QuickSearch = "新しい条件";
+        Check(!save.IsEnabled, "inventory cannot save a stale page while the updated search is pending");
     }
 
     private static void CheckLiveData()

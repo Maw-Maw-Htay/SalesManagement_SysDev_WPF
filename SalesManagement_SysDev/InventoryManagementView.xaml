@@ -273,6 +273,17 @@
                 <Button Click="Export_Click" Style="{StaticResource InventoryToolbarButton}" IsEnabled="{Binding CanExport}" ToolTip="絞り込みに一致する全ページを出力" AutomationProperties.Name="CSV出力">
                         <StackPanel Orientation="Horizontal"><local:LucideIcon Data="{StaticResource IconDetails}" Width="15" Height="15" Stroke="{StaticResource OrderText}" Margin="0,0,6,0" /><TextBlock Text="CSV出力" VerticalAlignment="Center" /></StackPanel>
                     </Button>
+                <Button x:Name="SaveButton" Click="Save_Click" Style="{StaticResource InventoryToolbarButton}" IsEnabled="{Binding CanSave}" ToolTip="保存する範囲を選択" AutomationProperties.Name="保存">
+                    <Button.ContextMenu>
+                        <ContextMenu Placement="Bottom" Opened="SaveMenu_Opened">
+                            <MenuItem x:Name="SaveFiltered" Header="検索結果を保存（全ページ）" Click="SaveScope_Click" />
+                            <MenuItem x:Name="SaveMarked" Header="チェックした行を保存（現在のページ）" Click="SaveScope_Click" />
+                            <MenuItem x:Name="SaveAll" Header="全件を保存" Click="SaveScope_Click" />
+                        </ContextMenu>
+                    </Button.ContextMenu>
+                    <StackPanel Orientation="Horizontal"><local:LucideIcon Data="{StaticResource IconSave}" Width="15" Height="15" Stroke="{StaticResource OrderText}" Margin="0,0,6,0" /><TextBlock Text="保存" VerticalAlignment="Center" /></StackPanel>
+                </Button>
+                <Button x:Name="CancelSave" Click="CancelSave_Click" Style="{StaticResource InventoryToolbarButton}" Content="保存を中止" Visibility="Collapsed" />
             </WrapPanel>
         </Grid>
 

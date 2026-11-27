@@ -313,6 +313,11 @@
             <DataTrigger Binding="{Binding IsDraft}" Value="True"><Setter Property="Visibility" Value="Visible" /></DataTrigger>
         </Style.Triggers>
     </Style>
+    <Style x:Key="OrderDeleteDraftMenuItem" TargetType="MenuItem" BasedOn="{StaticResource OrderDraftMenuItem}">
+        <Style.Triggers>
+            <Trigger Property="IsEnabled" Value="True"><Setter Property="Foreground" Value="{StaticResource ThemeDanger}" /></Trigger>
+        </Style.Triggers>
+    </Style>
     <Style x:Key="OrderRowMenuSeparator" TargetType="Separator">
         <Setter Property="Template"><Setter.Value>
             <ControlTemplate TargetType="Separator">
@@ -361,7 +366,7 @@
             </Trigger>
         </Style.Triggers>
     </Style>
-    <Style x:Key="OrderBulkHideButton" TargetType="Button" BasedOn="{StaticResource OrderBulkButton}">
+    <Style x:Key="OrderBulkDangerButton" TargetType="Button" BasedOn="{StaticResource OrderBulkButton}">
         <Setter Property="Foreground" Value="#991B1B" />
         <Setter Property="BorderBrush" Value="#FECACA" />
         <Style.Triggers>

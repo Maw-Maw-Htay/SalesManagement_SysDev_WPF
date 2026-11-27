@@ -13,6 +13,10 @@ public sealed class OrderManagementViewModel : ViewModelBase
     private bool isFiltersExpanded;
     private bool isBusy;
     private bool isLoading;
+    private bool isExporting;
+    private bool showExportProgress;
+    private string? exportedPath;
+    private string? exportError;
     private OrderStatusTab selectedTab;
     private string quickSearchText = "";
     private string orderNumberFilter = "";
@@ -31,17 +35,26 @@ public sealed class OrderManagementViewModel : ViewModelBase
     private OrderListSort sortColumn = OrderListSort.OrderDate;
     private ListSortDirection sortDirection = ListSortDirection.Descending;
 
-    public OrderManagementViewModel(Action clearFilters, Action confirmSelected, Action hideSelected, bool showHistory,
-        Action importCsv, Action printOrders, Action<int> requestPage)
+    public OrderManagementViewModel(Action clearFilters, Action confirmSelected, Action hideSelected, Action<IReadOnlyList<int>> restoreSelected,
+        Action<IReadOnlyList<OrderDraftToken>> deleteSelectedDrafts, bool showHistory,
+        Action importCsv, Action printOrders, Action<int> requestPage, Action? saveOrders = null, Func<bool>? canSaveOrders = null)
     {
         this.requestPage = requestPage;
         selectedTab = showHistory ? OrderStatusTab.History : OrderStatusTab.All;
         ToggleFiltersCommand = new RelayCommand(() => IsFiltersExpanded = !IsFiltersExpanded);
         ClearFiltersCommand = new RelayCommand(clearFilters);
-        ConfirmSelectedCommand = new RelayCommand(confirmSelected, () => CanUseRegisteredOrders && checkedRows.Values.Any(row => row.CanConfirm));
-        HideSelectedCommand = new RelayCommand(hideSelected, () => CanUseRegisteredOrders && checkedRows.Values.Any(row => row.CanHide));
+        ConfirmSelectedCommand = new RelayCommand(confirmSelected, () => CanUseOrderList && ShowsActiveOrderActions && checkedRows.Values.Any(row => row.CanConfirm));
+        HideSelectedCommand = new RelayCommand(hideSelected, () => CanUseOrderList && ShowsActiveOrderActions && checkedRows.Values.Any(row => row.CanHide));
+        RestoreSelectedCommand = new RelayCommand(
+            () => restoreSelected(checkedRows.Values.Where(row => row.CanRestore).Select(row => row.OrderId).ToArray()),
+            () => CanUseOrderList && ShowsRestoreAction && checkedRows.Values.Any(row => row.CanRestore));
+        DeleteSelectedDraftsCommand = new RelayCommand(
+            () => deleteSelectedDrafts(checkedRows.Values.Select(row => row.DraftToken).OfType<OrderDraftToken>().ToArray()),
+            () => CanUseOrderList && IsDraftTab && checkedRows.Keys.Any(key => key.DraftId.HasValue));
         ImportCsvCommand = new RelayCommand(importCsv, () => AppSession.CanManageOrders && !IsBusy);
         PrintCommand = new RelayCommand(printOrders, () => CanUseRegisteredOrders);
+        SaveCommand = new RelayCommand(() => saveOrders?.Invoke(),
+            () => CanUseOrderList && !IsExporting && canSaveOrders?.Invoke() == true);
         ClearSelectionCommand = new RelayCommand(ClearSelection, () => CanUseOrderList && HasSelection);
         TogglePageSelectionCommand = new RelayCommand(TogglePageSelection, () => CanUseOrderList && Rows.Count > 0);
         PreviousPageCommand = new RelayCommand(() => requestPage(PageNumber - 1), () => CanUseOrderList && PageNumber > 1);
@@ -72,14 +85,19 @@ public sealed class OrderManagementViewModel : ViewModelBase
     public OrderStatusTab SelectedTab { get => selectedTab; private set => Set(ref selectedTab, value); }
     public bool CanUseOrderList => !IsBusy && !IsLoading && SelectedTab != OrderStatusTab.History && AppSession.CanManageOrders;
     public bool IsDraftTab => SelectedTab == OrderStatusTab.Draft;
+    public bool ShowsActiveOrderActions => SelectedTab is OrderStatusTab.All or OrderStatusTab.Pending or OrderStatusTab.Confirmed;
+    public bool ShowsRestoreAction => SelectedTab == OrderStatusTab.Hidden && AppSession.IsAdmin;
     public bool CanUseRegisteredOrders => CanUseOrderList && !IsDraftTab;
     public string FiltersToggleLabel => IsFiltersExpanded ? "詳細条件を閉じる" : "詳細条件を展開";
     public RelayCommand ToggleFiltersCommand { get; }
     public RelayCommand ClearFiltersCommand { get; }
     public RelayCommand ConfirmSelectedCommand { get; }
     public RelayCommand HideSelectedCommand { get; }
+    public RelayCommand RestoreSelectedCommand { get; }
+    public RelayCommand DeleteSelectedDraftsCommand { get; }
     public RelayCommand ImportCsvCommand { get; }
     public RelayCommand PrintCommand { get; }
+    public RelayCommand SaveCommand { get; }
     public RelayCommand ClearSelectionCommand { get; }
     public RelayCommand TogglePageSelectionCommand { get; }
     public RelayCommand PreviousPageCommand { get; }
@@ -88,11 +106,30 @@ public sealed class OrderManagementViewModel : ViewModelBase
     public RelayCommand SortAscendingCommand { get; }
     public RelayCommand SortDescendingCommand { get; }
 
+    public bool IsExporting { get => isExporting; internal set { if (Set(ref isExporting, value)) SaveCommand.Refresh(); } }
+    public bool ShowExportProgress { get => showExportProgress; internal set => Set(ref showExportProgress, value); }
+    public bool ShowExportNotice => ExportSucceeded || exportError != null;
+    public bool ExportSucceeded => ExportedPath != null;
+    public string ExportHeading => ExportSucceeded ? "ファイルを保存しました" : "ファイルを保存できませんでした";
+    public string? ExportDetail => ExportSucceeded ? System.IO.Path.GetFileName(ExportedPath) : exportError;
+    internal string? ExportedPath => exportedPath;
+
+    internal void SetExportNotice(string? path = null, string? error = null)
+    {
+        exportedPath = path;
+        exportError = error;
+        Notify(nameof(ShowExportNotice)); Notify(nameof(ExportSucceeded)); Notify(nameof(ExportHeading)); Notify(nameof(ExportDetail));
+    }
+
     public IReadOnlyList<OrderListRow> Rows { get; private set; } = [];
     public bool HasSelection => checkedRows.Count > 0;
     public string SelectionText => $"{checkedRows.Count:N0}件選択中";
-    public string SelectionHelp => IsDraftTab ? "全ページの下書きの選択件数"
-        : $"全ページの選択 · 確定可能 {checkedRows.Values.Count(row => row.CanConfirm):N0} 件 / 非表示可能 {checkedRows.Values.Count(row => row.CanHide):N0} 件";
+    public string SelectionHelp => SelectedTab switch
+    {
+        OrderStatusTab.Draft => "全ページの下書きの選択件数",
+        OrderStatusTab.Hidden => "全ページの非表示受注の選択件数",
+        _ => $"全ページの選択 · 確定可能 {checkedRows.Values.Count(row => row.CanConfirm):N0} 件 / 非表示可能 {checkedRows.Values.Count(row => row.CanHide):N0} 件"
+    };
     public bool? AllPageSelected => Rows.All(row => !row.IsChecked) ? false : Rows.All(row => row.IsChecked) ? true : null;
     internal IReadOnlyList<OrderListRow> SelectedOrders => checkedRows.Values.Where(row => row.IsRegisteredOrder).ToArray();
     internal IReadOnlyList<int> SelectedOrderIds => checkedRows.Keys.Where(key => key.OrderId.HasValue)
@@ -151,6 +188,8 @@ public sealed class OrderManagementViewModel : ViewModelBase
     {
         SelectedTab = tab;
         Notify(nameof(IsDraftTab));
+        Notify(nameof(ShowsActiveOrderActions));
+        Notify(nameof(ShowsRestoreAction));
         Notify(nameof(SortColumn));
         Notify(nameof(SortDirection));
         UpdateAvailability();
@@ -247,14 +286,15 @@ public sealed class OrderManagementViewModel : ViewModelBase
     private void NotifySelection()
     {
         Notify(nameof(HasSelection)); Notify(nameof(SelectionText)); Notify(nameof(SelectionHelp)); Notify(nameof(AllPageSelected));
-        ConfirmSelectedCommand.Refresh(); HideSelectedCommand.Refresh(); ClearSelectionCommand.Refresh(); TogglePageSelectionCommand.Refresh();
+        ConfirmSelectedCommand.Refresh(); HideSelectedCommand.Refresh(); RestoreSelectedCommand.Refresh(); DeleteSelectedDraftsCommand.Refresh();
+        ClearSelectionCommand.Refresh(); TogglePageSelectionCommand.Refresh();
     }
 
     private void UpdateAvailability()
     {
         Notify(nameof(CanUseOrderList));
         NotifySelection();
-        ImportCsvCommand.Refresh(); PrintCommand.Refresh();
+        ImportCsvCommand.Refresh(); PrintCommand.Refresh(); SaveCommand.Refresh();
         PreviousPageCommand.Refresh(); NextPageCommand.Refresh(); GoToPageCommand.Refresh();
         SortAscendingCommand.Refresh(); SortDescendingCommand.Refresh();
     }

@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Globalization;
 using System.Reflection;
 using System.Windows;
@@ -27,20 +28,28 @@ internal static partial class Program
     }
 
     private static void CheckManufacturerFiltering(OrderRegistrationViewModel model, QuantityRegistrationSource source,
-        ComboBox manufacturer, RegistrationLookup lookup, Button details)
+        RegistrationLookup manufacturer, RegistrationLookup lookup, Button details)
     {
-        void Select(string name)
-        {
-            manufacturer.SelectedItem = model.MakerOptions.Single(option => option.Name == name);
-            FlushBindings();
-        }
+        var makerInput = (TextBox)manufacturer.FindName("QueryInput");
+        var makerPopup = (Popup)manufacturer.FindName("SuggestionsPopup");
 
-        Check(manufacturer.SelectedItem is ProductMasterOption { Id: 0, Name: "すべてのメーカー" }
+        Check(makerInput.IsEnabled && !makerInput.IsReadOnly && makerInput.Text == "" && manufacturer.Placeholder == "すべてのメーカー"
+            && model.SelectedMakerId == 0
             && model.MakerOptions.Count == 4 && model.Products.Count == 35,
             "manufacturer defaults to all and includes products beyond the former 30-option limit");
-        Select("Apple");
+        TypeManufacturerName(manufacturer, "pPl");
+        Check(model.MakerSuggestions is [{ Name: "Apple" }] && model.SelectedMakerId == 0 && model.Products.Count == 35,
+            "typing a partial manufacturer name filters the choices before applying the product filter");
+        RaiseLookupKey(makerInput, Key.Enter);
+        FlushBindings();
         Check(model.SelectedMakerId == 1 && model.Products.Count == 12 && model.Products.All(product => product.MakerName == "Apple")
-            && !model.HasUnsavedChanges, "Apple selection filters by manufacturer without changing draft inputs");
+            && makerInput.Text == "Apple" && !makerPopup.IsOpen && !model.HasUnsavedChanges,
+            "Enter chooses the matching manufacturer and filters products without changing draft inputs");
+        TypeManufacturerName(manufacturer, "該当しないメーカー");
+        Check(model.MakerSuggestions.Count == 0 && model.SelectedMakerId == 1, "unmatched manufacturer text preserves the active filter");
+        RaiseLookupKey(makerInput, Key.Escape);
+        FlushBindings();
+        Check(makerInput.Text == "Apple" && !makerPopup.IsOpen, "Escape restores the displayed manufacturer from the active filter");
         foreach (var (query, expected) in new[] { ("キーボード", 1), ("PR-0004", 4), ("4900000000004", 4) })
         {
             model.ProductSearch = query;
@@ -48,35 +57,54 @@ internal static partial class Program
         }
         model.ProductSearch = "PR-0002";
         Check(model.Products.Count == 0, "product code search excludes other manufacturers");
-        Select("Samsung");
+        ChooseManufacturer(manufacturer, "Samsung");
         Check(model.ProductSearch == "PR-0002" && model.Products.Single().PrId == 2
             && source.ProductLoads == 1 && source.StockBatches == 1 && source.StockSelections == 0,
             "changing manufacturer retains a typed search and reuses the loaded catalog and stock");
         var search = (TextBox)lookup.FindName("QueryInput");
         var suggestions = (ListBox)lookup.FindName("SuggestionList");
-        RaiseKey(search, Key.Down);
+        RaiseLookupKey(search, Key.Down);
         FlushBindings();
         Check(suggestions.SelectedItem is RegistrationProduct { PrId: 2 }, "Down selects the first manufacturer-scoped product suggestion");
-        RaiseKey(suggestions, Key.Enter);
+        RaiseLookupKey(suggestions, Key.Enter);
         FlushBindings();
         var selected = model.SelectedProduct;
         Check(selected is { PrId: 2 } && !((Popup)lookup.FindName("SuggestionsPopup")).IsOpen,
             "Enter commits the selected suggestion and closes the popup");
-        Select("すべてのメーカー");
+        TypeManufacturerName(manufacturer, "");
+        RaiseLookupKey(makerInput, Key.Down);
+        var makerList = (ListBox)manufacturer.FindName("SuggestionList");
+        Check(makerList.SelectedItem is ProductMasterOption { Id: 0 }, "Down highlights the all-manufacturers option after clearing the search");
+        RaiseLookupKey(makerList, Key.Enter);
+        FlushBindings();
         Check(ReferenceEquals(model.SelectedProduct, selected) && model.Products.Count == 35 && details.IsEnabled,
             "showing all manufacturers keeps the current valid selection");
-        Select("Samsung");
+        ChooseManufacturer(manufacturer, "Samsung");
         Check(ReferenceEquals(model.SelectedProduct, selected) && source.StockSelections == 1 && details.IsEnabled,
             "switching to a matching manufacturer keeps the selection without reloading stock");
-        Select("Dell");
+        ChooseManufacturer(manufacturer, "Dell");
         Check(model.SelectedProduct == null && model.ProductSearch == "" && model.Products.All(product => product.MakerName == "Dell")
             && !details.IsEnabled && !model.HasUnsavedChanges, "switching to a different manufacturer clears only the pending selection");
-        Select("すべてのメーカー");
-
-        static void RaiseKey(FrameworkElement element, Key key) =>
-            element.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(element),
-                Environment.TickCount, key) { RoutedEvent = Keyboard.PreviewKeyDownEvent });
+        ChooseManufacturer(manufacturer, "すべてのメーカー");
     }
+
+    private static void TypeManufacturerName(RegistrationLookup manufacturer, string query)
+    {
+        ((TextBox)manufacturer.FindName("QueryInput")).SetCurrentValue(TextBox.TextProperty, query);
+        ((Popup)manufacturer.FindName("SuggestionsPopup")).IsOpen = true;
+        FlushBindings();
+    }
+
+    private static void ChooseManufacturer(RegistrationLookup manufacturer, string query)
+    {
+        TypeManufacturerName(manufacturer, query);
+        RaiseLookupKey((TextBox)manufacturer.FindName("QueryInput"), Key.Enter);
+        FlushBindings();
+    }
+
+    private static void RaiseLookupKey(FrameworkElement element, Key key) =>
+        element.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(element),
+            Environment.TickCount, key) { RoutedEvent = Keyboard.PreviewKeyDownEvent });
 
     private static void CheckManufacturerLayout(FrameworkElement view)
     {
@@ -110,6 +138,12 @@ internal static partial class Program
         var delete = Descendants<Button>(row).Single(button => Equals(button.ToolTip, "この商品行を削除"));
         Rect Bounds(FrameworkElement element) => element.TransformToAncestor(row).TransformBounds(new Rect(element.RenderSize));
         DataGridCell Cell(string heading) => Descendants<DataGridCell>(row).Single(cell => Equals(cell.Column.Header, heading));
+        var productCell = Cell("商品コード・商品名");
+        var thumbnail = Descendants<Image>(productCell).Single();
+        Check(thumbnail.Stretch == Stretch.Uniform && thumbnail.IsVisible == (thumbnail.Source != null)
+            && (thumbnail.IsVisible ? Bounds(thumbnail).Right < Bounds(product).Left : Bounds(product).Left - Bounds(productCell).Left < 16)
+            && !Descendants<LucideIcon>(productCell).Any(element => Equals(element.Data, Application.Current.FindResource("IconProduct"))),
+            "wide registration rows show available product photos and collapse the thumbnail space when a photo is missing");
         var unit = Descendants<TextBlock>(Cell("単価")).Single();
         var subtotal = Descendants<TextBlock>(Cell("小計")).Single();
         Check(warning.Foreground is SolidColorBrush { Color: var warningColor } && warningColor == Color.FromRgb(0xB4, 0x53, 0x09)
@@ -118,7 +152,7 @@ internal static partial class Program
             $"missing stock uses 12-DIP semibold amber text and an orange icon ({warning.Foreground}, {icon.Stroke}, {warning.FontSize}, {warning.FontWeight})");
         var verticalGap = Bounds(warning).Top - Bounds(code).Bottom;
         var iconGap = Bounds(warning).Left - Bounds(icon).Right;
-        var productCellEnd = Bounds(Cell("商品コード・商品名")).Right;
+        var productCellEnd = Bounds(productCell).Right;
         Check(Math.Abs(verticalGap - 3) < 1 && Math.Abs(iconGap - 4) < 1 && Bounds(warning).Right <= productCellEnd + 0.5
             && Bounds(product).Bottom <= Bounds(code).Top + 0.5 && product.FontWeight == FontWeights.Bold
             && product.TextTrimming == TextTrimming.CharacterEllipsis && Equals(product.ToolTip, product.Text),
@@ -143,16 +177,16 @@ internal static partial class Program
         }
     }
 
-    private static void CheckRegistrationFooter(F_OrderRegistration view, string layout, bool stacked = false)
+    private static void CheckRegistrationFooter(F_OrderRegistration view, string layout)
     {
         var footer = (Border)view.FindName("RegistrationFooter");
-        var back = (Button)view.FindName("ReturnToListButton");
+        var cancel = (Button)view.FindName("CancelButton");
         var save = (Button)view.FindName("SaveDraftButton");
         var register = (Button)view.FindName("RegisterButton");
         var buttons = Descendants<Button>(footer).ToArray();
         Rect Bounds(Button button) => button.TransformToAncestor(footer).TransformBounds(new Rect(button.RenderSize));
-        Check(buttons.SequenceEqual(new[] { back, save, register })
-            && buttons.Select(button => button.Content?.ToString()).SequenceEqual(new[] { "一覧に戻る", "下書き保存", "受注を登録" })
+        Check(buttons.SequenceEqual(new[] { cancel, save, register })
+            && buttons.Select(button => button.Content?.ToString()).SequenceEqual(new[] { "キャンセル", "下書き保存", "受注を登録" })
             && buttons.All(button =>
             {
                 var bounds = Bounds(button);
@@ -160,14 +194,14 @@ internal static partial class Program
                     && bounds.Right <= footer.ActualWidth + 1 && bounds.Bottom <= footer.ActualHeight + 1;
             }),
             "exactly three unclipped footer actions at " + layout);
-        var backBounds = Bounds(back);
+        var cancelBounds = Bounds(cancel);
         var saveBounds = Bounds(save);
         var registerBounds = Bounds(register);
-        Check(Math.Abs(backBounds.Left - footer.Padding.Left) < 1
-            && Math.Abs(footer.ActualWidth - registerBounds.Right - footer.Padding.Right) < 1
-            && Math.Abs(registerBounds.Left - saveBounds.Right - 12) < 1 && Math.Abs(saveBounds.Top - registerBounds.Top) < 1
-            && (stacked ? backBounds.Bottom < saveBounds.Top : backBounds.Right < saveBounds.Left && Math.Abs(backBounds.Top - saveBounds.Top) < 1),
-            "footer keeps Back at left and grouped Save and Register at right at " + layout);
+        var gap = footer.ActualWidth < 480 ? 10 : 12;
+        Check(Math.Abs(footer.ActualWidth - registerBounds.Right - footer.Padding.Right) < 1
+            && Math.Abs(saveBounds.Left - cancelBounds.Right - gap) < 1 && Math.Abs(registerBounds.Left - saveBounds.Right - gap) < 1
+            && Math.Abs(cancelBounds.Top - saveBounds.Top) < 1 && Math.Abs(saveBounds.Top - registerBounds.Top) < 1,
+            "footer keeps Cancel, Draft and Register together at the right at " + layout);
     }
 
     private static double CenterY(Rect rect) => rect.Top + rect.Height / 2;
@@ -183,7 +217,6 @@ internal static partial class Program
             source: source, draftStore: store);
         model.Load();
         Check(WaitFor(model.TryApproveCloseAsync()) && prompts == 0, "pristine registration leaves without a warning");
-        model.OfficeSearch = "入力中の営業所";
         model.CustomerSearch = "入力中の顧客";
         model.SetDateInputText(false, "2026/11/");
         model.DeliveryDate = null;
@@ -204,7 +237,7 @@ internal static partial class Program
         store.FailSave = false;
         Wait(model.SaveDraftAsync());
         Check(model.IsDraft && !model.HasUnsavedChanges && model.IsDraftSaveFeedback && !model.CanRegister
-            && store.Saved?.Form.Header is { Customer.Id: null, Office.Id: null, OrderDate.UnparsedText: "2026/11/",
+            && store.Saved?.Form.Header is { Customer.Id: null, Office.Id: 1, OrderDate.UnparsedText: "2026/11/",
                 PendingProduct.Id: 3, PendingQuantity: "3", PendingUnitPrice: 2000m },
             "explicit draft save accepts partial data and marks it clean");
         model.CloseCommand.Execute(null);
@@ -244,7 +277,7 @@ internal static partial class Program
         root.DataContext = model;
         host.Content = root;
         var remarks = (TextBox)view.FindName("RemarksInput");
-        var back = (Button)view.FindName("ReturnToListButton");
+        var cancel = (Button)view.FindName("CancelButton");
         var click = typeof(Button).GetMethod("OnClick", BindingFlags.Instance | BindingFlags.NonPublic)!;
         host.Show();
         try
@@ -258,7 +291,7 @@ internal static partial class Program
 
             void Interact(Action<Window, Button, Button, Button> interact)
             {
-                InteractWithModal(host, () => click.Invoke(back, null), modal =>
+                InteractWithModal(host, () => click.Invoke(cancel, null), modal =>
                 {
                     modal.UpdateLayout();
                     FlushBindings();
@@ -396,6 +429,10 @@ internal static partial class Program
             var owner = ReadEmployee(1);
             AppSession.Employee = owner;
             var store = new OrderDraftService();
+            var noDraftRows = ExportCsv(new OrderListRequest(new OrderSearchCriteria(), OrderStatusTab.Draft,
+                OrderListSort.OrderDate, ListSortDirection.Descending));
+            Check(noDraftRows.Length == 1 && db.Database.SqlQueryRaw<int>("SELECT CASE WHEN OBJECT_ID(N'dbo.T_OrderDraft', N'U') IS NULL THEN 0 ELSE 1 END AS [Value]").Single() == 0,
+                "draft export works against the old schema without creating the draft table");
             var legacyShell = NewOrderListShell();
             try
             {
@@ -620,10 +657,9 @@ internal static partial class Program
 
             var draftView = (F_OrderRegistration)host.Content;
             var productInput = (OrderProductInput)draftView.FindName("ProductInput");
-            var manufacturer = (ComboBox)productInput.FindName("ManufacturerFilter");
-            Check(manufacturer.SelectedItem is ProductMasterOption { Id: 0 }, "reopened draft starts with all manufacturers");
-            manufacturer.SelectedItem = reopened.MakerOptions.Single(option => option.Name == "Dell");
-            FlushBindings();
+            var manufacturer = (RegistrationLookup)productInput.FindName("ManufacturerFilter");
+            Check(reopened.SelectedMakerId == 0 && manufacturer.Text == "", "reopened draft starts with all manufacturers");
+            ChooseManufacturer(manufacturer, "ell");
             Check(reopened.Products.Single().PrId == productId && reopened.Products[0].MakerAndStockLabel == "メーカー：Dell | 在庫：未登録"
                 && !reopened.HasUnsavedChanges, "manufacturer filtering uses the actual SQL master relationship and stock while reopening a draft");
             reopened.SelectedClient = reopened.Clients.Single(client => client.ClId == customerId);
@@ -667,6 +703,9 @@ internal static partial class Program
             actions = DraftActions();
             var delete = actions.Items.OfType<MenuItem>().Single(item => Equals(item.Header, "下書きを削除する"));
             Check(delete.IsEnabled, "draft deletion is enabled for an owned draft");
+            var dangerColor = Color.FromRgb(0xDC, 0x26, 0x26);
+            Check(HasColor(delete.Foreground, dangerColor) && HasColor(Descendants<LucideIcon>(delete).Single().Stroke, dangerColor),
+                "draft deletion displays its label and trash icon in red");
             InteractWithModal(shell, () => delete.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent)), modal =>
             {
                 var notice = (OrderNoticeViewModel)modal.DataContext;

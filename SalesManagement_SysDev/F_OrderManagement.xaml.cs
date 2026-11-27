@@ -21,13 +21,20 @@ public sealed partial class F_OrderManagement
         isHistoryView = showHistory;
         NavigationOwner = navigationOwner;
         InitializeComponent();
-        Closed += (_, _) => { keywordRefreshTimer.Stop(); activeOrderQuery?.Cancel(); };
+        Closed += (_, _) => { keywordRefreshTimer.Stop(); activeOrderQuery?.Cancel(); orderExportCancellation?.Cancel(); };
         viewModel = new OrderManagementViewModel(
             () => ClearFilters(null, new RoutedEventArgs()),
             () => ConfirmSelected(null, new RoutedEventArgs()),
-            () => HideSelected(null, new RoutedEventArgs()), showHistory, ImportCsv, PrintFilteredOrders,
-            page => _ = LoadRowsAsync(page));
+            () => HideSelected(null, new RoutedEventArgs()),
+            ids => _ = ChangeOrderVisibilityAsync(ids, restore: true),
+            tokens => _ = DeleteDraftsAsync(tokens), showHistory, ImportCsv, PrintFilteredOrders,
+            page => _ = LoadRowsAsync(page), SaveOrders, () => appliedOrderRequest != null && !isHistoryView);
         orderRoot.DataContext = viewModel;
+        orderRoot.Unloaded += (_, _) =>
+        {
+            orderExportCancellation?.Cancel();
+            viewModel.SetExportNotice();
+        };
         viewModel.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(OrderManagementViewModel.SortDirection)) UpdateSortHeaders();
@@ -203,7 +210,7 @@ public sealed partial class F_OrderManagement
         Grid.SetColumnSpan(searchActions, wrapQuickSearch ? 2 : 1);
         Grid.SetColumnSpan(quickSearchField, wrapQuickSearch ? 2 : 1);
         searchActions.Margin = wrapQuickSearch ? new Thickness(0, 6, 0, 0) : new Thickness(8, 0, 0, 0);
-        var wrapStatusActions = e.NewSize.Width < 850;
+        var wrapStatusActions = e.NewSize.Width < 925;
         Grid.SetColumnSpan(statusMenu, wrapStatusActions ? 2 : 1);
         Grid.SetRow(statusActions, wrapStatusActions ? 1 : 0);
         statusActions.Margin = new Thickness(wrapStatusActions ? 0 : 8, 0, 0, 4);

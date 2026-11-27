@@ -31,7 +31,8 @@
                 </Button>
             </Grid>
         </Border>
-        <Popup x:Name="SuggestionsPopup" PlacementTarget="{Binding ElementName=InputFrame}" Placement="Bottom" StaysOpen="False" AllowsTransparency="True">
+        <Popup x:Name="SuggestionsPopup" PlacementTarget="{Binding ElementName=InputFrame}" Placement="Bottom" StaysOpen="False" AllowsTransparency="True"
+               Closed="SuggestionsClosed">
             <Border Background="{StaticResource ThemeSurface}" BorderBrush="{StaticResource ThemeInputBorder}" BorderThickness="1" CornerRadius="6"
                     Width="{Binding ActualWidth, ElementName=InputFrame}" Margin="0,4,0,0" Padding="4">
                 <Grid>

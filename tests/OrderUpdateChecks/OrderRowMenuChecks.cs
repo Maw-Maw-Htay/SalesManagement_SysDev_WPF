@@ -75,11 +75,14 @@ internal static partial class Program
         }
     }
 
-    private static void CheckBulkButtons(FrameworkElement root, bool[] enabled)
+    private static void CheckBulkButtons(FrameworkElement root, bool[] enabled, string[]? labels = null)
     {
         FlushBindings();
-        var buttons = Descendants<WrapPanel>(root).Single(panel => panel.Name == "listActions").Children.OfType<Button>().ToArray();
-        Check(buttons.Select(button => button.IsEnabled).SequenceEqual(enabled)
+        var buttons = Descendants<WrapPanel>(root).Single(panel => panel.Name == "listActions").Children.OfType<Button>()
+            .Where(button => button.IsVisible).ToArray();
+        labels ??= ["選択を確定", "選択を非表示", "選択を解除"];
+        Check(buttons.Select(button => (string)button.Content).SequenceEqual(labels)
+            && buttons.Select(button => button.IsEnabled).SequenceEqual(enabled)
             && buttons.All(button => button.ActualHeight == 32 && Descendants<LucideIcon>(button).Count() == 1)
             && buttons.Where(button => !button.IsEnabled).All(button => HasColor(button.Background, Color.FromRgb(0xF1, 0xF5, 0xF9))
                 && HasColor(button.Foreground, Color.FromRgb(0x94, 0xA3, 0xB8)) && HasColor(button.BorderBrush, Color.FromRgb(0xE2, 0xE8, 0xF0))),

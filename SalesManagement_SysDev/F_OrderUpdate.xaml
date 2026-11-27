@@ -41,13 +41,13 @@
                     <local:LucideIcon Data="{StaticResource IconX}" Width="18" Height="18" />
                 </Button>
                 <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center">
-                    <local:LucideIcon Data="{StaticResource IconClipboardPlus}" Width="21" Height="21"
-                                      Stroke="{DynamicResource ThemeOrderEntryNavy}" Margin="0,0,10,0" />
-                    <TextBlock Text="受注更新" FontSize="20" FontWeight="{StaticResource TypographyBold}"
+                    <local:LucideIcon Data="{StaticResource IconClipboardPlus}" Width="25" Height="25"
+                                      Stroke="{DynamicResource ThemeOrderEntryAccent}" Margin="0,0,10,0" />
+                    <TextBlock Text="受注更新" FontSize="24" FontWeight="{StaticResource TypographyBold}"
                                Foreground="{DynamicResource ThemeOrderEntryNavy}" />
                 </StackPanel>
-                <TextBlock Text="{Binding SessionHeader}" Foreground="{DynamicResource ThemeSecondaryText}" FontSize="12"
-                           VerticalAlignment="Center" HorizontalAlignment="Right" TextTrimming="CharacterEllipsis" Margin="12,0" />
+                <ContentPresenter Content="{Binding HeaderSession}" ContentTemplate="{StaticResource OrderEntrySessionHeader}"
+                                  VerticalAlignment="Center" HorizontalAlignment="Right" Margin="12,0" />
             </DockPanel>
         </Border>
 
@@ -85,34 +85,24 @@
                                         </Border>
                                     </StackPanel>
                                 </Grid>
-                                <UniformGrid Style="{StaticResource RegistrationFieldPair}" Margin="0,0,0,4">
-                                    <StackPanel Style="{StaticResource RegistrationPairFirst}">
-                                        <TextBlock Text="受注元顧客 *" Style="{StaticResource RegistrationLabel}" />
-                                        <Grid>
-                                            <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                            <Border Height="40" BorderBrush="{DynamicResource ThemeInputBorder}" BorderThickness="1" CornerRadius="6" Padding="8,0">
-                                                <TextBlock Text="{Binding CustomerName}" ToolTip="{Binding CustomerDisplay}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
-                                                           AutomationProperties.Name="受注元顧客" />
-                                            </Border>
-                                            <Button Grid.Column="1" Content="変更" Command="{Binding ChangeCustomerCommand}" Width="48" Height="40" Padding="6,0" Margin="4,0,0,0" />
-                                        </Grid>
-                                    </StackPanel>
-                                    <StackPanel Style="{StaticResource RegistrationPairSecond}">
-                                        <TextBlock Text="受付営業所" Style="{StaticResource RegistrationLabel}" />
-                                        <Border Height="40" Background="{DynamicResource ThemeSubtle}" BorderBrush="{DynamicResource ThemeInputBorder}"
-                                                BorderThickness="1" CornerRadius="6" Padding="8,0">
-                                            <TextBlock Text="{Binding Detail.OfficeName}" ToolTip="{Binding Detail.OfficeName}" TextTrimming="CharacterEllipsis"
-                                                       VerticalAlignment="Center" AutomationProperties.Name="受付営業所（変更不可）" />
+                                <StackPanel Margin="0,0,0,6">
+                                    <ContentControl Content="受注元顧客" Style="{StaticResource RegistrationRequiredLabel}" />
+                                    <Grid>
+                                        <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                        <Border Height="40" BorderBrush="{DynamicResource ThemeInputBorder}" BorderThickness="1" CornerRadius="6" Padding="8,0">
+                                            <TextBlock Text="{Binding CustomerName}" ToolTip="{Binding CustomerDisplay}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                                                       AutomationProperties.Name="受注元顧客" />
                                         </Border>
-                                    </StackPanel>
-                                </UniformGrid>
+                                        <Button Grid.Column="1" Content="変更" Command="{Binding ChangeCustomerCommand}" Width="48" Height="40" Padding="6,0" Margin="4,0,0,0" />
+                                    </Grid>
+                                </StackPanel>
                                 <local:RegistrationLookup x:Name="CustomerLookup" Visibility="{Binding IsCustomerSelectionVisible, Converter={StaticResource BooleanVisibility}}"
                                     Text="{Binding Entry.CustomerSearch, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" ItemsSource="{Binding Entry.Clients}"
                                     SelectCommand="{Binding SelectCustomerCommand}" SuggestionTemplate="{StaticResource RegistrationCustomerSuggestion}"
                                     Placeholder="顧客コード・顧客名" AccessibleName="変更する顧客" Margin="0,0,0,4" />
                                 <UniformGrid Style="{StaticResource RegistrationFieldPair}">
                                     <StackPanel Style="{StaticResource RegistrationPairFirst}">
-                                        <TextBlock Text="受注日 *" Style="{StaticResource RegistrationLabel}" />
+                                        <ContentControl Content="受注日" Style="{StaticResource RegistrationRequiredLabel}" />
                                         <DatePicker x:Name="OrderDateInput" SelectedDate="{Binding OrderDate, Mode=TwoWay}" DateValidationError="DateValidationError"
                                                     SelectedDateChanged="DateInputChanged" Style="{StaticResource OrderEntryDatePicker}" AutomationProperties.Name="受注日" />
                                     </StackPanel>
@@ -156,16 +146,15 @@
                 </ScrollViewer>
             </Border>
 
-            <Grid Grid.Column="1" Margin="6,10,12,10">
+            <Grid Grid.Column="1" Style="{StaticResource OrderEntryReviewPanel}">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="*" />
                     <RowDefinition Height="Auto" />
-                    <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
-                <Border x:Name="ItemsCard" Style="{StaticResource RegistrationWorkspaceCard}">
+                <Border x:Name="ItemsCard" Style="{StaticResource OrderEntryDetailsCard}">
                     <Grid>
-                        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
-                        <DockPanel x:Name="ItemsHeading" Margin="0,0,0,8">
+                        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                        <DockPanel x:Name="ItemsHeading" Margin="0,0,0,4">
                             <Border DockPanel.Dock="Right" Background="#EFF6FF" CornerRadius="12" Padding="9,3" VerticalAlignment="Center">
                                 <TextBlock Text="{Binding QuantitySummary}" FontSize="12" Foreground="{DynamicResource ThemeOrderNavy}"
                                            FontWeight="{StaticResource TypographyMedium}" />
@@ -173,8 +162,8 @@
                             <TextBlock Text="受注明細" Style="{StaticResource RegistrationSectionHeading}" Margin="0" VerticalAlignment="Center" />
                         </DockPanel>
                         <StackPanel Grid.Row="1" DataContext="{Binding Entry}" Style="{StaticResource RegistrationEmptyState}">
-                            <TextBlock Text="商品が追加されていません" TextAlignment="Center" FontWeight="SemiBold" />
-                            <TextBlock Text="左側で商品を選択して追加してください。" TextAlignment="Center" TextWrapping="Wrap"
+                            <TextBlock Text="商品が追加されていません。" TextAlignment="Center" FontWeight="SemiBold" />
+                            <TextBlock Text="左側から商品を選択して追加してください。" TextAlignment="Center" TextWrapping="Wrap"
                                        Foreground="{DynamicResource ThemeSecondaryText}" FontSize="12" Margin="0,6,0,0" />
                         </StackPanel>
                         <DataGrid x:Name="ItemsGrid" Grid.Row="1" ItemsSource="{Binding Lines}" Visibility="{Binding Entry.HasItems, Converter={StaticResource BooleanVisibility}}"
@@ -219,18 +208,10 @@
                                 </DataGridTemplateColumn>
                             </DataGrid.Columns>
                         </DataGrid>
+                        <ContentControl x:Name="DetailActions" Grid.Row="2" Content="{Binding Entry.HasItems}" Style="{StaticResource OrderEntryDetailActions}" />
                     </Grid>
                 </Border>
-
-                <Border Grid.Row="1" Visibility="{Binding HasUndo, Converter={StaticResource BooleanVisibility}}"
-                        Background="{DynamicResource ThemeSurface}" BorderBrush="{DynamicResource ThemeOrderEntryBorder}"
-                        BorderThickness="1" CornerRadius="8" Padding="10,6" Margin="0,0,0,8">
-                    <DockPanel>
-                        <Button Content="元に戻す" Command="{Binding UndoRemoveLineCommand}" DockPanel.Dock="Right" Padding="8,2" MinHeight="28" />
-                        <TextBlock Text="商品を削除しました。" VerticalAlignment="Center" FontSize="12" AutomationProperties.LiveSetting="Polite" />
-                    </DockPanel>
-                </Border>
-                <ContentControl x:Name="AmountSummary" Grid.Row="2" Focusable="False" IsTabStop="False"
+                <ContentControl x:Name="AmountSummary" Grid.Row="1" Focusable="False" IsTabStop="False"
                                 Template="{StaticResource RegistrationTotalsTemplate}" Tag="{Binding ActualHeight, ElementName=RegistrationPanels}" />
             </Grid>
         </Grid>
@@ -253,9 +234,12 @@
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
-                <Button x:Name="ReturnToListButton" Content="一覧に戻る" Command="{Binding CloseCommand}" Tag="{StaticResource IconArrowLeft}"
-                        Style="{StaticResource RegistrationFooterBack}" />
-                <DockPanel Style="{StaticResource OrderEntryFooterFeedback}">
+                <DockPanel>
+                    <DockPanel.Style>
+                        <Style TargetType="DockPanel" BasedOn="{StaticResource OrderEntryFooterFeedback}">
+                            <Setter Property="Margin" Value="0,0,16,0" />
+                        </Style>
+                    </DockPanel.Style>
                     <local:LucideIcon DockPanel.Dock="Left" Data="{StaticResource IconInfo}" Width="16" Height="16" Margin="0,0,6,0"
                                       Stroke="{DynamicResource ThemeSecondaryText}" VerticalAlignment="Center" />
                     <TextBlock x:Name="UpdateFeedbackText" Text="{Binding Feedback}" ToolTip="{Binding Feedback}" VerticalAlignment="Center"
@@ -271,7 +255,8 @@
                         </TextBlock.Style>
                     </TextBlock>
                 </DockPanel>
-                <StackPanel Style="{StaticResource RegistrationFooterRightActions}">
+                <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                    <Button x:Name="CancelButton" Content="キャンセル" Command="{Binding CloseCommand}" Style="{StaticResource RegistrationFooterCancel}" />
                     <Button x:Name="SaveButton" Content="変更を保存" Command="{Binding SaveCommand}" Tag="{StaticResource IconSave}"
                             Style="{StaticResource RegistrationFooterSubmit}" />
                 </StackPanel>

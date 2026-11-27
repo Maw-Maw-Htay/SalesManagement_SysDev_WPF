@@ -702,7 +702,7 @@ public sealed partial class F_OrderManagement : Window
 
     private async void ConfirmRows(IReadOnlyList<OrderListRow> rows)
     {
-        if (viewModel.IsBusy || viewModel.IsLoading || viewModel.IsDraftTab) return;
+        if (viewModel.IsBusy || viewModel.IsLoading || !viewModel.ShowsActiveOrderActions) return;
         if (!(AppSession.IsAdmin || AppSession.IsSales))
         {
             F_OrderNotice.Show(NavigationOwner ?? this, "権限エラー", "受注確定は管理者または営業担当者のみ実行できます。", OrderNoticeKind.Warning);
@@ -760,14 +760,20 @@ public sealed partial class F_OrderManagement : Window
 
     private async void HideRows(IEnumerable<OrderListRow> selectedRows)
     {
-        if (viewModel.IsBusy || viewModel.IsLoading || viewModel.IsDraftTab) return;
+        if (viewModel.IsBusy || viewModel.IsLoading || !viewModel.ShowsActiveOrderActions) return;
         if (!AppSession.CanManageOrders) { F_OrderNotice.Show(NavigationOwner ?? this, "権限エラー", "受注の非表示は管理者または営業担当者のみ実行できます。", OrderNoticeKind.Warning); return; }
         var ids = selectedRows.Where(row => row.CanHide).Select(row => row.OrderId).ToArray();
         if (ids.Length == 0) { F_OrderNotice.Show(NavigationOwner ?? this, "受注非表示", "非表示にできる受注を選択してください。", OrderNoticeKind.Warning); return; }
+        await ChangeOrderVisibilityAsync(ids, restore: false);
+    }
+
+    private async Task ChangeOrderVisibilityAsync(IReadOnlyCollection<int> ids, bool restore)
+    {
+        if (!viewModel.CanUseOrderList || ids.Count == 0 || (restore && !viewModel.ShowsRestoreAction)) return;
         viewModel.IsBusy = true;
         try
         {
-            var dialog = new F_OrderHide(ids) { Owner = NavigationOwner ?? this };
+            var dialog = new F_OrderHide(ids, restore) { Owner = NavigationOwner ?? this };
             dialog.ShowDialog();
             if (dialog.HasAttempted)
             {
@@ -844,14 +850,14 @@ public sealed partial class F_OrderManagement : Window
         e.Handled = true;
         EndListDrag(sender, e);
         currentGrid.SelectedItem = row;
-        if (row.IsDraft) await RunDraftActionAsync(row, delete: false);
+        if (row.IsDraft) await OpenDraftAsync(row);
         else ShowDetails(row);
     }
 
     private async void RowDetailsClick(object? sender, RoutedEventArgs e)
     {
         if (TakeRowAction(sender) is not { } row) return;
-        if (row.IsDraft) await RunDraftActionAsync(row, delete: false);
+        if (row.IsDraft) await OpenDraftAsync(row);
         else ShowDetails(row);
     }
 
@@ -866,50 +872,70 @@ public sealed partial class F_OrderManagement : Window
 
     private async void RowOpenDraftClick(object sender, RoutedEventArgs e)
     {
-        if (TakeRowAction(sender) is { IsDraft: true } row) await RunDraftActionAsync(row, delete: false);
+        if (TakeRowAction(sender) is { IsDraft: true } row) await OpenDraftAsync(row);
     }
 
     private async void RowDeleteDraftClick(object sender, RoutedEventArgs e)
     {
-        if (TakeRowAction(sender) is { IsDraft: true } row) await RunDraftActionAsync(row, delete: true);
+        if (TakeRowAction(sender) is { DraftToken: { } token } row)
+            await DeleteDraftsAsync([token], row.CustomerName);
     }
 
-    private async Task RunDraftActionAsync(OrderListRow row, bool delete)
+    private async Task OpenDraftAsync(OrderListRow row)
     {
         if (!viewModel.CanUseOrderList || !viewModel.IsDraftTab || !viewModel.Rows.Contains(row)
             || row.DraftToken is not { } token || NavigationOwner is not F_Main owner || !owner.IsOrderWorkspaceActive) return;
         var version = orderQueryVersion;
         bool IsCurrent() => version == orderQueryVersion && owner.IsOrderWorkspaceActive;
         viewModel.IsBusy = true;
-        var refresh = false;
         try
         {
-            if (delete)
-            {
-                if (!F_OrderNotice.Confirm(owner, "下書きの削除", $"{row.CustomerName}の下書きを削除しますか？",
-                        "削除する", destructive: true)) return;
-                await Task.Run(() => draftService.Delete(token));
-                refresh = true;
-            }
-            else
-            {
-                var draft = await Task.Run(() => draftService.Open(token.Id));
-                if (IsCurrent()) owner.ShowOrderRegistration(draft);
-            }
+            var draft = await Task.Run(() => draftService.Open(token.Id));
+            if (IsCurrent()) owner.ShowOrderRegistration(draft);
         }
         catch (Exception ex)
         {
-            refresh = true;
-            if (!IsCurrent()) return;
-            var message = ex is OrderDraftException ? ex.Message : "接続を確認してから、もう一度お試しください。";
-            if (ex is not OrderDraftException) Trace.TraceError("下書きの操作に失敗しました: {0}", ex);
-            F_OrderNotice.Show(owner, delete ? "下書きを削除できませんでした" : "下書きを開けませんでした", message, OrderNoticeKind.Warning);
+            if (IsCurrent()) ShowDraftError(owner, "下書きを開けませんでした", ex);
+            if (owner.IsOrderWorkspaceActive) await LoadRowsAsync(viewModel.PageNumber);
         }
         finally
         {
-            if (refresh && owner.IsOrderWorkspaceActive) await LoadRowsAsync(viewModel.PageNumber);
             viewModel.IsBusy = false;
         }
+    }
+
+    private async Task DeleteDraftsAsync(IReadOnlyList<OrderDraftToken> tokens, string? customerName = null)
+    {
+        var owner = NavigationOwner ?? this;
+        bool IsWorkspaceActive() => owner is not F_Main shell || shell.IsOrderWorkspaceActive;
+        if (!viewModel.CanUseOrderList || !viewModel.IsDraftTab || tokens.Count == 0 || !IsWorkspaceActive()) return;
+
+        var prompt = customerName is null ? $"選択した下書き {tokens.Count:N0} 件を削除しますか？"
+            : $"{customerName}の下書きを削除しますか？";
+        viewModel.IsBusy = true;
+        var attempted = false;
+        try
+        {
+            if (!F_OrderNotice.ConfirmDraftDeletion(owner, prompt)) return;
+            attempted = true;
+            await Task.Run(() => draftService.DeleteDrafts(tokens));
+        }
+        catch (Exception ex)
+        {
+            if (IsWorkspaceActive()) ShowDraftError(owner, "下書きを削除できませんでした", ex);
+        }
+        finally
+        {
+            if (attempted && IsWorkspaceActive()) await LoadRowsAsync(viewModel.PageNumber);
+            viewModel.IsBusy = false;
+        }
+    }
+
+    private static void ShowDraftError(Window owner, string title, Exception error)
+    {
+        var message = error is OrderDraftException ? error.Message : "接続を確認してから、もう一度お試しください。";
+        if (error is not OrderDraftException) Trace.TraceError("{0}。{1}", title, error);
+        F_OrderNotice.Show(owner, title, message, OrderNoticeKind.Warning);
     }
 
     private OrderDetailSnapshot? LoadOrderDetailSnapshot(int orderId, bool editableOnly = false)

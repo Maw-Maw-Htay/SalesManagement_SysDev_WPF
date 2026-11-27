@@ -78,47 +78,48 @@ public sealed partial class BusinessService
 
     public static bool SetOrderVisibility(int orderId, int employeeId, bool hidden, string? reason, out string message)
     {
-        if (hidden)
-        {
-            try
-            {
-                using var context = new SalesManagementContext();
-                return HideOrderCore(context, orderId, employeeId, reason, out message);
-            }
-            catch (Exception)
-            {
-                message = "受注を非表示にできませんでした。一覧・履歴を確認してから再試行してください。";
-                return false;
-            }
-        }
-        message = "";
-        if (!AppSession.CanManageOrders || AppSession.Employee?.EmId != employeeId)
-        { message = "受注の表示状態を変更する権限がありません。"; return false; }
-        if (!hidden && !AppSession.IsAdmin)
-        { message = "表示復帰は管理者のみ実行できます。"; return false; }
-        if (string.IsNullOrWhiteSpace(reason))
-        { message = hidden ? "非表示理由を入力してください。" : "表示復帰理由を入力してください。"; return false; }
-        using var db = new SalesManagementContext();
         try
         {
-            var order = db.TOrders.Include(x => x.TOrderDetails).FirstOrDefault(x => x.OrId == orderId);
-            if (order == null || (!AppSession.IsAdmin && order.SoId != AppSession.Employee.SoId))
-            { message = "対象の受注が存在しないか、所属営業所の範囲外です。"; return false; }
-            var nextFlag = hidden ? 2 : 0;
-            if (order.OrFlag == nextFlag)
-            { message = hidden ? "すでに非表示です。" : "すでに表示中です。"; return false; }
-            var before = OrderHistoryService.Capture(db, order);
-            order.OrFlag = nextFlag;
-            order.OrHidden = hidden ? reason!.Trim() : null;
-            OrderHistoryService.Record(db, order, hidden ? OrderHistoryOperations.Hidden : OrderHistoryOperations.Restored,
-                before, hidden ? $"非表示理由：{reason!.Trim()}。在庫数量の変更はありません。" : $"表示復帰理由：{reason!.Trim()}。在庫数量の変更はありません。");
-            // Both the order and its history are committed in the same SaveChanges transaction.
-            db.SaveChanges();
-            message = hidden ? "受注を非表示にしました。" : "受注の表示を復帰しました。";
-            return true;
+            using var db = new SalesManagementContext();
+            return hidden ? HideOrderCore(db, orderId, employeeId, reason, out message)
+                : RestoreOrderCore(db, orderId, employeeId, reason, out message);
         }
-        catch (Exception ex)
-        { message = "受注の表示状態を変更できませんでした: " + ex.Message; return false; }
+        catch (Exception)
+        {
+            message = hidden ? "受注を非表示にできませんでした。一覧・履歴を確認してから再試行してください。"
+                : "受注を復元できませんでした。一覧・履歴を確認してから再試行してください。";
+            return false;
+        }
+    }
+
+    private static bool RestoreOrderCore(SalesManagementContext db, int orderId, int employeeId, string? reason, out string message)
+    {
+        if (!AppSession.IsAdmin || AppSession.Employee?.EmId != employeeId)
+        { message = "表示復帰は管理者のみ実行できます。"; return false; }
+        if (string.IsNullOrWhiteSpace(reason))
+        { message = "復元理由を入力してください。"; return false; }
+
+        using var transaction = db.Database.BeginTransaction(System.Data.IsolationLevel.Serializable);
+        if (!db.MEmployees.Any(employee => employee.EmId == employeeId && employee.EmFlag == 0
+            && employee.Po.PoFlag == 0 && employee.Po.PoName == "管理者"))
+        { message = "有効な管理者権限を確認できません。ログインし直してください。"; return false; }
+        var order = LockOrderForVisibilityChange(db, orderId).SingleOrDefault();
+        if (order == null)
+        { message = "対象の受注が存在しません。"; return false; }
+        if (order.OrFlag != 2)
+        { message = "すでに表示中です。一覧・履歴を確認してください。"; return false; }
+
+        var before = OrderHistoryService.Capture(db, order);
+        if (!AppSession.IsAdmin || AppSession.Employee?.EmId != employeeId)
+        { message = "ログイン情報が変更されました。画面を開き直してください。"; return false; }
+        order.OrFlag = 0;
+        order.OrHidden = null;
+        OrderHistoryService.Record(db, order, OrderHistoryOperations.Restored, before,
+            $"表示復帰理由：{reason.Trim()}。在庫数量の変更はありません。");
+        db.SaveChanges();
+        transaction.Commit();
+        message = "受注の表示を復帰しました。";
+        return true;
     }
 
     internal static bool HideOrderCore(SalesManagementContext db, int orderId, int employeeId, string? reason, out string message)
@@ -135,7 +136,7 @@ public sealed partial class BusinessService
         {
             using var transaction = db.Database.BeginTransaction(System.Data.IsolationLevel.Serializable);
             // Serialize competing hide requests before checking eligibility; no schema/rowversion change required.
-            var query = db.TOrders.FromSqlInterpolated($"SELECT * FROM dbo.T_Order WITH (UPDLOCK, HOLDLOCK) WHERE OrID = {orderId}");
+            var query = LockOrderForVisibilityChange(db, orderId);
             if (!isAdmin) query = query.Where(order => order.SoId == actor.SoId);
             var order = query.SingleOrDefault();
             if (order == null)
@@ -163,4 +164,7 @@ public sealed partial class BusinessService
             return false;
         }
     }
+
+    private static IQueryable<TOrder> LockOrderForVisibilityChange(SalesManagementContext db, int orderId) =>
+        db.TOrders.FromSqlInterpolated($"SELECT * FROM dbo.T_Order WITH (UPDLOCK, HOLDLOCK) WHERE OrID = {orderId}");
 }

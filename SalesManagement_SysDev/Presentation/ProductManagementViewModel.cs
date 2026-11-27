@@ -34,6 +34,7 @@ public sealed class ProductManagementViewModel : ViewModelBase
     private readonly Func<ProductCatalog> loadCatalog;
     private List<ProductRow> sourceRows = [];
     private ProductRow[] filteredRows = [];
+    private bool updatingSelection;
     private IReadOnlyList<ProductMasterOption> makers = [];
     private IReadOnlyList<ProductMasterOption> classifications = [];
     private string quickSearch = "", codeFilter = "", nameFilter = "", janFilter = "", modelFilter = "", feedback = "", filterError = "";
@@ -150,23 +151,36 @@ public sealed class ProductManagementViewModel : ViewModelBase
         }
         catch (UnauthorizedAccessException ex) { ClearCatalog(); Feedback = ex.Message; }
         catch (Exception) { ClearCatalog(); Feedback = "商品一覧を読み込めませんでした。データベースの状態を確認してください。"; }
-        finally { IsLoading = false; ApplyFilters(); }
+        finally { IsLoading = false; }
     }
 
     public void SelectTab(ProductStatusTab tab)
     {
         if (tab == ProductStatusTab.Hidden && !CanViewHidden) return;
-        foreach (var row in sourceRows) row.IsSelected = false;
+        SetSelection(sourceRows, false);
         ActiveTab = tab;
         ApplyFilters(resetPage: true);
+    }
+    public void ClearSelection()
+    {
+        SetSelection(sourceRows, false);
         NotifySelection();
     }
-    public void ClearSelection() { foreach (var row in sourceRows) row.IsSelected = false; NotifySelection(); }
     public void SelectAllVisible(bool selected)
     {
         if (!CanSelectAll) return;
-        foreach (var row in filteredRows.Where(x => x.IsSelectable)) row.IsSelected = selected;
+        SetSelection(filteredRows.Where(x => x.IsSelectable), selected);
         NotifySelection();
+    }
+
+    private void SetSelection(IEnumerable<ProductRow> rows, bool selected)
+    {
+        updatingSelection = true;
+        try
+        {
+            foreach (var row in rows) row.IsSelected = selected;
+        }
+        finally { updatingSelection = false; }
     }
 
     public void ClearConditions()
@@ -241,13 +255,14 @@ public sealed class ProductManagementViewModel : ViewModelBase
     private async Task ReloadCatalogAsync()
     {
         try { SetCatalog(await Task.Run(loadCatalog)); Feedback = ""; }
-        catch (Exception) { ClearCatalog(); ApplyFilters(); Feedback = "操作は完了しましたが、一覧の再読込に失敗しました。再読込を実行してください。"; }
+        catch (Exception) { ClearCatalog(); Feedback = "操作は完了しましたが、一覧の再読込に失敗しました。再読込を実行してください。"; }
     }
 
     private void ClearCatalog()
     {
         hasLoaded = false; sourceRows = []; makers = []; classifications = [];
         NotifyCatalog();
+        ApplyFilters();
     }
 
     private void SetCatalog(ProductCatalog catalog)
@@ -321,7 +336,7 @@ public sealed class ProductManagementViewModel : ViewModelBase
         var ordered = sortDirection == ListSortDirection.Descending ? visible.OrderByDescending(key) : visible.OrderBy(key);
         filteredRows = ordered.ThenBy(x => x.Id).ToArray();
         var visibleIds = filteredRows.Select(x => x.Id).ToHashSet();
-        foreach (var row in sourceRows.Where(x => x.IsSelected && !visibleIds.Contains(x.Id))) row.IsSelected = false;
+        SetSelection(sourceRows.Where(x => x.IsSelected && !visibleIds.Contains(x.Id)), false);
         ApplyPage(resetPage ? 1 : PageNumber);
         Notify(nameof(HasConditions)); Notify(nameof(IsEmpty)); Notify(nameof(ShowEmptyState));
         Notify(nameof(CountText)); Notify(nameof(AllTabText)); Notify(nameof(VisibleTabText));
@@ -364,6 +379,7 @@ public sealed class ProductManagementViewModel : ViewModelBase
 
     private void NotifySelection()
     {
+        if (updatingSelection) return;
         Notify(nameof(SelectedCount)); Notify(nameof(SelectionText)); Notify(nameof(CanClearSelection));
         Notify(nameof(CanHideSelected)); Notify(nameof(VisibleSelectionState));
     }

@@ -37,13 +37,33 @@
                     <TextBlock Text="{Binding Message}" Foreground="{StaticResource ThemeText}" FontSize="14" TextWrapping="Wrap" LineHeight="22" />
                 </Grid>
                 <Border Grid.Row="2" BorderBrush="{StaticResource ThemeBorder}" BorderThickness="0,1,0,0" Padding="20,8">
-                    <WrapPanel HorizontalAlignment="Right" VerticalAlignment="Center">
-                        <Button Content="{Binding CancelLabel}" Command="{Binding CancelCommand}" Visibility="{Binding CancelVisibility}"
-                                IsCancel="True" IsDefault="{Binding HasDiscardAction}" MinWidth="112" Height="38" Margin="0,4,8,4" />
-                        <Button Content="{Binding ConfirmLabel}" Command="{Binding ConfirmCommand}" IsDefault="{Binding ConfirmIsDefault}"
-                                MinWidth="112" Height="38" Background="{Binding ConfirmBackground}" Foreground="White"
-                                BorderBrush="{Binding ConfirmBackground}" FontSize="14" FontWeight="SemiBold" Margin="0,4" />
-                    </WrapPanel>
+                    <Grid>
+                        <WrapPanel x:Name="noticeActions" HorizontalAlignment="Right" VerticalAlignment="Center">
+                            <WrapPanel.Style>
+                                <Style TargetType="WrapPanel">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsDeleteAllPrompt}" Value="True">
+                                            <Setter Property="Visibility" Value="Collapsed" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </WrapPanel.Style>
+                            <Button x:Name="cancelAction" Content="{Binding CancelLabel}" Command="{Binding CancelCommand}" Visibility="{Binding CancelVisibility}"
+                                    IsCancel="True" IsDefault="{Binding HasDiscardAction}" MinWidth="112" Height="38" Margin="0,4,8,4" />
+                            <Button Content="{Binding ConfirmLabel}" Command="{Binding ConfirmCommand}" IsDefault="{Binding ConfirmIsDefault}"
+                                    MinWidth="112" Height="38" Background="{Binding ConfirmBackground}" Foreground="White"
+                                    BorderBrush="{Binding ConfirmBackground}" FontSize="14" FontWeight="SemiBold" Margin="0,4" />
+                        </WrapPanel>
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center"
+                                    Visibility="{Binding IsDeleteAllPrompt, Converter={StaticResource BooleanVisibility}}">
+                            <Button Content="{Binding ConfirmLabel}" Command="{Binding ConfirmCommand}" Tag="{StaticResource IconTrash}"
+                                    ContentTemplate="{StaticResource DraftNavigationIconLabel}" Background="{Binding ConfirmBackground}" Foreground="White"
+                                    BorderBrush="{Binding ConfirmBackground}" MinWidth="124" Height="38" Padding="10,0" Margin="0,4,10,4" />
+                            <Button Content="{Binding CancelLabel}" Command="{Binding CancelCommand}" Tag="{StaticResource IconX}"
+                                    ContentTemplate="{StaticResource DraftNavigationIconLabel}" IsCancel="True" IsDefault="True"
+                                    MinWidth="112" Height="38" Padding="10,0" Margin="0,4" />
+                        </StackPanel>
+                    </Grid>
                 </Border>
             </Grid>
         </Border>

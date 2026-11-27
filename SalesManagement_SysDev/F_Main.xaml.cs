@@ -19,7 +19,6 @@ public partial class F_Main : Window
     private SidebarEntry? historyNavigationItem;
     private readonly Dictionary<string, SidebarEntry> navigationItems = [];
     private readonly string standardSessionText;
-    private readonly string orderEntrySessionText;
     private bool allowWindowClose;
 
     public F_Main()
@@ -54,8 +53,8 @@ public partial class F_Main : Window
         var employee = AppSession.Employee!;
         var isDemoMode = SalesManagementContext.IsDemoMode;
         var demoPrefix = isDemoMode ? "［デモ］ " : "";
-        standardSessionText = $"{demoPrefix}社員: {employee.EmName}　役職: {employee.Po.PoName}　営業所: {employee.So.SoName}";
-        orderEntrySessionText = $"{demoPrefix}役職：{employee.Po.PoName}　営業所：{employee.So.SoName}";
+        var officeName = employee.So?.SoName ?? "未設定";
+        standardSessionText = $"{demoPrefix}社員: {employee.EmName}　役職: {employee.Po.PoName}　営業所: {officeName}";
         status.Text = standardSessionText;
         if (isDemoMode) Title += "［デモ］";
         loginName.Text = employee.EmName;
@@ -256,7 +255,7 @@ public partial class F_Main : Window
         var isOrderPage = title is "受注管理" or "受注履歴";
         var isOrderEntryPage = title is "受注登録" or "受注更新";
         mainHeaderTitle.Text = isOrderPage ? "受注管理" : title;
-        ApplyStandardHeaderStyle(isOrderEntryPage);
+        ApplyStandardHeaderStyle();
         if (view is F_Product { Content: ProductManagementView product } && ProductService.CanEdit)
         {
             productHeaderRegisterButton.DataContext = product.DataContext;
@@ -287,10 +286,15 @@ public partial class F_Main : Window
         else if (isOrderEntryPage)
         {
             mainHeaderTitle.SetResourceReference(TextBlock.ForegroundProperty, "ThemeOrderEntryNavy");
-            mainHeaderTitle.FontSize = 20;
-            orderHeaderIcon.SetResourceReference(LucideIcon.StrokeProperty, "ThemeOrderEntryNavy");
+            mainHeaderTitle.FontSize = 24;
+            orderHeaderIcon.Width = orderHeaderIcon.Height = 25;
+            orderHeaderIcon.SetResourceReference(LucideIcon.DataProperty, title == "受注登録" ? "IconOrder" : "IconClipboardPlus");
+            orderHeaderIcon.SetResourceReference(LucideIcon.StrokeProperty, "ThemeOrderEntryAccent");
             orderHeaderIcon.Visibility = Visibility.Visible;
-            status.Foreground = (Brush)FindResource("ThemeSecondaryText");
+            status.Visibility = Visibility.Collapsed;
+            orderEntrySession.Content = view is FrameworkElement { DataContext: OrderUpdateViewModel update }
+                ? update.HeaderSession : OrderEntrySession.Create();
+            orderEntrySession.Visibility = Visibility.Visible;
         }
         HideLoginManagement();
         pageHost.Content = view;
@@ -298,7 +302,7 @@ public partial class F_Main : Window
         mainSidebar.Visibility = Visibility.Visible;
     }
 
-    private void ApplyStandardHeaderStyle(bool isOrderEntryPage = false)
+    private void ApplyStandardHeaderStyle()
     {
         mainHeader.Background = (Brush)FindResource("ThemeSurface");
         mainHeader.BorderBrush = (Brush)FindResource("ThemeBorder");
@@ -314,8 +318,10 @@ public partial class F_Main : Window
         customerHeaderRegisterButton.DataContext = null;
         productHeaderRegisterButton.Visibility = Visibility.Collapsed;
         productHeaderRegisterButton.DataContext = null;
-        status.Text = isOrderEntryPage ? orderEntrySessionText : standardSessionText;
+        status.Text = standardSessionText;
         status.Visibility = Visibility.Visible;
+        orderEntrySession.Visibility = Visibility.Collapsed;
+        orderEntrySession.Content = null;
     }
 
     private void OpenOrderRegistration_Click(object sender, RoutedEventArgs e)

@@ -138,6 +138,7 @@ internal static partial class Program
                 && sample.EmployeeName == employeeNames[persisted.EmId] && sample.OfficeName == officeNames[persisted.SoId],
                 "list uses active detail records, document-level tax, and each order's assigned employee and branch");
             CheckOrderListLayouts(shell, root, grid, pagination);
+            CheckOrderWorkspaceExport(db, root, model, orders, drafts);
             CheckOrderRowMenus(root, grid, model);
 
             var headers = Descendants<DataGridColumnHeader>(grid).ToArray();
@@ -356,6 +357,7 @@ internal static partial class Program
             Check(model.PageNumber == 1 && model.TotalCount == drafts.Length && model.Rows.All(row => row.IsDraft)
                 && model.QuickSearchText == OrderListFixture && Find<TextBlock>("allCount").Text == allCount.ToString(),
                 "switching from page two to drafts resets the page, preserves the filter, and keeps the official count separate");
+            CheckBulkButtons(root, [false, false], ["選択を削除", "選択を解除"]);
             CheckBadge("下書き", Color.FromRgb(0xDB, 0xEA, 0xFE));
             var draftRow = model.Rows[0];
             var draftCheckBox = Descendants<CheckBox>(RealizeOrderRow(grid, draftRow)).Single();
@@ -369,6 +371,7 @@ internal static partial class Program
                 && draftRow.LineCount == draftForm.Lines.Count && draftRow.Subtotal == draftSubtotal
                 && draftRow.OfficeName == offices[draftForm.Header.Office.Id!.Value] && draftRow.EmployeeName == admin.EmName,
                 "checking a draft updates the count without enabling registered-order actions");
+            CheckBulkButtons(root, [true, true], ["選択を削除", "選択を解除"]);
             Render((FrameworkElement)shell.Content, "order-list-drafts");
             model.PageSize = 10;
             WaitUntil(() => !model.IsLoading);
@@ -408,6 +411,68 @@ internal static partial class Program
             SelectTab("allOrdersMenuItem");
             Check(model.Rows.All(row => row.IsRegisteredOrder) && model.SelectedOfficeId == admin.SoId && model.DeliveryDateUnsetOnly,
                 "returning to All retains advanced filters and shows only registered orders");
+
+            model.ClearFiltersCommand.Execute(null);
+            WaitUntil(() => !model.IsLoading);
+            Search(OrderListFixture);
+            SelectTab("draftsMenuItem");
+            var firstDraft = model.Rows[0];
+            firstDraft.IsChecked = true;
+            model.NextPageCommand.Execute(null);
+            WaitUntil(() => !model.IsLoading);
+            var secondDraft = model.Rows[0];
+            secondDraft.IsChecked = true;
+            var selectedIds = new[] { firstDraft.DraftToken!.Id, secondDraft.DraftToken!.Id };
+            var storedDraftIds = draftStore.List().Select(draft => draft.Token.Id).ToHashSet();
+            var delete = Find<WrapPanel>("listActions").Children.OfType<Button>().Single(button => Equals(button.Content, "選択を削除"));
+            void InvokeDelete() => delete.Command.Execute(null);
+            bool DraftsAreUnchanged() => storedDraftIds.SetEquals(draftStore.List().Select(draft => draft.Token.Id));
+            InteractWithModal(shell, InvokeDelete, modal =>
+            {
+                var notice = (OrderNoticeViewModel)modal.DataContext;
+                Check(notice.Message.Contains("2 件") && !delete.IsEnabled && DraftsAreUnchanged(),
+                    "bulk draft deletion waits for confirmation of the selection across pages");
+                modal.UpdateLayout();
+                var buttons = Descendants<Button>(modal).Where(button => button.IsVisible).ToArray();
+                var confirmAction = buttons.Single(button => Equals(button.Content, "削除する"));
+                var cancelAction = buttons.Single(button => Equals(button.Content, "キャンセル"));
+                Check(confirmAction.TranslatePoint(new Point(confirmAction.ActualWidth, 0), modal).X < cancelAction.TranslatePoint(new Point(), modal).X
+                    && confirmAction.IsDefault && cancelAction.IsCancel, "draft deletion places Delete on the left and Cancel on the right");
+                cancelAction.Command.Execute(null);
+            });
+            Check(model.SelectionText == "2件選択中" && DraftsAreUnchanged(),
+                "canceling bulk draft deletion keeps the drafts and their checks");
+
+            var edited = draftStore.Open(selectedIds.Order().Last());
+            draftStore.Save(edited.Token, edited.Form with { Header = edited.Form.Header with { Remarks = "別画面で更新した下書き" } });
+            InteractWithModal(shell, InvokeDelete, modal => ((OrderNoticeViewModel)modal.DataContext).ConfirmCommand.Execute(null));
+            InteractWithModal(shell, () => { }, modal =>
+            {
+                var notice = (OrderNoticeViewModel)modal.DataContext;
+                Check(notice.Title == "下書きを削除できませんでした" && notice.Message.Contains("別の画面"),
+                    "bulk draft deletion reports a conflict with a more recent edit");
+                notice.ConfirmCommand.Execute(null);
+            });
+            WaitUntil(() => !model.IsBusy);
+            Check(model.SelectionText == "2件選択中" && DraftsAreUnchanged(), "a conflict leaves every selected draft available after refresh");
+
+            var registeredCount = db.TOrders.Count();
+            InteractWithModal(shell, InvokeDelete, modal => ((OrderNoticeViewModel)modal.DataContext).ConfirmCommand.Execute(null));
+            WaitUntil(() => !model.IsBusy);
+            Check(!model.HasSelection && model.TotalCount == drafts.Length - selectedIds.Length && model.PageNumber == 2
+                && model.IsDraftTab && model.QuickSearchText == OrderListFixture && Find<TextBlock>("draftCount").Text == model.TotalCount.ToString()
+                && draftStore.List().Select(draft => draft.Token.Id).ToHashSet().SetEquals(storedDraftIds.Except(selectedIds))
+                && db.TOrders.Count() == registeredCount, "bulk deletion removes exactly the checked drafts and refreshes the filtered list and counts");
+
+            var hiddenFixtures = Enumerable.Range(0, 11).Select(index => new TOrder
+            {
+                SoId = customers[0].SoId, ClId = customers[0].ClId, EmId = admin.EmId, OrDate = dates.AddDays(20 + index),
+                OrFlag = 2, OrHidden = "復元確認用", OrStateFlag = index % 2
+            }).ToArray();
+            db.TOrders.AddRange(hiddenFixtures);
+            db.SaveChanges();
+            SelectTab("hiddenMenuItem");
+            CheckOrderBulkRestore(db, shell, root, model, hiddenFixtures.ToDictionary(order => order.OrId, order => order.OrStateFlag));
         }
         finally { if (shell.IsVisible) shell.Close(); }
 
@@ -427,10 +492,16 @@ internal static partial class Program
             Descendants<MenuItem>(root).Single(tab => tab.Name == "hiddenMenuItem").RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
             WaitUntil(() => !model.IsLoading);
             var grid = Descendants<DataGrid>(root).Single(element => element.Name == "grid");
-            var hiddenMenu = OpenOrderMenu(grid, model.Rows.Single());
+            var hiddenRow = model.Rows.Single();
+            var hiddenMenu = OpenOrderMenu(grid, hiddenRow);
             Check(VisibleMenuItems(hiddenMenu).Select(item => item.Header).SequenceEqual(new[] { "詳細を見る" }),
                 "the hidden-order menu omits restore for a salesperson");
             hiddenMenu.IsOpen = false;
+            hiddenRow.IsChecked = true;
+            CheckBulkButtons(root, [true], ["選択を解除"]);
+            Check(!model.RestoreSelectedCommand.CanExecute(null)
+                && !BusinessService.SetOrderVisibility(hiddenRow.OrderId, sales.EmId, false, "権限の確認", out _),
+                "sales cannot restore a hidden order through the toolbar or service");
         }
         finally { if (salesShell.IsVisible) salesShell.Close(); AppSession.Employee = admin; }
         if (interactiveOrderMenu) ShowInteractiveOrderMenu();
@@ -440,8 +511,9 @@ internal static partial class Program
     {
         var confirmInvoked = false;
         var hideInvoked = false;
+        IReadOnlyList<OrderDraftToken>? deletion = null;
         var model = new OrderManagementViewModel(() => { }, () => confirmInvoked = true, () => hideInvoked = true,
-            false, () => { }, () => { }, _ => { });
+            _ => { }, tokens => deletion = tokens, false, () => { }, () => { }, _ => { });
         var showPage = typeof(OrderManagementViewModel).GetMethod("ShowPage", BindingFlags.Instance | BindingFlags.NonPublic)!;
         void ShowPage(OrderListRow[] rows, OrderListRow[] checkedOffPage, int total, int page) =>
             showPage.Invoke(model, [rows, checkedOffPage, total, page]);
@@ -451,6 +523,7 @@ internal static partial class Program
         var third = new OrderListRow { DraftToken = new OrderDraftToken(Guid.NewGuid()) };
         model.SelectTab(OrderStatusTab.Draft);
         ShowPage([first, second], [], 3, 1);
+        Check(!model.DeleteSelectedDraftsCommand.CanExecute(null), "bulk draft deletion requires a checked draft");
         first.IsChecked = true;
         Check(model.SelectionText == "1件選択中" && model.AllPageSelected is null && !second.IsChecked,
             "checking one draft selects just that draft even though both are unnumbered");
@@ -464,9 +537,18 @@ internal static partial class Program
         ShowPage([third], [first, second], 3, 2);
         Check(!third.IsChecked && model.AllPageSelected == false && model.SelectionText == "2件選択中",
             "another draft page keeps earlier checks without checking unrelated rows");
+        model.IsBusy = true;
+        model.DeleteSelectedDraftsCommand.Execute(null);
+        Check(deletion == null, "bulk draft deletion is blocked while the list is busy");
+        model.IsBusy = false;
+        model.DeleteSelectedDraftsCommand.Execute(null);
+        Check(deletion?.SequenceEqual([first.DraftToken!, second.DraftToken!]) == true,
+            "bulk draft deletion passes the checked drafts from other pages");
         var reloaded = new OrderListRow { DraftToken = new OrderDraftToken(first.DraftToken!.Id, [1]) };
         ShowPage([reloaded], [], 1, 1);
         Check(reloaded.IsChecked && model.SelectionText == "1件選択中", "selection follows the draft ID across reloads and drops rows removed from the list");
+        model.DeleteSelectedDraftsCommand.Execute(null);
+        Check(deletion?.Single() == reloaded.DraftToken, "bulk draft deletion passes the current row version");
         model.ClearSelectionCommand.Execute(null);
         Check(!reloaded.IsChecked && !model.HasSelection && !model.ClearSelectionCommand.CanExecute(null), "draft selection can be cleared");
 
@@ -475,7 +557,8 @@ internal static partial class Program
         ShowPage([order], [], 1, 1);
         order.IsChecked = true;
         Check(model.ConfirmSelectedCommand.CanExecute(null) && model.HideSelectedCommand.CanExecute(null)
-            && model.SelectionText == "1件選択中", "registered-order selection still enables eligible actions");
+            && !model.DeleteSelectedDraftsCommand.CanExecute(null) && model.SelectionText == "1件選択中",
+            "registered-order selection still enables eligible actions");
     }
 
     private static F_Main NewOrderListShell() => new()
@@ -543,9 +626,11 @@ internal static partial class Program
                 Check(tabs.All(tab => Math.Abs(Bounds(tab).Top - Bounds(statusActions).Top) < 1)
                     && Bounds(tabs[^1]).Right <= Bounds(statusActions).Left,
                     $"the status tabs and file actions share one row without overlap at {width}×{height}");
-                foreach (var label in new[] { "CSV取込", "印刷" })
-                    Check(Descendants<Button>(root).Any(button => button.IsVisible && System.Windows.Automation.AutomationProperties.GetName(button) == label),
-                        $"{label} remains visible at {width}×{height}");
+                var fileActions = statusActions.Children.OfType<Button>().ToArray();
+                Check(fileActions.Select(System.Windows.Automation.AutomationProperties.GetName).SequenceEqual(new[] { "CSV取込", "印刷", "保存" })
+                    && fileActions.All(button => button.IsVisible && Math.Abs(button.ActualHeight - 32) < 1)
+                    && Bounds(fileActions[^1]).Right <= Bounds(shellRoot).Right,
+                    $"file actions appear at equal height in the requested order at {width}×{height}");
                 Render(shellRoot, $"order-list-{width}x{height}");
             }
         }
@@ -586,6 +671,69 @@ internal static partial class Program
         Check(!model.HasSelection && model.Rows.All(row => !ids.Contains(row.OrderId))
             && db.TOrders.AsNoTracking().Count(order => ids.Contains(order.OrId) && order.OrFlag == 2) == 2,
             "bulk hide keeps the reason dialog and removes the hidden rows from the active list");
+    }
+
+    private static void CheckOrderBulkRestore(SalesManagementContext db, F_Main owner, FrameworkElement root,
+        OrderManagementViewModel model, IReadOnlyDictionary<int, int?> fixtureStates)
+    {
+        var adminId = AppSession.Employee!.EmId;
+        var initialCount = model.TotalCount;
+        CheckBulkButtons(root, [false, false], ["復元", "選択を解除"]);
+        var first = model.Rows.First(row => fixtureStates.ContainsKey(row.OrderId));
+        first.IsChecked = true;
+        model.NextPageCommand.Execute(null);
+        WaitUntil(() => !model.IsLoading);
+        var secondPage = model.Rows.Where(row => fixtureStates.ContainsKey(row.OrderId)).Take(2).ToArray();
+        foreach (var row in secondPage) row.IsChecked = true;
+        var restoredIds = new[] { first.OrderId, secondPage[0].OrderId };
+        var competingId = secondPage[1].OrderId;
+        var checkedIds = restoredIds.Append(competingId).ToArray();
+        CheckBulkButtons(root, [true, true], ["復元", "選択を解除"]);
+        var restore = Descendants<WrapPanel>(root).Single(panel => panel.Name == "listActions").Children.OfType<Button>()
+            .Single(button => Equals(button.Content, "復元"));
+        void InvokeRestore() => restore.Command.Execute(null);
+        InteractWithModal(owner, InvokeRestore, modal =>
+        {
+            var dialog = (OrderHideViewModel)modal.DataContext;
+            dialog.Reason = "　";
+            Check(modal.Title == "受注を復元" && dialog.TargetText.Contains("3件") && dialog.ConfirmLabel == "復元する"
+                && dialog.ReasonError == "復元理由を入力してください。" && !dialog.HideCommand.CanExecute(null) && !restore.IsEnabled,
+                "bulk restore asks for a reason for the checked orders across both pages");
+            dialog.CloseCommand.Execute(null);
+        });
+        Check(model.SelectionText == "3件選択中" && db.TOrders.Count(order => checkedIds.Contains(order.OrId) && order.OrFlag == 2) == 3,
+            "canceling restoration preserves all checked hidden orders");
+
+        bool RestoreFromAnotherWindow() => BusinessService.SetOrderVisibility(competingId, adminId, false, "別画面で復元", out _);
+        var competing = new[] { Task.Run(RestoreFromAnotherWindow), Task.Run(RestoreFromAnotherWindow) };
+        Wait(Task.WhenAll(competing));
+        Check(competing.Count(attempt => attempt.Result) == 1, "concurrent restoration writes the hidden order only once");
+
+        var stock = db.TStocks.Sum(row => row.StQuantity);
+        InteractWithModal(owner, InvokeRestore, modal =>
+        {
+            var dialog = (OrderHideViewModel)modal.DataContext;
+            dialog.Reason = "  一括で表示に戻す  ";
+            dialog.HideCommand.Execute(null);
+            WaitUntil(() => dialog.HasAttempted && dialog.CanClose);
+            Check(dialog.SuccessfulOrderIds.ToHashSet().SetEquals(restoredIds)
+                && dialog.Feedback.Contains("成功 2件 / 失敗 1件") && dialog.FailureDetails.Contains($"ORD-{competingId:000000}"),
+                "restoration reports orders committed from both pages and identifies the stale selection");
+            dialog.CloseCommand.Execute(null);
+        });
+        WaitUntil(() => !model.IsBusy);
+        var histories = db.OrderOperationHistories.AsNoTracking()
+            .Where(entry => checkedIds.Contains(entry.OrderId) && entry.Operation == OrderHistoryOperations.Restored).ToArray();
+        var restored = db.TOrders.AsNoTracking().Where(order => checkedIds.Contains(order.OrId)).ToArray();
+        Check(model.SelectedTab == OrderStatusTab.Hidden && model.PageNumber == 2 && model.QuickSearchText == OrderListFixture
+            && !model.HasSelection && model.TotalCount == initialCount - checkedIds.Length
+            && restored.All(order => order.OrFlag == 0 && order.OrHidden == null && order.OrStateFlag == fixtureStates[order.OrId])
+            && db.TStocks.Sum(row => row.StQuantity) == stock,
+            "bulk restore refreshes the filtered list without changing confirmation state or stock");
+        Check(histories.Length == checkedIds.Length && histories.Select(entry => entry.OrderId).ToHashSet().SetEquals(checkedIds)
+            && histories.All(entry => entry.ActorEmployeeId == adminId && entry.BeforeManagement == 2 && entry.AfterManagement == 0)
+            && histories.Where(entry => restoredIds.Contains(entry.OrderId)).All(entry => entry.Details.Contains("表示復帰理由：一括で表示に戻す。")),
+            "each restored order gets one audit entry with the actor, reason and visibility change");
     }
 
     private static void CheckOrderCsv(SalesManagementContext db, MClient customer, int productId, int employeeId)

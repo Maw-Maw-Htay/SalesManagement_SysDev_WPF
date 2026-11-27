@@ -9,6 +9,7 @@ public partial class F_login : Window
     public F_login()
     {
         InitializeComponent();
+        var lifetime = new CancellationTokenSource();
         if (SalesManagementContext.IsDemoMode)
         {
             Title += "［デモ］";
@@ -18,7 +19,7 @@ public partial class F_login : Window
         {
             new F_Main { WindowState = WindowState.Maximized }.Show();
             Close();
-        }, ChangePassword);
+        }, ChangePassword, lifetime.Token);
         DataContext = viewModel;
         viewModel.FocusRequested += FocusInput;
         viewModel.PropertyChanged += (_, e) =>
@@ -27,7 +28,16 @@ public partial class F_login : Window
             if (e.PropertyName == nameof(LoginViewModel.Password) && txtPassword.Password != viewModel.Password)
                 txtPassword.Password = viewModel.Password;
         };
-        Loaded += (_, _) => { viewModel.PrepareDatabase(); txtEmployeeId.Focus(); };
+        Loaded += async (_, _) =>
+        {
+            await viewModel.PrepareDatabaseAsync();
+            if (!lifetime.IsCancellationRequested) txtEmployeeId.Focus();
+        };
+        Closed += (_, _) =>
+        {
+            lifetime.Cancel();
+            lifetime.Dispose();
+        };
     }
 
     private void PasswordChanged(object sender, RoutedEventArgs e)

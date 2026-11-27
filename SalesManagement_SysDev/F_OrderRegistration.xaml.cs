@@ -21,7 +21,8 @@ public partial class F_OrderRegistration : UserControl, IDisposable
     {
         InitializeComponent();
         viewModel = new OrderRegistrationViewModel(returnToList, confirmNavigation, showDetails: showDetails,
-            startNextOrder: startNextOrder, draft: draft);
+            startNextOrder: startNextOrder, draft: draft,
+            confirmDeleteAll: () => F_OrderNotice.ConfirmDeleteAll(Window.GetWindow(this)));
         DataContext = viewModel;
         viewModel.PropertyChanged += (_, args) =>
         {

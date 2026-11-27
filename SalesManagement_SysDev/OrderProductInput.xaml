@@ -16,18 +16,18 @@
         <StackPanel x:Name="ProductSearchFields">
             <StackPanel Margin="0,0,0,6">
                 <TextBlock Text="メーカーで絞り込み（任意）" Style="{StaticResource RegistrationLabel}" TextWrapping="Wrap" />
-                <ComboBox x:Name="ManufacturerFilter" ItemsSource="{Binding MakerOptions}"
-                          SelectedValuePath="Id" SelectedValue="{Binding SelectedMakerId, Mode=TwoWay}" TextSearch.TextPath="Name"
-                          IsEnabled="{Binding IsEditing}" MaxDropDownHeight="220" AutomationProperties.Name="メーカーで絞り込み（任意）">
-                    <ComboBox.ItemTemplate>
+                <local:RegistrationLookup x:Name="ManufacturerFilter" Text="{Binding MakerSearch, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                    ItemsSource="{Binding MakerSuggestions}" SelectCommand="{Binding SelectMakerCommand}" CommittedText="{Binding SelectedMakerText}"
+                    Placeholder="すべてのメーカー" AccessibleName="メーカー名" SelectSingleMatchOnEnter="True" IsEnabled="{Binding IsEditing}">
+                    <local:RegistrationLookup.SuggestionTemplate>
                         <DataTemplate>
-                            <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Name}" />
+                            <TextBlock Text="{Binding Name}" Padding="6,4" TextTrimming="CharacterEllipsis" ToolTip="{Binding Name}" />
                         </DataTemplate>
-                    </ComboBox.ItemTemplate>
-                </ComboBox>
+                    </local:RegistrationLookup.SuggestionTemplate>
+                </local:RegistrationLookup>
             </StackPanel>
             <StackPanel>
-                <TextBlock Text="商品コード・商品名 *" Style="{StaticResource RegistrationLabel}" />
+                <ContentControl Content="商品コード・商品名" Style="{StaticResource RegistrationRequiredLabel}" />
                 <Grid>
                     <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                     <local:RegistrationLookup x:Name="ProductLookup" Text="{Binding ProductSearch, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
@@ -44,7 +44,7 @@
             <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
             <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
             <StackPanel>
-                <TextBlock Text="{Binding QuantityLabel}" Style="{StaticResource RegistrationLabel}" />
+                <ContentControl Content="{Binding QuantityLabel}" Style="{StaticResource RegistrationRequiredLabel}" />
                 <local:QuantityUpDown x:Name="QuantityInput" Text="{Binding Quantity, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                     Maximum="{Binding MaximumQuantity}" Style="{StaticResource HorizontalQuantityUpDown}" Width="112" Height="40" PreserveInvalidInput="True"
                     AutomationProperties.Name="追加数量" IsEnabled="{Binding IsEditing}" />
@@ -113,65 +113,27 @@
                 CornerRadius="8" Padding="10,4" Margin="0,6,0,0">
             <Border.Style>
                 <Style TargetType="Border">
-                    <Setter Property="Background" Value="{StaticResource ThemeSubtle}" />
-                    <Setter Property="TextElement.Foreground" Value="{StaticResource ThemeSecondaryText}" />
+                    <Setter Property="Visibility" Value="Collapsed" />
                     <Style.Triggers>
-                        <DataTrigger Binding="{Binding StockStatus.Text}" Value="">
-                            <Setter Property="Visibility" Value="Collapsed" />
-                        </DataTrigger>
-                        <DataTrigger Binding="{Binding StockStatus.IsMissingRecord}" Value="True">
-                            <Setter Property="Visibility" Value="Collapsed" />
-                        </DataTrigger>
                         <DataTrigger Binding="{Binding StockStatus.Tone}" Value="Warning">
+                            <Setter Property="Visibility" Value="Visible" />
                             <Setter Property="Background" Value="{StaticResource ThemeWarningSurface}" />
                             <Setter Property="TextElement.Foreground" Value="{StaticResource ThemeWarningText}" />
                         </DataTrigger>
                         <DataTrigger Binding="{Binding StockStatus.Tone}" Value="Danger">
+                            <Setter Property="Visibility" Value="Visible" />
                             <Setter Property="Background" Value="{StaticResource ThemeDangerSurface}" />
                             <Setter Property="TextElement.Foreground" Value="{StaticResource ThemeDangerText}" />
-                        </DataTrigger>
-                        <DataTrigger Binding="{Binding HasSufficientStock}" Value="True">
-                            <Setter Property="Background" Value="{StaticResource RegistrationStockSurface}" />
-                            <Setter Property="TextElement.Foreground" Value="{StaticResource ThemeSuccessText}" />
                         </DataTrigger>
                     </Style.Triggers>
                 </Style>
             </Border.Style>
             <DockPanel>
-                <local:LucideIcon DockPanel.Dock="Left" Width="17" Height="17" Margin="0,1,8,0" VerticalAlignment="Top">
-                    <local:LucideIcon.Style>
-                        <Style TargetType="local:LucideIcon" BasedOn="{StaticResource {x:Type local:LucideIcon}}">
-                            <Setter Property="Data" Value="{StaticResource RegistrationStockWarningIcon}" />
-                            <Setter Property="Stroke" Value="{Binding (TextElement.Foreground), RelativeSource={RelativeSource Self}}" />
-                            <Style.Triggers>
-                                <DataTrigger Binding="{Binding StockStatus.Tone}" Value="Normal">
-                                    <Setter Property="Data" Value="{StaticResource IconInfo}" />
-                                </DataTrigger>
-                                <DataTrigger Binding="{Binding HasSufficientStock}" Value="True">
-                                    <Setter Property="Data" Value="{StaticResource IconCheckCircle}" />
-                                    <Setter Property="Stroke" Value="{StaticResource ThemeSuccess}" />
-                                </DataTrigger>
-                            </Style.Triggers>
-                        </Style>
-                    </local:LucideIcon.Style>
-                </local:LucideIcon>
-                <StackPanel>
-                    <TextBlock x:Name="ProductInputStockHint" TextWrapping="Wrap" FontSize="13"
-                               FontWeight="{StaticResource TypographySemiBold}" AutomationProperties.LiveSetting="Polite">
-                        <TextBlock.Style>
-                            <Style TargetType="TextBlock">
-                                <Setter Property="Text" Value="{Binding StockStatus.Text}" />
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding HasSufficientStock}" Value="True">
-                                        <Setter Property="Text" Value="{Binding SelectedProduct.Stock, StringFormat='在庫あり：{0:N0}個'}" />
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </TextBlock.Style>
-                    </TextBlock>
-                    <TextBlock Text="注文数量を満たしています。" FontSize="12" TextWrapping="Wrap"
-                               Visibility="{Binding HasSufficientStock, Converter={StaticResource BooleanVisibility}}" />
-                </StackPanel>
+                <local:LucideIcon DockPanel.Dock="Left" Width="17" Height="17" Margin="0,1,8,0" VerticalAlignment="Top"
+                                  Data="{StaticResource RegistrationStockWarningIcon}"
+                                  Stroke="{Binding (TextElement.Foreground), RelativeSource={RelativeSource Self}}" />
+                <TextBlock x:Name="ProductInputStockHint" Text="{Binding StockStatus.Text}" TextWrapping="Wrap" FontSize="13"
+                           FontWeight="{StaticResource TypographySemiBold}" AutomationProperties.LiveSetting="Polite" />
             </DockPanel>
         </Border>
         <TextBlock Text="{Binding QuantityError}" Style="{StaticResource RegistrationHint}" />

@@ -18,7 +18,8 @@ public partial class F_OrderUpdate : Window, IDisposable
         InitializeComponent();this.returnToList=returnToList;this.showDetails=showDetails;
         viewModel=new OrderUpdateViewModel(data,saved=>{if(saved) ShowCompletion();else RequestClose();},updateSource,lookupSource,
             confirmCustomerChange:_=>F_OrderNotice.Confirm(HostWindow,"顧客を変更しますか？",
-                "変更すると、この受注の受注元顧客が更新されます。","変更する","キャンセル"));
+                "変更すると、この受注の受注元顧客が更新されます。","変更する","キャンセル"),
+            confirmDeleteAll: () => F_OrderNotice.ConfirmDeleteAll(HostWindow));
         DataContext=viewModel;
         _=new RegistrationWindowPlacement(this,preferredWidth:1150,preferredHeight:760,minimumWidth:900,minimumHeight:580);
         Closing+=(_,e)=>{if(!disposed) e.Cancel=!viewModel.TryApproveClose(ConfirmDiscard);};
@@ -79,7 +80,7 @@ public partial class F_OrderUpdate : Window, IDisposable
             catch {F_OrderNotice.Show(HostWindow,"受注詳細","更新は保存されていますが、受注詳細を取得できませんでした。",OrderNoticeKind.Error);}
         }
         else if(((OrderNoticeViewModel)notice.DataContext).CancelWasClicked) RequestClose();
-        else ReturnToListButton.Focus();
+        else CancelButton.Focus();
     }
     private void DateValidationError(object sender,DatePickerDateValidationErrorEventArgs e)
     {e.ThrowException=false;if(RootLayout.DataContext is OrderUpdateViewModel model) model.SetDateInputText(sender==DeliveryDateInput,e.Text);}
