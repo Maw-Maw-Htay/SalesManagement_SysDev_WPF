@@ -35,6 +35,7 @@ internal static class Program
             PresentationTraceSources.DataBindingSource.Listeners.Add(new BindingListener());
             SetRole("管理者");
             CheckSavedOrderPolicy();
+            CheckChumonStockDisplay();
             if (!args.Contains("--database-only")) CheckRegistrationInputs();
             if (!args.Contains("--skip-database")) CheckDatabase();
             else Console.WriteLine("SKIPPED: database integration tests (--skip-database).");
@@ -78,6 +79,26 @@ internal static class Program
                 "変更", [], saved, out var reason) && reason.Contains("保存済み"), role + " cannot edit a saved order");
         }
         SetRole("管理者");
+    }
+
+    private static void CheckChumonStockDisplay()
+    {
+        var line = new OrderLineView(1, "P-000001", "商品", 5, 1, 5,
+            new InventoryStockLookup(InventoryStockState.Available, 6), RequiredStockQuantity: 10, Number: 1);
+        Check(line.CurrentStockText == "6" && line.Availability == "在庫不足",
+            "order detail checks the total quantity for duplicate product lines");
+        Check((line with { RequiredStockQuantity = 5 }).Availability == "在庫あり",
+            "order detail labels sufficient stock");
+        Check((line with { Stock = new(InventoryStockState.Available, 0) }).Availability == "在庫0",
+            "order detail distinguishes an empty shelf from an unavailable balance");
+        var duplicate = line with { Stock = new(InventoryStockState.DuplicateActiveRecords) };
+        Check(duplicate.CurrentStockText == "—" && duplicate.Availability == "在庫行重複",
+            "order detail does not show a summed balance for duplicate active stock rows");
+        Check((line with { Stock = new(InventoryStockState.MissingRecord) }).Availability == "在庫未登録"
+            && (line with { Stock = new(InventoryStockState.InactiveRecord) }).Availability == "有効在庫なし"
+            && (line with { Stock = new(InventoryStockState.InvalidQuantity) }).Availability == "在庫数不正"
+            && (line with { Stock = new(InventoryStockState.QueryFailed) }).Availability == "照会失敗",
+            "order detail distinguishes missing, inactive, invalid and failed stock lookups");
     }
 
     private static void Wait(Task task)

@@ -7,15 +7,28 @@ namespace SalesManagement_SysDev;
 public enum OrderStatusTab { All, Pending, Confirmed, Hidden, History }
 
 public sealed record OrderLineView(int ProductId, string ProductCode, string ProductName, int Quantity, decimal? UnitPrice,
-    decimal? LineTotal, int? CurrentStock, bool StockLookupFailed = false, int Number = 0)
+    decimal? LineTotal, InventoryStockLookup Stock, long RequiredStockQuantity, int Number)
 {
     public string ProductLabel => $"{ProductCode} / {ProductName}";
-    public string CurrentStockText => StockLookupFailed ? "照会失敗" : CurrentStock?.ToString("N0") ?? "未登録";
-    public string Availability => StockLookupFailed ? "照会失敗"
-        : CurrentStock is null ? "在庫未登録"
-        : CurrentStock == 0 ? "在庫0"
-        : CurrentStock < Quantity ? "在庫不足"
-        : "在庫あり";
+    public string CurrentStockText => Stock.State switch
+    {
+        InventoryStockState.Available => Stock.Quantity?.ToString("N0") ?? "—",
+        InventoryStockState.MissingRecord => "未登録",
+        InventoryStockState.QueryFailed => "照会失敗",
+        _ => "—"
+    };
+
+    public string Availability => Stock.State switch
+    {
+        InventoryStockState.Available when Stock.Quantity == 0 => "在庫0",
+        InventoryStockState.Available when Stock.Quantity > 0 => Stock.Quantity < RequiredStockQuantity ? "在庫不足" : "在庫あり",
+        InventoryStockState.MissingRecord => "在庫未登録",
+        InventoryStockState.InactiveRecord => "有効在庫なし",
+        InventoryStockState.DuplicateActiveRecords => "在庫行重複",
+        InventoryStockState.InvalidQuantity => "在庫数不正",
+        InventoryStockState.QueryFailed => "照会失敗",
+        _ => "在庫未確認"
+    };
 }
 
 public sealed record OrderDetailView(int OrderId, string CustomerName, string CustomerPhone, string CustomerAddress,
@@ -238,30 +251,24 @@ public sealed class ChumonManagementViewModel : ViewModelBase
                 var baseLines = db.TOrderDetails.AsNoTracking()
                     .Where(x => x.OrId == c.OrId && products.Contains(x.PrId) && (x.OrQuantity != 0 || x.OrTotalPrice != 0m)).ToList()
                     .GroupBy(x => x.PrId).ToDictionary(g => g.Key, g => g.ToList());
-                var stockLookupFailed = false;
-                Dictionary<int, int?> stocks;
-                try
-                {
-                    stocks = db.TStocks.AsNoTracking().Where(x => products.Contains(x.PrId) && x.StFlag == 0)
-                        .GroupBy(x => x.PrId).ToDictionary(g => g.Key, g => (int?)g.Sum(s => s.StQuantity));
-                }
-                catch
-                {
-                    // Keep order details available while clearly distinguishing a failed stock lookup from no stock row.
-                    stocks = new Dictionary<int, int?>();
-                    stockLookupFailed = true;
-                }
-                var lineCounts = c.TChumonDetails.GroupBy(x => x.PrId).ToDictionary(g => g.Key, g => g.Count());
+                var stocks = InventoryService.ReadCurrentStock(db, products);
+                var requestedByProduct = c.TChumonDetails.GroupBy(line => line.PrId)
+                    .ToDictionary(group => group.Key, group => new
+                    {
+                        LineCount = group.Count(),
+                        Quantity = group.Sum(line => (long)line.ChQuantity)
+                    });
                 var lines = c.TChumonDetails.Select((line, index) =>
                 {
                     var historical = baseLines.GetValueOrDefault(line.PrId);
                     var historicalQuantity = historical?.Sum(x => x.OrQuantity) ?? 0;
                     var historicalTotal = historical?.Sum(x => x.OrTotalPrice) ?? 0;
-                    var canMatchHistoricalAmount = lineCounts[line.PrId] == 1 && historicalQuantity == line.ChQuantity;
+                    var requested = requestedByProduct[line.PrId];
+                    var canMatchHistoricalAmount = requested.LineCount == 1 && historicalQuantity == line.ChQuantity;
                     decimal? unit = canMatchHistoricalAmount && historicalQuantity > 0 ? historicalTotal / historicalQuantity : null;
                     decimal? total = canMatchHistoricalAmount ? historicalTotal : null;
                     return new OrderLineView(line.PrId, line.Pr.PrJcode ?? $"P-{line.PrId:000000}", line.Pr.PrName,
-                        line.ChQuantity, unit, total, stockLookupFailed ? null : stocks.GetValueOrDefault(line.PrId), stockLookupFailed, index + 1);
+                        line.ChQuantity, unit, total, stocks[line.PrId], requested.Quantity, index + 1);
                 }).ToList();
                 var orderTotal = baseLines.Values.SelectMany(x => x).Sum(x => x.OrTotalPrice);
                 return new OrderDetailView(c.ChId, c.Cl.ClName, c.Cl.ClPhone, c.Cl.ClAddress, c.So.SoName,
