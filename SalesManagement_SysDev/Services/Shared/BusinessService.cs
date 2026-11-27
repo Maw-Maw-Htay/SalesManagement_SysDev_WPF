@@ -54,50 +54,6 @@ public sealed partial class BusinessService
         if (!db.TStocks.Any(x => x.PrId == product.PrId)) db.TStocks.Add(new TStock { PrId = product.PrId, StQuantity = 0, StFlag = 0 });
     }
 
-    public static bool ConfirmOrder(int orderId, int employeeId, out string message)
-    {
-        if (!AppSession.CanManageOrders || AppSession.Employee?.EmId != employeeId)
-        { message = "受注を確定する権限がありません。"; return false; }
-        using var db = new SalesManagementContext();
-        return ConfirmOrderCore(db, orderId, employeeId, out message);
-    }
-
-    internal static bool ConfirmOrderCore(SalesManagementContext db, int orderId, int employeeId, out string message)
-    {
-        using var tx = db.Database.BeginTransaction(IsolationLevel.Serializable);
-        try {
-            var o = db.TOrders.Include(x => x.TOrderDetails).FirstOrDefault(x => x.OrId == orderId && x.OrFlag == 0);
-            if (o == null || (o.OrStateFlag ?? 0) != 0) { message = "対象の受注は未確定・表示中ではないか、存在しません。"; return false; }
-            var actor = db.MEmployees.AsNoTracking()
-                .Where(x => x.EmId == employeeId && x.EmFlag == 0 && x.Po.PoFlag == 0 && x.So.SoFlag == 0)
-                .Select(x => new { x.SoId, x.Po.PoName }).SingleOrDefault();
-            if (actor == null || AppSession.Employee?.EmId != employeeId || actor.SoId != AppSession.Employee.SoId
-                || actor.PoName != AppSession.Role || actor.PoName is not ("管理者" or "営業"))
-            { message = "受注の確定権限を確認できません。再ログインしてください。"; return false; }
-            if (actor.PoName != "管理者" && o.SoId != actor.SoId)
-            { message = "所属営業所以外の受注は確定できません。"; return false; }
-            if (db.TChumons.Any(x => x.OrId == orderId))
-            { message = "この受注には注文がすでに作成されています。重複確定はできません。"; return false; }
-            if (!db.MClients.Any(x => x.ClId == o.ClId && x.SoId == o.SoId && x.ClFlag == 0)
-                || !db.MSalesOffices.Any(x => x.SoId == o.SoId && x.SoFlag == 0))
-            { message = "顧客と営業所が有効か確認してください。"; return false; }
-            var activeDetails = o.TOrderDetails.Where(x => !OrderUpdateRules.IsRemovedLine(x)).ToList();
-            if (activeDetails.Count == 0 || activeDetails.Any(x => x.OrQuantity <= 0 || x.OrTotalPrice < 0))
-            { message = "受注明細の数量または金額を確認してください。"; return false; }
-            var productIds = activeDetails.Select(x => x.PrId).Distinct().ToList();
-            if (db.MProducts.Count(x => productIds.Contains(x.PrId) && x.PrFlag == 0) != productIds.Count)
-            { message = "無効または未登録の商品を含むため確定できません。"; return false; }
-            var before = OrderHistoryService.Capture(db, o);
-            o.OrStateFlag = 1;
-            var c = new TChumon { SoId=o.SoId, ClId=o.ClId, OrId=o.OrId, EmId=null, ChDate=DateTime.Today, ChStateFlag=0, ChFlag=0 };
-            db.TChumons.Add(c); db.SaveChanges();
-            foreach (var d in activeDetails) db.TChumonDetails.Add(new TChumonDetail { ChId=c.ChId, PrId=d.PrId, ChQuantity=d.OrQuantity });
-            OrderHistoryService.Record(db, o, OrderHistoryOperations.Confirmed, before,
-                $"注文 {c.ChId} を作成しました。在庫数量の減算は注文確定時に実行され、この操作では変更していません。");
-            db.SaveChanges(); tx.Commit(); message = "受注を確定し、注文を作成しました。"; return true;
-        } catch (Exception ex) { tx.Rollback(); message = "確定に失敗しました: " + ex.Message; return false; }
-    }
-
     public static bool UpdateOrder(int orderId, int employeeId, int customerId, int officeId, int assignedEmployeeId, DateTime orderDate, DateTime? deliveryDate, int stateFlag, int managementFlag, string? hiddenReason, string? customerContact, IReadOnlyCollection<OrderDetailUpdate> updates, OrderDetailSnapshot expected, out string message)
     {
         message = "保存済みの受注内容は変更できません。";
