@@ -112,9 +112,8 @@ internal static class Program
         fMain.UpdateLayout();
 
         var historyButton = Descendants<Button>(fMain).Single(button => ReferenceEquals(button.DataContext, entry));
-        var productEntry = model.MenuItems.Single(x => x.Label == "商品管理");
+        Check(!model.MenuItems.Any(x => x.Label == "商品管理"), "sales sidebar hides product management");
         var shipmentEntry = model.MenuItems.Single(x => x.Label == "出荷管理");
-        var productButton = Descendants<Button>(fMain).Single(button => ReferenceEquals(button.DataContext, productEntry));
         var shipmentButton = Descendants<Button>(fMain).Single(button => ReferenceEquals(button.DataContext, shipmentEntry));
         var historyIcon = Descendants<LucideIcon>(historyButton).Single();
         var badge = Descendants<Border>(historyButton).Single(border => AutomationProperties.GetName(border) == "未読履歴件数");
@@ -123,16 +122,15 @@ internal static class Program
         var sidebar = (FrameworkElement)fMain.FindName("mainSidebar")!;
         var navigationStyle = (Style)fMain.Resources["NavigationButton"];
 
-        Check(historyButton.ActualHeight == productButton.ActualHeight
-            && historyButton.ActualHeight == shipmentButton.ActualHeight
+        Check(historyButton.ActualHeight == shipmentButton.ActualHeight
             && historyButton.ActualHeight == 36,
-            "history uses the same compact row height as product and shipment navigation");
+            "history uses the same compact row height as shipment navigation");
         Check(historyIcon.ActualWidth == 18 && historyIcon.ActualHeight == 18,
             "history uses the standard 18-pixel sidebar icon size");
         Check(ReferenceEquals(historyButton.Style.BasedOn, navigationStyle),
             "history inherits the shared sidebar hover, selected, spacing and foreground styles");
         Check(historyButton.ToolTip as string == "履歴管理"
-            && productButton.ToolTip as string == "商品管理",
+            && shipmentButton.ToolTip as string == "出荷管理",
             "history and other management rows use the same label tooltip behavior");
 
         entry.UnreadCount = 1;
