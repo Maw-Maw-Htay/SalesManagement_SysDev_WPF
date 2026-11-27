@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:SalesManagement_SysDev"
-        Title="販売管理システム | ログイン" Width="1000" Height="820" MinWidth="640" MinHeight="700"
+        Title="販売管理システム | ログイン" Width="820" Height="660" MinWidth="600" MinHeight="560"
         WindowStartupLocation="CenterScreen" Style="{StaticResource {x:Type Window}}">
     <Window.Resources>
         <Style x:Key="LoginInput" TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
@@ -22,22 +22,22 @@
         </Style>
     </Window.Resources>
     <Grid>
-        <Viewbox Height="300" Stretch="Fill" VerticalAlignment="Bottom" HorizontalAlignment="Stretch" IsHitTestVisible="False">
+        <Viewbox Height="260" Stretch="Fill" VerticalAlignment="Bottom" HorizontalAlignment="Stretch" IsHitTestVisible="False">
             <Canvas Width="1536" Height="350" ClipToBounds="True">
                 <Path Data="M0,72 C220,91 400,137 610,196 C826,256 1043,221 1221,145 C1359,86 1461,60 1536,55 L1536,350 L0,350 Z" Fill="{StaticResource ThemePaleBlue}" />
                 <Path Data="M0,158 C228,132 401,173 610,235 C825,298 1030,285 1216,214 C1363,157 1455,126 1536,116 L1536,350 L0,350 Z" Fill="{StaticResource ThemeSecondary}" Opacity="0.25" />
             </Canvas>
         </Viewbox>
         <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-            <Grid MinHeight="640" Margin="24" VerticalAlignment="Center">
+            <Grid MinHeight="560" Margin="18" VerticalAlignment="Center">
                 <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-                <Border Style="{StaticResource ThemeCard}" Width="480" Padding="48,32" HorizontalAlignment="Center">
+                <Border Style="{StaticResource ThemeCard}" Width="460" Padding="44,24" HorizontalAlignment="Center">
                     <StackPanel>
-                        <Border Width="56" Height="56" Background="{StaticResource ThemePaleBlue}" CornerRadius="8" HorizontalAlignment="Center" Margin="0,0,0,16">
+                        <Border Width="52" Height="52" Background="{StaticResource ThemePaleBlue}" CornerRadius="8" HorizontalAlignment="Center" Margin="0,0,0,12">
                             <local:LucideIcon Data="{StaticResource IconBoxes}" Width="24" Height="24" Stroke="{StaticResource ThemePrimary}" />
                         </Border>
                         <TextBlock Text="販売・在庫管理システム" Style="{StaticResource TypographyPageTitle}" Foreground="{StaticResource ThemePrimary}" TextAlignment="Center" />
-                        <TextBlock x:Name="LoginSubtitle" Text="アカウント情報を入力してください" Style="{StaticResource PageSubtitle}" TextAlignment="Center" Margin="0,8,0,24" />
+                        <TextBlock x:Name="LoginSubtitle" Text="アカウント情報を入力してください" Style="{StaticResource PageSubtitle}" TextAlignment="Center" Margin="0,8,0,18" />
                         <TextBlock Text="社員ID" Style="{StaticResource FormLabel}" Width="360" />
                         <Border>
                             <Border.Style><Style TargetType="Border" BasedOn="{StaticResource LoginField}"><Style.Triggers><DataTrigger Binding="{Binding EmployeeIdInvalid}" Value="True"><Setter Property="BorderBrush" Value="{StaticResource ThemeDanger}" /><Setter Property="BorderThickness" Value="2" /></DataTrigger></Style.Triggers></Style></Border.Style>
@@ -63,18 +63,18 @@
                                 </Button>
                             </Grid>
                         </Border>
-                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,12,0">
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,6,12,0">
                             <Button Content="パスワード変更" Command="{Binding ChangePasswordCommand}" Style="{StaticResource LoginLink}" />
                             <TextBlock Text="|" Margin="12,0" VerticalAlignment="Center" Foreground="{StaticResource ThemeSecondaryText}" />
                             <Button Content="パスワードを忘れた場合" Command="{Binding ForgotPasswordCommand}" Style="{StaticResource LoginLink}" />
                         </StackPanel>
-                        <Button x:Name="loginButton" Command="{Binding LoginCommand}" IsDefault="True" Style="{StaticResource ThemePrimaryButton}" Width="360" Height="44" Margin="0,16,0,0" AutomationProperties.Name="ログイン">
+                        <Button x:Name="loginButton" Command="{Binding LoginCommand}" IsDefault="True" Style="{StaticResource ThemePrimaryButton}" Width="360" Height="42" Margin="0,12,0,0" AutomationProperties.Name="ログイン">
                             <StackPanel Orientation="Horizontal"><local:LucideIcon Data="{StaticResource IconLogIn}" Width="16" Height="16" Stroke="White" Margin="0,0,8,0" /><TextBlock Text="{Binding LoginLabel}" /></StackPanel>
                         </Button>
                         <TextBlock Text="{Binding Message}" Width="360">
                             <TextBlock.Style><Style TargetType="TextBlock" BasedOn="{StaticResource InlineFeedback}"><Style.Triggers><DataTrigger Binding="{Binding Feedback}" Value="Information"><Setter Property="Foreground" Value="{StaticResource ThemeSecondaryText}" /></DataTrigger><DataTrigger Binding="{Binding Feedback}" Value="Success"><Setter Property="Foreground" Value="{StaticResource ThemeSuccessText}" /></DataTrigger></Style.Triggers></Style></TextBlock.Style>
                         </TextBlock>
-                        <StackPanel Orientation="Horizontal" Width="360" Margin="0,24,0,0">
+                        <StackPanel Orientation="Horizontal" Width="360" Margin="0,16,0,0">
                             <local:LucideIcon Width="16" Height="16" VerticalAlignment="Top" Margin="0,2,8,0">
                                 <local:LucideIcon.Style><Style TargetType="local:LucideIcon" BasedOn="{StaticResource {x:Type local:LucideIcon}}"><Setter Property="Data" Value="{StaticResource IconClock}" /><Setter Property="Stroke" Value="{StaticResource ThemeWarning}" /><Style.Triggers><DataTrigger Binding="{Binding ConnectionState}" Value="Ready"><Setter Property="Data" Value="{StaticResource IconCheckCircle}" /><Setter Property="Stroke" Value="{StaticResource ThemeSuccess}" /></DataTrigger><DataTrigger Binding="{Binding ConnectionState}" Value="Failed"><Setter Property="Stroke" Value="{StaticResource ThemeDanger}" /></DataTrigger></Style.Triggers></Style></local:LucideIcon.Style>
                             </local:LucideIcon>
@@ -82,7 +82,7 @@
                         </StackPanel>
                     </StackPanel>
                 </Border>
-                <TextBlock Grid.Row="1" Text="© 2026 販売・在庫管理システム　Ver. 1.0.0" FontSize="12" Foreground="{StaticResource ThemeSecondaryText}" TextAlignment="Center" Margin="0,24,0,0" />
+                <TextBlock Grid.Row="1" Text="© 2026 販売・在庫管理システム　Ver. 1.0.0" FontSize="12" Foreground="{StaticResource ThemeSecondaryText}" TextAlignment="Center" Margin="0,16,0,0" />
             </Grid>
         </ScrollViewer>
     </Grid>

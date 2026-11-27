@@ -118,7 +118,9 @@
                             </Grid>
                         </Border>
                         <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="navBorder" Property="Background" Value="{StaticResource ThemeSidebarHover}" /></Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="navBorder" Property="Background" Value="{StaticResource ThemeSidebarHover}" />
+                            </Trigger>
                             <Trigger Property="IsKeyboardFocused" Value="True">
                                 <Setter TargetName="navBorder" Property="BorderBrush" Value="{StaticResource ThemeAccent}" />
                             </Trigger>
@@ -126,12 +128,51 @@
                                 <Setter TargetName="navBorder" Property="Background" Value="{StaticResource ThemeSidebarActive}" />
                                 <Setter TargetName="activeIndicator" Property="Visibility" Value="Visible" />
                             </Trigger>
-                            <Trigger Property="IsPressed" Value="True"><Setter TargetName="navBorder" Property="Background" Value="{StaticResource ThemeSidebarHover}" /></Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="navBorder" Property="Background" Value="{StaticResource ThemeSidebarHover}" />
+                            </Trigger>
                             <DataTrigger Binding="{Binding IsSidebarExpanded}" Value="False">
                                 <Setter TargetName="navigationContent" Property="Margin" Value="0" />
                                 <Setter TargetName="navigationContent" Property="HorizontalAlignment" Value="Center" />
                             </DataTrigger>
                         </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="SidebarScrollBar" TargetType="ScrollBar">
+            <Setter Property="Width" Value="12" />
+            <Setter Property="Background" Value="{StaticResource ThemeSidebar}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ScrollBar">
+                        <Grid Background="{TemplateBinding Background}">
+                            <Track x:Name="PART_Track" IsDirectionReversed="True">
+                                <Track.DecreaseRepeatButton>
+                                    <RepeatButton Command="{x:Static ScrollBar.PageUpCommand}" Focusable="False" IsTabStop="False" Opacity="0" />
+                                </Track.DecreaseRepeatButton>
+                                <Track.Thumb>
+                                    <Thumb MinHeight="28">
+                                        <Thumb.Template>
+                                            <ControlTemplate TargetType="Thumb">
+                                                <Border x:Name="ThumbSurface" Background="{StaticResource ThemeSidebarMuted}" CornerRadius="5" Margin="2,1" />
+                                                <ControlTemplate.Triggers>
+                                                    <Trigger Property="IsMouseOver" Value="True">
+                                                        <Setter TargetName="ThumbSurface" Property="Background" Value="{StaticResource ThemeSecondary}" />
+                                                    </Trigger>
+                                                    <Trigger Property="IsDragging" Value="True">
+                                                        <Setter TargetName="ThumbSurface" Property="Background" Value="{StaticResource ThemeAccent}" />
+                                                    </Trigger>
+                                                </ControlTemplate.Triggers>
+                                            </ControlTemplate>
+                                        </Thumb.Template>
+                                    </Thumb>
+                                </Track.Thumb>
+                                <Track.IncreaseRepeatButton>
+                                    <RepeatButton Command="{x:Static ScrollBar.PageDownCommand}" Focusable="False" IsTabStop="False" Opacity="0" />
+                                </Track.IncreaseRepeatButton>
+                            </Track>
+                        </Grid>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
@@ -185,7 +226,29 @@
                     <TextBlock Text="設定" Style="{StaticResource SidebarCategoryLabel}" />
                 </StackPanel>
                 <Border DockPanel.Dock="Bottom" Height="1" Background="{StaticResource ThemeSidebarSeparator}" Margin="16,8,16,8" />
-                <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+                <ScrollViewer Background="{StaticResource ThemeSidebar}" HorizontalScrollBarVisibility="Disabled">
+                    <ScrollViewer.Template>
+                        <ControlTemplate TargetType="ScrollViewer">
+                            <Grid Background="{TemplateBinding Background}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <ScrollContentPresenter x:Name="PART_ScrollContentPresenter" Grid.Column="0"
+                                                        Content="{TemplateBinding Content}"
+                                                        ContentTemplate="{TemplateBinding ContentTemplate}"
+                                                        CanContentScroll="{TemplateBinding CanContentScroll}"
+                                                        Margin="{TemplateBinding Padding}" />
+                                <ScrollBar x:Name="PART_VerticalScrollBar" Grid.Column="1"
+                                           Style="{StaticResource SidebarScrollBar}"
+                                           Orientation="Vertical"
+                                           Maximum="{TemplateBinding ScrollableHeight}"
+                                           ViewportSize="{TemplateBinding ViewportHeight}"
+                                           Value="{TemplateBinding VerticalOffset}"
+                                           Visibility="{TemplateBinding ComputedVerticalScrollBarVisibility}" />
+                            </Grid>
+                        </ControlTemplate>
+                    </ScrollViewer.Template>
                     <ScrollViewer.Style>
                         <Style TargetType="ScrollViewer">
                             <Setter Property="VerticalScrollBarVisibility" Value="Auto" />
@@ -197,45 +260,60 @@
                         </Style>
                     </ScrollViewer.Style>
                     <ItemsControl ItemsSource="{Binding MenuItems}" Margin="0,0,0,4">
-                        <ItemsControl.ItemTemplate><DataTemplate>
-                            <Grid ClipToBounds="False">
-                                <StackPanel>
-                                    <StackPanel.Style><Style TargetType="StackPanel"><Setter Property="Visibility" Value="Collapsed" /><Style.Triggers><DataTrigger Binding="{Binding IsCategory}" Value="True"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers></Style></StackPanel.Style>
-                                    <Border Height="1" Background="{StaticResource ThemeSidebarSeparator}" Margin="16,5" Visibility="{Binding HasSeparator, Converter={StaticResource BooleanVisibility}}" />
-                                    <TextBlock Text="{Binding Label}" Style="{StaticResource SidebarCategoryLabel}" />
-                                </StackPanel>
-                                <Button Command="{Binding NavigateCommand}" ToolTip="{Binding Label}" AutomationProperties.Name="{Binding Label}" ClipToBounds="False">
-                                    <Button.Style>
-                                        <Style TargetType="Button" BasedOn="{StaticResource NavigationButton}">
-                                            <Style.Triggers>
-                                                <DataTrigger Binding="{Binding IsCategory}" Value="True"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
-                                                <DataTrigger Binding="{Binding IsActive}" Value="True"><Setter Property="Tag" Value="Active" /></DataTrigger>
-                                            </Style.Triggers>
-                                        </Style>
-                                    </Button.Style>
-                                    <Grid ClipToBounds="False">
-                                        <StackPanel x:Name="HorizontalNavigationContent" Orientation="Horizontal" ClipToBounds="False">
-                                            <Grid Width="18" Height="18" ClipToBounds="False">
-                                                <local:LucideIcon Data="{Binding IconName, Converter={StaticResource SidebarIconResource}}"
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Grid ClipToBounds="False">
+                                    <StackPanel>
+                                        <StackPanel.Style>
+                                            <Style TargetType="StackPanel">
+                                                <Setter Property="Visibility" Value="Collapsed" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsCategory}" Value="True">
+                                                        <Setter Property="Visibility" Value="Visible" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </StackPanel.Style>
+                                        <Border Height="1" Background="{StaticResource ThemeSidebarSeparator}" Margin="16,5" Visibility="{Binding HasSeparator, Converter={StaticResource BooleanVisibility}}" />
+                                        <TextBlock Text="{Binding Label}" Style="{StaticResource SidebarCategoryLabel}" />
+                                    </StackPanel>
+                                    <Button Command="{Binding NavigateCommand}" ToolTip="{Binding Label}" AutomationProperties.Name="{Binding Label}" ClipToBounds="False">
+                                        <Button.Style>
+                                            <Style TargetType="Button" BasedOn="{StaticResource NavigationButton}">
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsCategory}" Value="True">
+                                                        <Setter Property="Visibility" Value="Collapsed" />
+                                                    </DataTrigger>
+                                                    <DataTrigger Binding="{Binding IsActive}" Value="True">
+                                                        <Setter Property="Tag" Value="Active" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Button.Style>
+                                        <Grid ClipToBounds="False">
+                                            <StackPanel x:Name="HorizontalNavigationContent" Orientation="Horizontal" ClipToBounds="False">
+                                                <Grid Width="18" Height="18" ClipToBounds="False">
+                                                    <local:LucideIcon Data="{Binding IconName, Converter={StaticResource SidebarIconResource}}"
                                                                   Width="18" Height="18" HorizontalAlignment="Center" VerticalAlignment="Center"
                                                                   Style="{StaticResource SidebarIcon}" />
-                                                <Border Panel.ZIndex="1" HorizontalAlignment="Right" VerticalAlignment="Top"
+                                                    <Border Panel.ZIndex="1" HorizontalAlignment="Right" VerticalAlignment="Top"
                                                         Margin="0,-4,-6,0" MinWidth="16" Height="16" Padding="3,0"
                                                         Background="{StaticResource ThemeDanger}" BorderBrush="{StaticResource ThemeSidebar}"
                                                         BorderThickness="1" CornerRadius="8"
                                                         Visibility="{Binding ShowUnreadBadge, Converter={StaticResource BooleanVisibility}}"
                                                         AutomationProperties.Name="未読履歴件数">
-                                                    <TextBlock Text="{Binding UnreadCountText}" Foreground="White" FontSize="9"
+                                                        <TextBlock Text="{Binding UnreadCountText}" Foreground="White" FontSize="9"
                                                                FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"
                                                                TextAlignment="Center" />
-                                                </Border>
-                                            </Grid>
-                                            <TextBlock Text="{Binding Label}" Style="{StaticResource SidebarLabel}" />
-                                        </StackPanel>
-                                    </Grid>
-                                </Button>
-                            </Grid>
-                        </DataTemplate></ItemsControl.ItemTemplate>
+                                                    </Border>
+                                                </Grid>
+                                                <TextBlock Text="{Binding Label}" Style="{StaticResource SidebarLabel}" />
+                                            </StackPanel>
+                                        </Grid>
+                                    </Button>
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
                     </ItemsControl>
                 </ScrollViewer>
             </DockPanel>
