@@ -81,12 +81,7 @@ public sealed partial class BusinessService
         using var tx = db.Database.BeginTransaction(IsolationLevel.Serializable);
         try
         {
-            var session = AppSession.Employee;
-            var actor = db.MEmployees.AsNoTracking()
-                .Where(x => x.EmId == employeeId && x.EmFlag == 0 && x.Po.PoFlag == 0 && x.So.SoFlag == 0)
-                .Select(x => new { x.SoId, Role = x.Po.PoName }).SingleOrDefault();
-            if (actor == null || session?.EmId != employeeId || actor.SoId != session.SoId
-                || actor.Role != session.Po?.PoName || actor.Role is not ("管理者" or "営業"))
+            if (ResolveChumonActor(db, employeeId) is not { } actor)
             {
                 message = "注文の確定権限を確認できません。再ログインしてください。";
                 return false;
@@ -142,6 +137,20 @@ public sealed partial class BusinessService
         }
     }
 
+    private static (int SoId, string Role)? ResolveChumonActor(SalesManagementContext db, int employeeId)
+    {
+        var session = AppSession.Employee;
+        if (session == null || session.EmId != employeeId) return null;
+
+        var actor = db.MEmployees.AsNoTracking()
+            .Where(x => x.EmId == employeeId && x.EmFlag == 0 && x.Po.PoFlag == 0 && x.So.SoFlag == 0)
+            .Select(x => new { x.SoId, Role = x.Po.PoName }).SingleOrDefault();
+        if (actor == null || actor.SoId != session.SoId || actor.Role != session.Po?.PoName
+            || actor.Role is not ("管理者" or "営業")) return null;
+
+        return (actor.SoId, actor.Role);
+    }
+
     public static bool HideChumon(int id, int employeeId, string? reason, out string message)
     {
         using var db = new SalesManagementContext();
@@ -156,9 +165,15 @@ public sealed partial class BusinessService
         using var tx = db.Database.BeginTransaction(IsolationLevel.Serializable);
         try
         {
+            if (ResolveChumonActor(db, employeeId) is not { } actor)
+            {
+                message = "注文を非表示にする権限を確認できません。再ログインしてください。";
+                return false;
+            }
+
             var order = db.TChumons.FirstOrDefault(x => x.ChId == id && x.ChFlag == 0);
             if (order == null) { message = "対象の注文は通常表示ではないか、存在しません。"; return false; }
-            if (!AppSession.IsAdmin && order.SoId != AppSession.Employee!.SoId)
+            if (actor.Role != "管理者" && order.SoId != actor.SoId)
             { message = "所属営業所以外の注文は非表示にできません。"; return false; }
             order.ChFlag = 2;
             order.ChHidden = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim();

@@ -120,7 +120,7 @@ public static partial class OutboundService
 
             var sourceOrders = db.TChumons.AsNoTracking().Include(x => x.TChumonDetails)
                 .Where(x => x.OrId == outbound.OrId && x.ClId == outbound.ClId && x.SoId == outbound.SoId
-                    && x.ChFlag == ActiveFlag && x.ChStateFlag == 1).ToList();
+                    && (x.ChFlag == ActiveFlag || x.ChFlag == HiddenFlag) && x.ChStateFlag == ConfirmedState).ToList();
             var lines = db.TSyukkoDetails.AsNoTracking().Where(x => x.SyId == syukkoId)
                 .Select(x => new WarehouseMovementLineInput(x.PrId, x.SyQuantity)).ToArray();
             if (WarehouseMovementRules.ValidateLines(lines) is { } linesError) return Denied(linesError);
