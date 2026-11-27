@@ -20,16 +20,22 @@ public static partial class OutboundService
     {
         if (actor.IsAdministrator) return [];
 
-        var scopeExists = db.Database.SqlQueryRaw<int>(
-            "SELECT CASE WHEN OBJECT_ID(N'dbo.T_OutboundOfficeScope', N'U') IS NULL THEN 0 ELSE 1 END AS [Value]").Single() == 1;
-        if (!scopeExists) return [actor.OfficeId];
+        // A restricted connection may also see NULL when the table exists without a SELECT grant.
+        var hasScopeTable = db.Database.SqlQueryRaw<bool?>("""
+            SELECT CAST(CASE
+                WHEN OBJECT_ID(N'dbo.T_OutboundOfficeScope', N'U') IS NOT NULL THEN 1
+                WHEN USER_NAME() = N'dbo' THEN 0
+                ELSE NULL
+            END AS bit) AS [Value]
+            """).Single();
+        if (hasScopeTable == false) return [actor.OfficeId];
+        if (hasScopeTable == null) return [];
 
-        var configured = db.Database.SqlQuery<int>($"""
+        return db.Database.SqlQuery<int>($"""
             SELECT DestinationOfficeId AS [Value]
             FROM dbo.T_OutboundOfficeScope
             WHERE WarehouseOfficeId = {actor.OfficeId}
             """).ToArray();
-        return configured.Length == 0 ? [actor.OfficeId] : configured;
     }
 
     public static WarehouseMovementDirectory Load()
@@ -40,7 +46,11 @@ public static partial class OutboundService
         WarehouseActorResolver.EnsureCanUse(actor);
         var query = db.TSyukkos.AsNoTracking();
         var destinations = GetAllowedDestinations(db, actor!);
-        if (!actor!.IsAdministrator) query = query.Where(x => destinations.Contains(x.SoId) && x.SyFlag == ActiveFlag);
+        if (!actor!.IsAdministrator)
+        {
+            if (destinations.Length == 0) return new([], [], [], new(0, 0, 0));
+            query = query.Where(x => destinations.Contains(x.SoId) && x.SyFlag == ActiveFlag);
+        }
         var headers = query.OrderByDescending(x => x.SyDate).ThenByDescending(x => x.SyId)
             .Select(x => new
             {
@@ -78,7 +88,11 @@ public static partial class OutboundService
         WarehouseActorResolver.EnsureCanUse(actor);
         var query = db.TSyukkos.AsNoTracking().Where(x => x.SyId == id);
         var destinations = GetAllowedDestinations(db, actor!);
-        if (!actor!.IsAdministrator) query = query.Where(x => destinations.Contains(x.SoId) && x.SyFlag == ActiveFlag);
+        if (!actor!.IsAdministrator)
+        {
+            if (destinations.Length == 0) return null;
+            query = query.Where(x => destinations.Contains(x.SoId) && x.SyFlag == ActiveFlag);
+        }
         var header = query.Select(x => new
         {
             x.SyId, x.OrId, x.ClId, CustomerName = x.Cl.ClName, x.SoId, OfficeName = x.So.SoName,
@@ -207,7 +221,7 @@ public static partial class OutboundService
                 .SingleOrDefault();
             if (outbound == null) return Denied("対象の出庫が見つかりません。");
             if (!actor.IsAdministrator && !GetAllowedDestinations(db, actor).Contains(outbound.SoId))
-                return Denied("自営業所の出庫だけ非表示にできます。");
+                return Denied("許可された営業所の出庫だけ非表示にできます。");
             if (WarehouseMovementRules.ValidateHide(outbound.SyFlag, outbound.SyStateFlag) is { } stateError)
                 return Denied(stateError);
             outbound.SyFlag = HiddenFlag;

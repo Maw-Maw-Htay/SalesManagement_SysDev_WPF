@@ -1,4 +1,5 @@
 using System.Data;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 
 namespace SalesManagement_SysDev;
@@ -94,8 +95,6 @@ public static partial class InventoryService
             if (WarehouseActorResolver.Resolve(db, session.EmId) is null)
                 return (false, "在庫を変更する権限がありません。");
 
-            if (hideReason != null) EnsureHideHistoryReady(db);
-
             var active = db.TStocks.FromSqlInterpolated(
                     $"SELECT * FROM dbo.T_Stock WITH (UPDLOCK, HOLDLOCK) WHERE PrID = {expected.ProductId}")
                 .Where(x => x.StFlag == ActiveStockFlag && x.Pr.PrFlag == ProductService.ActiveFlag)
@@ -107,11 +106,19 @@ public static partial class InventoryService
             if (quantity.HasValue) stock.StQuantity = quantity.Value;
             else
             {
+                try
+                {
+                    db.Database.ExecuteSqlInterpolated($"""
+                        INSERT dbo.T_StockHideHistory (StID, PrID, EmID, Reason)
+                        VALUES ({stock.StId}, {stock.PrId}, {session.EmId}, {hideReason})
+                        """);
+                }
+                catch (SqlException error) when (error.Number is 208 or 229)
+                {
+                    System.Diagnostics.Trace.TraceError("在庫の非表示履歴を保存できませんでした: {0}", error);
+                    return (false, "在庫の非表示履歴を保存できません。DB管理者に履歴テーブルの準備と書き込み権限の確認を依頼してください。");
+                }
                 stock.StFlag = HiddenStockFlag;
-                db.Database.ExecuteSqlInterpolated($"""
-                    INSERT dbo.T_StockHideHistory (StID, PrID, EmID, Reason)
-                    VALUES ({stock.StId}, {stock.PrId}, {session.EmId}, {hideReason})
-                    """);
             }
 
             db.SaveChanges();
@@ -123,30 +130,5 @@ public static partial class InventoryService
             System.Diagnostics.Trace.TraceError("在庫の変更に失敗しました: {0}", error);
             return (false, "在庫を変更できませんでした。一覧を再読込してからお試しください。");
         }
-    }
-
-    private static void EnsureHideHistoryReady(SalesManagementContext db)
-    {
-        db.Database.ExecuteSqlRaw("""
-            IF OBJECT_ID(N'dbo.T_StockHideHistory', N'U') IS NULL
-            BEGIN
-                DECLARE @lockResult int;
-                EXEC @lockResult = sys.sp_getapplock
-                    @Resource = N'SalesManagement.StockHideHistory.Schema',
-                    @LockMode = 'Exclusive', @LockOwner = 'Transaction', @LockTimeout = 10000;
-                IF @lockResult < 0
-                    THROW 51000, 'Could not initialize stock hide history.', 1;
-                IF OBJECT_ID(N'dbo.T_StockHideHistory', N'U') IS NULL
-                    CREATE TABLE dbo.T_StockHideHistory
-                    (
-                        Id bigint IDENTITY(1,1) PRIMARY KEY,
-                        StID int NOT NULL,
-                        PrID int NOT NULL,
-                        EmID int NOT NULL,
-                        Reason nvarchar(500) NOT NULL,
-                        RecordedAt datetime2 NOT NULL DEFAULT SYSUTCDATETIME()
-                    );
-            END
-            """);
     }
 }

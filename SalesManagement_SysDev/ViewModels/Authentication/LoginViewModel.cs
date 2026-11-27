@@ -122,6 +122,7 @@ public sealed class LoginViewModel : ViewModelBase
                 }
                 failure = DatabaseCheckResult.SchemaFailed;
                 PurchaseSchemaInitializer.EnsureReady(db);
+                StockHideHistorySchemaInitializer.EnsureLocalDbReady(db);
                 return DatabaseCheckResult.Ready;
             }
             catch (Exception exception)

@@ -94,6 +94,13 @@ internal static partial class Program
             employee.EmHiredate = DateTime.Today;
             employee.EmPhone = "";
             employee.EmPassword = "";
+            var logistics = Employee("物流");
+            logistics.EmId = 11;
+            logistics.So = office;
+            logistics.EmHiredate = DateTime.Today;
+            logistics.EmPhone = "";
+            logistics.EmPassword = "";
+            var otherOffice = new MSalesOffice { SoName = "別営業所", SoAddress = "", SoPhone = "", SoPostal = "", SoFax = "" };
             var customer = new MClient { ClName = "テスト顧客", So = office, ClAddress = "", ClPhone = "", ClPostal = "", ClFax = "" };
             var product = new MProduct
             {
@@ -106,10 +113,11 @@ internal static partial class Program
                 TChumonDetails = [new TChumonDetail { Pr = product, ChQuantity = 5 }] };
             var outbound = new TSyukko { Or = salesOrder, Cl = customer, So = office, SyStateFlag = 0,
                 TSyukkoDetails = [new TSyukkoDetail { Pr = product, SyQuantity = 5 }] };
-            db.AddRange(order, outbound, new TStock { Pr = product, StQuantity = 12 });
+            db.AddRange(order, outbound, logistics, otherOffice, new TStock { Pr = product, StQuantity = 12 });
             db.SaveChanges();
-            AppSession.Employee = employee;
             db.ChangeTracker.Clear();
+            CheckOutboundScope(db, logistics, outbound, otherOffice.SoId);
+            AppSession.Employee = employee;
             var confirm = typeof(OutboundService).GetMethod("ConfirmInContext", BindingFlags.Static | BindingFlags.NonPublic)!;
             WarehouseMovementOperationResult Confirm() => (WarehouseMovementOperationResult)confirm.Invoke(null, [db, employee.EmId, outbound.SyId])!;
             var result = Confirm();
@@ -132,6 +140,49 @@ internal static partial class Program
                 "Existing arrival independently blocks another confirmation even for a pending outbound");
         }
         finally { db.Database.EnsureDeleted(); }
+    }
+
+    private static void CheckOutboundScope(SalesManagementContext db, MEmployee logistics, TSyukko outbound, int otherOfficeId)
+    {
+        const string connectionVariable = "SALESMANAGEMENT_CONNECTION_STRING";
+        var previousConnection = Environment.GetEnvironmentVariable(connectionVariable);
+        Environment.SetEnvironmentVariable(connectionVariable, db.Database.GetConnectionString());
+        AppSession.Employee = logistics;
+        try
+        {
+            Check(OutboundService.LoadDetail(outbound.SyId) != null,
+                "The legacy database allows a logistics employee to view their own office");
+            db.Database.ExecuteSqlRaw("""
+                CREATE TABLE dbo.T_OutboundOfficeScope (
+                    WarehouseOfficeId int NOT NULL,
+                    DestinationOfficeId int NOT NULL,
+                    PRIMARY KEY (WarehouseOfficeId, DestinationOfficeId)
+                );
+                """);
+            db.Database.ExecuteSqlInterpolated($"""
+                INSERT dbo.T_OutboundOfficeScope (WarehouseOfficeId, DestinationOfficeId)
+                VALUES ({logistics.SoId}, {logistics.SoId}), ({logistics.SoId}, {otherOfficeId});
+                """);
+            Check(OutboundService.Load().Records.Any(record => record.Id == outbound.SyId)
+                && OutboundService.LoadDetail(outbound.SyId) != null,
+                "Listing and detail accept the explicitly registered office");
+            db.Database.ExecuteSqlInterpolated($"""
+                DELETE dbo.T_OutboundOfficeScope
+                WHERE WarehouseOfficeId = {logistics.SoId} AND DestinationOfficeId = {logistics.SoId};
+                """);
+            Check(OutboundService.Load().Records.Count == 0 && OutboundService.LoadDetail(outbound.SyId) == null,
+                "An explicit grant for another office does not include the employee's own office");
+            db.Database.ExecuteSqlInterpolated($"""
+                DELETE dbo.T_OutboundOfficeScope WHERE WarehouseOfficeId = {logistics.SoId};
+                """);
+            var confirmation = OutboundService.Confirm(logistics.EmId, outbound.SyId);
+            var hide = OutboundService.Hide(logistics.EmId, outbound.SyId, "範囲テスト");
+            Check(OutboundService.Load().Records.Count == 0 && OutboundService.LoadDetail(outbound.SyId) == null
+                && !confirmation.Succeeded && confirmation.Message.Contains("許可された営業所")
+                && !hide.Succeeded && hide.Message.Contains("許可された営業所"),
+                "Removing the last grant denies listing, detail, confirmation and hiding");
+        }
+        finally { Environment.SetEnvironmentVariable(connectionVariable, previousConnection); }
     }
 
     private static void CheckOutboundUi()
