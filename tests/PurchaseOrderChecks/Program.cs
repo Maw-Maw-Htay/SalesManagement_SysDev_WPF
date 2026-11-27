@@ -187,6 +187,13 @@ internal static class Program
             var registerModel = (PurchaseOrderRegisterViewModel)New(typeof(PurchaseOrderRegisterViewModel), false);
             var item = new PurchaseProductOption(1, 1, "", "商品", "仕入先", 5, 3, 0);
             registerModel.SelectedMaker = new PurchaseMakerOption(1, "仕入先");
+            registerModel.SelectedProduct = item with { OutstandingPurchaseQuantity = 3, PendingShelvingQuantity = 7 };
+            Check(registerModel.InventoryReferenceText.Contains("倉庫到着待ち 3")
+                && registerModel.InventoryReferenceText.Contains("棚入れ待ち 7"),
+                "registration shows warehouse and shelving quantities separately");
+            registerModel.SelectedProduct = item with { PendingShelvingQuantity = 7 };
+            Check(registerModel.InventoryWarning.Contains("重複"),
+                "shelving-only pending quantities still show the duplicate order warning");
             registerModel.SelectedProduct = item;
             registerModel.AddSelectedLine();
             registerModel.Lines[0].QuantityText = "0";

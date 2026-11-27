@@ -13,6 +13,7 @@ public sealed record PurchaseProductOption(
     int Id, int MakerId, string Code, string Name, string MakerName, int StockQuantity, int SafetyStock,
     int OutstandingPurchaseQuantity)
 {
+    public long PendingShelvingQuantity { get; init; }
     public string DisplayCode => string.IsNullOrWhiteSpace(Code) ? $"P-{Id:0000}" : Code;
     public string SearchLabel => $"{DisplayCode}　{Name}";
 }
@@ -204,7 +205,8 @@ public static partial class PurchaseOrderService
         var receivedLines = orderIds.Length == 0
             ? new List<LineAggregate>()
             : db.TWarehousingDetails.AsNoTracking()
-                .Where(x => orderIds.Contains(x.Wa.HaId) && x.Wa.WaFlag == ActiveFlag && x.Wa.WaShelfFlag == 1)
+                .Where(x => orderIds.Contains(x.Wa.HaId) && (x.Wa.WaFlag == ActiveFlag || x.Wa.WaFlag == HiddenFlag)
+                    && x.Wa.WaShelfFlag == WarehousingService.ConfirmedState)
                 .GroupBy(x => new { x.Wa.HaId, x.PrId })
                 .Select(g => new LineAggregate(g.Key.HaId, g.Key.PrId, g.Sum(x => x.WaQuantity)))
                 .ToList();
@@ -282,7 +284,8 @@ public static partial class PurchaseOrderService
                 x.HaQuantity, x.Pr.TStocks.Where(s => s.StFlag == ActiveFlag).Sum(s => (int?)s.StQuantity) ?? 0,
                 x.Pr.PrSafetyStock)).ToList();
         var receivedByProduct = db.TWarehousingDetails.AsNoTracking()
-            .Where(x => x.Wa.HaId == orderId && x.Wa.WaFlag == ActiveFlag && x.Wa.WaShelfFlag == 1)
+            .Where(x => x.Wa.HaId == orderId && (x.Wa.WaFlag == ActiveFlag || x.Wa.WaFlag == HiddenFlag)
+                    && x.Wa.WaShelfFlag == WarehousingService.ConfirmedState)
             .GroupBy(x => x.PrId)
             .Select(g => new { ProductId = g.Key, Quantity = g.Sum(x => x.WaQuantity) })
             .ToDictionary(x => x.ProductId, x => x.Quantity);
@@ -355,12 +358,24 @@ public static partial class PurchaseOrderService
             .GroupBy(x => x.PrId)
             .Select(g => new { ProductId = g.Key, Quantity = g.Sum(x => x.HaQuantity) })
             .ToDictionary(x => x.ProductId, x => x.Quantity);
+        var pendingShelvingByProduct = db.TWarehousingDetails.AsNoTracking()
+            .Where(x => (x.Wa.Ha.HaFlag == ActiveFlag || x.Wa.Ha.HaFlag == HiddenFlag)
+                && x.Wa.Ha.WaWarehouseFlag == 1
+                && (x.Wa.WaFlag == ActiveFlag || x.Wa.WaFlag == HiddenFlag)
+                && x.Wa.WaShelfFlag == WarehousingService.UnconfirmedState
+                && x.WaQuantity > 0)
+            .GroupBy(x => x.PrId)
+            .Select(g => new { ProductId = g.Key, Quantity = g.Sum(x => (long)x.WaQuantity) })
+            .ToDictionary(x => x.ProductId, x => x.Quantity);
         return db.MProducts.AsNoTracking().Where(x => x.PrFlag == ActiveFlag && x.Ma.MaFlag == ActiveFlag)
             .OrderBy(x => x.Ma.MaName).ThenBy(x => x.PrName)
             .Select(x => new { x.PrId, x.MaId, Code = x.PrJcode ?? "", x.PrName, MakerName = x.Ma.MaName, x.PrSafetyStock })
             .ToList()
             .Select(x => new PurchaseProductOption(x.PrId, x.MaId, x.Code, x.PrName, x.MakerName,
-                stocks.GetValueOrDefault(x.PrId), x.PrSafetyStock, outstandingByProduct.GetValueOrDefault(x.PrId))).ToArray();
+                stocks.GetValueOrDefault(x.PrId), x.PrSafetyStock, outstandingByProduct.GetValueOrDefault(x.PrId))
+            {
+                PendingShelvingQuantity = pendingShelvingByProduct.GetValueOrDefault(x.PrId)
+            }).ToArray();
     }
 
     private static PurchaseActor? ResolveActor(SalesManagementContext db, int actorId)

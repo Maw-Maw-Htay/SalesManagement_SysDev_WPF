@@ -525,15 +525,26 @@ public sealed class PurchaseOrderRegisterViewModel : ViewModelBase
     public bool IsSaving { get => isSaving; private set { if (Set(ref isSaving, value)) NotifyRegistrationState(); } }
     public bool CanCancel => !IsSaving;
     public bool HasInventoryReference => SelectedProduct != null;
-    public string InventoryReferenceText => SelectedProduct == null ? "商品を選択すると在庫情報を表示します。"
-        : $"現在庫 {SelectedProduct.StockQuantity:N0}　発注点 {SelectedProduct.SafetyStock:N0}　未入庫発注数量 {SelectedProduct.OutstandingPurchaseQuantity:N0}";
-    public string InventoryWarning => SelectedProduct is { } product && product.StockQuantity <= product.SafetyStock
-        ? product.OutstandingPurchaseQuantity > 0
-            ? $"発注点以下です。既存の未入庫発注数量は {product.OutstandingPurchaseQuantity:N0} です。追加発注前に確認してください。標準発注量は商品マスタにありません。"
-            : "発注点以下のため補充を検討してください。標準発注量は商品マスタにありません。"
-        : SelectedProduct is { OutstandingPurchaseQuantity: > 0 } pending
-            ? $"同じ商品に未入庫発注数量 {pending.OutstandingPurchaseQuantity:N0} があります。登録前に重複がないか確認してください。"
-            : "在庫数・発注点は参照情報です。発注登録では在庫を変更しません。";
+    public string InventoryReferenceText => SelectedProduct is { } product
+        ? $"現在庫 {product.StockQuantity:N0}　発注点 {product.SafetyStock:N0}\n倉庫到着待ち {product.OutstandingPurchaseQuantity:N0}　棚入れ待ち {product.PendingShelvingQuantity:N0}"
+        : "商品を選択すると在庫情報を表示します。";
+
+    public string InventoryWarning
+    {
+        get
+        {
+            if (SelectedProduct is { } product
+                && (product.OutstandingPurchaseQuantity > 0 || product.PendingShelvingQuantity > 0))
+                return IsBelowReorderPoint
+                    ? "発注点以下です。追加発注前に倉庫到着待ち・棚入れ待ちの数量を確認してください。"
+                    : "倉庫到着待ちまたは棚入れ待ちの数量があります。登録前に重複がないか確認してください。";
+
+            return IsBelowReorderPoint
+                ? "発注点以下のため補充を検討してください。標準発注量は商品マスタにありません。"
+                : "在庫数・発注点は参照情報です。発注登録では在庫を変更しません。";
+        }
+    }
+
     public bool IsBelowReorderPoint => SelectedProduct is { } product && product.StockQuantity <= product.SafetyStock;
     public int TotalLineCount => Lines.Count;
     public long TotalQuantity => Lines.Sum(x => (long)x.Quantity);
