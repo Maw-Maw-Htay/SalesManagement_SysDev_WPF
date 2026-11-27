@@ -54,6 +54,8 @@ public partial class SalesManagementContext : DbContext
 
     public virtual DbSet<TOrderDetail> TOrderDetails { get; set; }
 
+    internal DbSet<OrderDraftRecord> OrderDrafts => Set<OrderDraftRecord>();
+
     public virtual DbSet<TSale> TSales { get; set; }
 
     public virtual DbSet<TSaleDetail> TSaleDetails { get; set; }
@@ -425,6 +427,21 @@ public partial class SalesManagementContext : DbContext
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("FK_T_Order_ToM_SalesOffice");
         });
+
+        modelBuilder.Entity<OrderDraftRecord>(entity =>
+        {
+            entity.ToTable("T_OrderDraft", "dbo", table => table.HasCheckConstraint("CK_T_OrderDraft_Form",
+                "[FormJson] IS NULL OR ([RegisteredOrderId] IS NULL AND ISJSON([FormJson]) = 1)"));
+            entity.HasKey(draft => draft.DraftId);
+            entity.Property(draft => draft.DraftId).ValueGeneratedNever();
+            entity.Property(draft => draft.Version).IsRowVersion();
+            entity.HasIndex(draft => new { draft.EmployeeId, draft.UpdatedAt });
+            entity.HasOne<MEmployee>().WithMany().HasForeignKey(draft => draft.EmployeeId).OnDelete(DeleteBehavior.NoAction);
+            entity.HasOne<MSalesOffice>().WithMany().HasForeignKey(draft => draft.ScopeOfficeId).OnDelete(DeleteBehavior.NoAction);
+            entity.HasOne<TOrder>().WithMany().HasForeignKey(draft => draft.RegisteredOrderId).OnDelete(DeleteBehavior.NoAction);
+        });
+        modelBuilder.Entity<OrderDraftListEntry>().HasNoKey().ToSqlQuery(OrderDraftListQuery.ProjectionSql);
+        modelBuilder.Entity<OrderDraftSearchLine>().HasNoKey().ToSqlQuery(OrderDraftListQuery.SearchLinesSql);
 
         modelBuilder.Entity<TOrderDetail>(entity =>
         {

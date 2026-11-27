@@ -52,6 +52,7 @@ public sealed class EmployeeManagementViewModel : ViewModelBase
     private readonly DispatcherTimer debounce = new() { Interval = TimeSpan.FromMilliseconds(280) };
     private List<EmployeeRow> sourceRows = [];
     private EmployeeRow[] filteredRows = [];
+    private bool updatingSelection;
     private IReadOnlyList<EmployeeOffice> offices = [];
     private IReadOnlyList<EmployeeRole> roles = [];
     private EmployeeListCriteria criteria = new();
@@ -166,7 +167,7 @@ public sealed class EmployeeManagementViewModel : ViewModelBase
 
     public void SelectTab(EmployeeStatusTab tab)
     {
-        foreach (var row in sourceRows) row.IsSelected = false;
+        ClearSelection(sourceRows);
         ActiveTab = tab; ApplyFilters(resetPage: true);
     }
     public void ToggleFilters() => IsFiltersExpanded = !IsFiltersExpanded;
@@ -175,7 +176,22 @@ public sealed class EmployeeManagementViewModel : ViewModelBase
         FilterError = "有効な入社日を指定してください。無効な入力は適用されません。";
         Notify(nameof(ShowEmptyState));
     }
-    public void ClearSelection() { foreach (var row in sourceRows) row.IsSelected = false; NotifySelection(); }
+    public void ClearSelection()
+    {
+        ClearSelection(sourceRows);
+        NotifySelection();
+    }
+
+    private void ClearSelection(IEnumerable<EmployeeRow> rows)
+    {
+        updatingSelection = true;
+        try
+        {
+            foreach (var row in rows) row.IsSelected = false;
+        }
+        finally { updatingSelection = false; }
+    }
+
     public void ClearConditions()
     {
         QuickSearch = IdFilter = NameFilter = PhoneFilter = "";
@@ -269,7 +285,7 @@ public sealed class EmployeeManagementViewModel : ViewModelBase
         pageNumber = Math.Clamp(requested, 1, PageCount);
         var page = filteredRows.Skip((pageNumber - 1) * PageSize).Take(PageSize).ToArray();
         var inPage = page.ToHashSet();
-        foreach (var row in Rows.Where(x => x.IsSelected && !inPage.Contains(x))) row.IsSelected = false;
+        ClearSelection(Rows.Where(x => x.IsSelected && !inPage.Contains(x)));
         Rows.Clear(); foreach (var row in page) Rows.Add(row);
         if (PageNumbers.Count != PageCount)
         {
@@ -281,7 +297,11 @@ public sealed class EmployeeManagementViewModel : ViewModelBase
         Notify(nameof(CanGoBack)); Notify(nameof(CanGoForward));
         Notify(nameof(IsEmpty)); Notify(nameof(ShowEmptyState)); NotifySelection();
     }
-    private void NotifySelection() { Notify(nameof(SelectedCount)); Notify(nameof(SelectionText)); Notify(nameof(CanClearSelection)); Notify(nameof(CanHide)); }
+    private void NotifySelection()
+    {
+        if (updatingSelection) return;
+        Notify(nameof(SelectedCount)); Notify(nameof(SelectionText)); Notify(nameof(CanClearSelection)); Notify(nameof(CanHide));
+    }
     private void NotifyTabs()
     {
         Notify(nameof(AllTabText)); Notify(nameof(VisibleTabText)); Notify(nameof(HiddenTabText)); Notify(nameof(CountText)); Notify(nameof(CanHide));

@@ -96,6 +96,12 @@
                 <DataTrigger Binding="{Binding Tag, RelativeSource={RelativeSource AncestorType=Button}}" Value="Active">
                     <Setter Property="Stroke" Value="{StaticResource ThemeIconActive}" />
                 </DataTrigger>
+                <DataTrigger Binding="{Binding Title, RelativeSource={RelativeSource AncestorType=Window}}" Value="受注登録">
+                    <Setter Property="Stroke" Value="{StaticResource ThemeSidebarForeground}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Title, RelativeSource={RelativeSource AncestorType=Window}}" Value="受注更新">
+                    <Setter Property="Stroke" Value="{StaticResource ThemeSidebarForeground}" />
+                </DataTrigger>
             </Style.Triggers>
         </Style>
         <Style x:Key="NavigationButton" TargetType="Button">
@@ -128,6 +134,22 @@
                                 <Setter TargetName="navBorder" Property="Background" Value="{StaticResource ThemeSidebarActive}" />
                                 <Setter TargetName="activeIndicator" Property="Visibility" Value="Visible" />
                             </Trigger>
+                            <MultiDataTrigger>
+                                <MultiDataTrigger.Conditions>
+                                    <Condition Binding="{Binding Tag, RelativeSource={RelativeSource Self}}" Value="Active" />
+                                    <Condition Binding="{Binding Title, RelativeSource={RelativeSource AncestorType=Window}}" Value="受注登録" />
+                                </MultiDataTrigger.Conditions>
+                                <Setter TargetName="navBorder" Property="Background" Value="{DynamicResource ThemeOrderEntryAccent}" />
+                                <Setter TargetName="activeIndicator" Property="Visibility" Value="Collapsed" />
+                            </MultiDataTrigger>
+                            <MultiDataTrigger>
+                                <MultiDataTrigger.Conditions>
+                                    <Condition Binding="{Binding Tag, RelativeSource={RelativeSource Self}}" Value="Active" />
+                                    <Condition Binding="{Binding Title, RelativeSource={RelativeSource AncestorType=Window}}" Value="受注更新" />
+                                </MultiDataTrigger.Conditions>
+                                <Setter TargetName="navBorder" Property="Background" Value="{DynamicResource ThemeOrderEntryAccent}" />
+                                <Setter TargetName="activeIndicator" Property="Visibility" Value="Collapsed" />
+                            </MultiDataTrigger>
                             <Trigger Property="IsPressed" Value="True">
                                 <Setter TargetName="navBorder" Property="Background" Value="{StaticResource ThemeSidebarHover}" />
                             </Trigger>
@@ -183,14 +205,22 @@
             <ColumnDefinition Width="Auto" />
             <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
-        <Border x:Name="mainSidebar" Background="{StaticResource ThemeSidebar}">
+        <Border x:Name="mainSidebar">
             <Border.DataContext>
                 <local:SidebarViewModel />
             </Border.DataContext>
             <Border.Style>
                 <Style TargetType="Border">
                     <Setter Property="Width" Value="240" />
+                    <Setter Property="Background" Value="{StaticResource ThemeSidebar}" />
                     <Style.Triggers>
+                        <DataTrigger Binding="{Binding Title, RelativeSource={RelativeSource AncestorType=Window}}" Value="受注登録">
+                            <Setter Property="Width" Value="184" />
+                            <Setter Property="Background" Value="{DynamicResource ThemeOrderEntryNavy}" />
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding Title, RelativeSource={RelativeSource AncestorType=Window}}" Value="受注更新">
+                            <Setter Property="Background" Value="{DynamicResource ThemeOrderEntryNavy}" />
+                        </DataTrigger>
                         <DataTrigger Binding="{Binding IsSidebarExpanded}" Value="False">
                             <Setter Property="Width" Value="56" />
                         </DataTrigger>
@@ -226,7 +256,7 @@
                     <TextBlock Text="設定" Style="{StaticResource SidebarCategoryLabel}" />
                 </StackPanel>
                 <Border DockPanel.Dock="Bottom" Height="1" Background="{StaticResource ThemeSidebarSeparator}" Margin="16,8,16,8" />
-                <ScrollViewer Background="{StaticResource ThemeSidebar}" HorizontalScrollBarVisibility="Disabled">
+                <ScrollViewer Background="{Binding Background, ElementName=mainSidebar}" HorizontalScrollBarVisibility="Disabled">
                     <ScrollViewer.Template>
                         <ControlTemplate TargetType="ScrollViewer">
                             <Grid Background="{TemplateBinding Background}">
@@ -240,7 +270,7 @@
                                                         CanContentScroll="{TemplateBinding CanContentScroll}"
                                                         Margin="{TemplateBinding Padding}" />
                                 <ScrollBar x:Name="PART_VerticalScrollBar" Grid.Column="1"
-                                           Style="{StaticResource SidebarScrollBar}"
+                                           Style="{StaticResource SidebarScrollBar}" Background="{TemplateBinding Background}"
                                            Orientation="Vertical"
                                            Maximum="{TemplateBinding ScrollableHeight}"
                                            ViewportSize="{TemplateBinding ViewportHeight}"
@@ -328,7 +358,18 @@
                     </Grid.ColumnDefinitions>
                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                         <local:LucideIcon x:Name="orderHeaderIcon" Data="{StaticResource IconClipboardPlus}" Width="21" Height="21" Stroke="{StaticResource ThemePrimary}" Margin="0,0,10,0" Visibility="Collapsed" />
-                        <TextBlock x:Name="mainHeaderTitle" Text="販売管理システム" Foreground="{StaticResource ThemeText}" FontSize="18" FontWeight="{StaticResource TypographySemiBold}" VerticalAlignment="Center" />
+                        <TextBlock x:Name="mainHeaderTitle" Text="販売管理システム" Foreground="{StaticResource ThemeText}" FontSize="18" VerticalAlignment="Center">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="FontWeight" Value="{StaticResource TypographySemiBold}" />
+                                    <Style.Triggers>
+                                        <Trigger Property="Text" Value="受注登録">
+                                            <Setter Property="FontWeight" Value="{StaticResource TypographyBold}" />
+                                        </Trigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
                     </StackPanel>
                     <DockPanel Grid.Column="1" LastChildFill="True" VerticalAlignment="Center" Margin="16,0,0,0">
                         <Button x:Name="productHeaderRegisterButton" DockPanel.Dock="Right" Click="OpenProductRegistration_Click"
@@ -352,6 +393,12 @@
                             </StackPanel>
                         </Button>
                         <TextBlock x:Name="orderHeaderSystemTitle" Text="販売・在庫管理システム" Foreground="White" Margin="24,0,0,0" VerticalAlignment="Center" FontSize="14" FontWeight="{StaticResource TypographyMedium}" Visibility="Collapsed" />
+                        <ContentPresenter x:Name="orderEntrySession" DockPanel.Dock="Right" Visibility="Collapsed" VerticalAlignment="Center"
+                                          ContentTemplate="{DynamicResource OrderEntrySessionHeader}">
+                            <ContentPresenter.Resources>
+                                <ResourceDictionary Source="Resources/Registration.xaml" />
+                            </ContentPresenter.Resources>
+                        </ContentPresenter>
                         <TextBlock x:Name="status" Foreground="{StaticResource ThemeSecondaryText}" Margin="12,0,0,0"
                                    TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" MaxWidth="520" VerticalAlignment="Center"
                                    HorizontalAlignment="Right" FontSize="{StaticResource TypographyValidationSize}" FontWeight="{StaticResource TypographyRegular}" />

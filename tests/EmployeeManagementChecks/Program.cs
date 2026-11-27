@@ -165,6 +165,14 @@ internal static class Program
             Check(vm.CanHide, "a single visible non-self employee can be selected for the existing hide flow");
             vm.PageNumber = 2;
             Check(vm.SelectedCount == 0 && !vm.CanHide, "moving pages cannot leave a hidden action target selected");
+            var eligibleRows = vm.Rows.Where(x => x.IsSelectable).Take(2).ToArray();
+            foreach (var row in eligibleRows) row.IsSelected = true;
+            Check(vm.SelectedCount == 2, "two eligible employees on the current page can be selected");
+            int selectionNotifications = 0;
+            vm.PropertyChanged += (_, e) => { if (e.PropertyName == nameof(vm.SelectedCount)) selectionNotifications++; };
+            vm.ClearSelection();
+            Check(selectionNotifications == 1 && vm.SelectedCount == 0 && !vm.CanHide,
+                "clearing employee selection publishes one final selection update");
 
             var detail = new EmployeeDetail(rows[21], []);
             var detailDialog = (Window)Create(assembly.GetType("SalesManagement_SysDev.EmployeeDetailDialog")!, detail, true, host);

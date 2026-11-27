@@ -35,8 +35,8 @@ internal sealed class OrderRegistrationDataSource : IOrderRegistrationDataSource
         .Where(x => x.PrFlag == 0).OrderBy(x => x.PrName).Select(x => new RegistrationProduct
         {
             PrId = x.PrId, ProductCode = x.PrJcode ?? x.PrModelNumber, ProductName = x.PrName,
-            ModelNumber = x.PrModelNumber, Barcode = x.PrJcode ?? "", MakerName = x.Ma.MaName, UnitPrice = x.Price,
-            CategoryName = x.Sc.ScName
+            ModelNumber = x.PrModelNumber, Barcode = x.PrJcode ?? "", MakerId = x.MaId, MakerName = x.Ma.MaName, UnitPrice = x.Price,
+            CategoryName = x.Sc.ScName, SafetyStock = x.PrSafetyStock
         }).ToList();
 
     public InventoryStockLookup LoadStock(int productId) => InventoryService.ReadCurrentStock(db, [productId])[productId];

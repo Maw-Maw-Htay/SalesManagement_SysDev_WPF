@@ -1,8 +1,8 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
-using System.Windows.Data;
 using System.Windows.Media;
 using System.Windows.Threading;
 using Microsoft.EntityFrameworkCore;
@@ -20,18 +20,34 @@ public sealed partial class F_OrderManagement : Window
     private bool isListDragging;
     private readonly HashSet<ScrollViewer> configuredScrollViewers = new();
     private bool filterEventsEnabled;
-    private bool updatingSelectionState;
     private CancellationTokenSource? activeOrderQuery;
     private long orderQueryVersion;
+    private OrderListRequest? appliedOrderRequest;
+    private readonly OrderDraftService draftService = new();
 
     private void ConfigureOrderGrid(DataGrid targetGrid)
     {
         targetGrid.PreviewMouseDoubleClick += OrderRowDoubleClick;
         targetGrid.Loaded += (_, _) => ConfigureGridScrollViewer(targetGrid);
+        targetGrid.Unloaded += (_, _) => CloseRowMenu();
+        targetGrid.Sorting += (_, args) =>
+        {
+            args.Handled = true;
+            viewModel.SortBy(args.Column.SortMemberPath);
+        };
+        UpdateSortHeaders();
     }
 
-    private void SelectAllClick(object sender, RoutedEventArgs e) =>
-        SetRowsSelected(grid, !grid.Items.OfType<OrderListRow>().All(row => row.選択));
+    private void UpdateSortHeaders()
+    {
+        var active = viewModel.SortColumn.ToString();
+        foreach (var column in grid.Columns)
+        {
+            column.SortDirection = column.SortMemberPath == active ? viewModel.SortDirection : null;
+            if (column.SortMemberPath == nameof(OrderListSort.OrderId)) column.CanUserSort = !viewModel.IsDraftTab;
+        }
+    }
+
     private void ConfigureGridScrollViewer(DataGrid targetGrid)
     {
         var scrollViewer = FindVisualChild<ScrollViewer>(targetGrid);
@@ -44,6 +60,10 @@ public sealed partial class F_OrderManagement : Window
         scrollViewer.PreviewMouseMove += MoveListDrag;
         scrollViewer.PreviewMouseLeftButtonUp += EndListDrag;
         scrollViewer.LostMouseCapture += EndListDrag;
+        scrollViewer.ScrollChanged += (_, args) =>
+        {
+            if (args.HorizontalChange != 0 || args.VerticalChange != 0) CloseRowMenu();
+        };
     }
 
     private void BeginListDrag(object sender, System.Windows.Input.MouseButtonEventArgs e)
@@ -109,63 +129,6 @@ public sealed partial class F_OrderManagement : Window
             if (nested != null) return nested;
         }
         return null;
-    }
-
-    private void RowSelectionChanged(object? sender, RoutedEventArgs e)
-    {
-        Dispatcher.BeginInvoke(() =>
-        {
-            UpdateSelectAllState();
-            UpdateSelectionSummary();
-        }, DispatcherPriority.Background);
-    }
-
-    private void SetRowsSelected(DataGrid targetGrid, bool selected)
-    {
-        if (updatingSelectionState) return;
-        updatingSelectionState = true;
-        try
-        {
-            foreach (var row in targetGrid.Items.OfType<OrderListRow>()) row.選択 = selected;
-            targetGrid.Items.Refresh();
-            UpdateSelectAllState();
-            UpdateSelectionSummary();
-        }
-        finally
-        {
-            updatingSelectionState = false;
-        }
-    }
-
-    private void UpdateSelectAllState()
-    {
-        var rows = grid.Items.OfType<OrderListRow>().ToList();
-        var selectedCount = rows.Count(row => row.選択);
-        selectAllRows.IsChecked = selectedCount == 0 ? false : selectedCount == rows.Count ? true : null;
-        selectAllRows.IsEnabled = rows.Count > 0;
-    }
-
-    private void UpdateSelectionSummary()
-    {
-        var rows = SelectedRows();
-        var selectedCount = rows.Count;
-        var confirmCount = rows.Count(row => row.確定操作可能);
-        var hideCount = rows.Count(row => row.表示 == "表示");
-        selectionCount.Text = $"{selectedCount:N0} 件選択";
-        selectionCount.Foreground = selectedCount > 0
-            ? OrderManagementPalette.Green
-            : OrderManagementPalette.SecondaryText;
-        selectionCount.Background = selectedCount > 0
-            ? OrderManagementPalette.GreenSurface
-            : OrderManagementPalette.Input;
-        selectionCount.ToolTip = $"確定可能 {confirmCount} 件 / 非表示可能 {hideCount} 件";
-        viewModel.UpdateSelection(!isHistoryView && AppSession.CanManageOrders && confirmCount > 0,
-            !isHistoryView && AppSession.CanManageOrders && hideCount > 0);
-    }
-
-    private IEnumerable<DataGrid> OrderGrids()
-    {
-        yield return grid;
     }
 
     private void FilterSelectionChanged(object? sender, SelectionChangedEventArgs e)
@@ -238,6 +201,8 @@ public sealed partial class F_OrderManagement : Window
         if (sender is TextBox field && field.Text.Length == 0) LoadRows();
         else
         {
+            activeOrderQuery?.Cancel();
+            viewModel.IsLoading = true;
             resultCount.Text = "条件を反映中…";
             if (isHistoryView) historyResultCount.Text = "条件を反映中…";
             keywordRefreshTimer.Start();
@@ -372,8 +337,9 @@ public sealed partial class F_OrderManagement : Window
     }
     private void LoadRows() => _ = LoadRowsAsync();
 
-    private async Task<bool> LoadRowsAsync()
+    private async Task<bool> LoadRowsAsync(int pageNumber = 1)
     {
+        CloseRowMenu();
         keywordRefreshTimer.Stop();
         var requestVersion = ++orderQueryVersion;
         var cancellation = new CancellationTokenSource();
@@ -381,6 +347,7 @@ public sealed partial class F_OrderManagement : Window
         activeOrderQuery = cancellation;
         previous?.Cancel();
         var token = cancellation.Token;
+        viewModel.IsLoading = true;
 
         try
         {
@@ -404,19 +371,22 @@ public sealed partial class F_OrderManagement : Window
                     : invalidOrderDateText || invalidDeliveryDateText ? "日付を正しい形式で入力してください。"
                     : invalidRange ? "期間の開始日と終了日を確認してください。"
                     : "納期の開始日と終了日を確認してください。";
-                grid.ItemsSource = Array.Empty<OrderListRow>();
+                appliedOrderRequest = null;
+                viewModel.ClearSelection();
+                viewModel.ShowPage([], [], 0, 1);
+                UpdateSortHeaders();
                 historyGrid.ItemsSource = Array.Empty<OrderHistoryDisplayRow>();
-                UpdateSelectAllState();
-                UpdateSelectionSummary();
                 resultCount.Text = "検索条件を確認";
                 pendingCount.Text = "0 件";
                 confirmedCount.Text = "0 件";
+                draftCount.Text = "0 件";
                 hiddenCount.Text = "0 件";
                 allCount.Text = "0 件";
                 historyResultCount.Text = "検索条件を確認";
                 historyEmptyState.Text = message;
                 historyEmptyState.Visibility = isHistoryView ? Visibility.Visible : Visibility.Collapsed;
                 orderEmptyState.Text = message;
+                orderEmptyState.Visibility = isHistoryView ? Visibility.Collapsed : Visibility.Visible;
                 UpdateClearFiltersButton();
                 UpdateActiveFilterSummary();
                 return false;
@@ -424,6 +394,9 @@ public sealed partial class F_OrderManagement : Window
 
             if (isHistoryView)
             {
+                appliedOrderRequest = null;
+                viewModel.ClearSelection();
+                viewModel.ShowPage([], [], 0, 1);
                 await LoadOperationHistoryAsync(customerFilterId, customerName, requestVersion, token);
                 return false;
             }
@@ -444,58 +417,33 @@ public sealed partial class F_OrderManagement : Window
                 QuickSearch = viewModel.QuickSearchText
             };
 
-            using var db = new SalesManagementContext();
-            IQueryable<TOrder> query = db.TOrders.AsNoTracking();
-            if (!AppSession.IsAdmin) query = query.Where(order => order.SoId == AppSession.Employee!.SoId);
-            query = criteria.ApplyTo(query);
-
-            var counts = await query.GroupBy(_ => 1).Select(group => new
+            var request = new OrderListRequest(criteria, viewModel.SelectedTab, viewModel.SortColumn, viewModel.SortDirection);
+            if (appliedOrderRequest is not { } applied || applied.Criteria != criteria || applied.Tab != request.Tab)
             {
-                All = group.Count(order => order.OrFlag != 2),
-                Pending = group.Count(order => (order.OrStateFlag ?? 0) == 0 && order.OrFlag != 2),
-                Confirmed = group.Count(order => (order.OrStateFlag ?? 0) == 1 && order.OrFlag != 2),
-                Hidden = group.Count(order => order.OrFlag == 2)
-            }).SingleOrDefaultAsync(token);
-
-            var rows = await ApplyStatusTab(query, viewModel.SelectedTab)
-                .Include(order => order.Cl)
-                .Include(order => order.So)
-                .Include(order => order.Em)
-                .Include(order => order.TOrderDetails)
-                .ThenInclude(detail => detail.Pr)
-                .OrderByDescending(order => order.OrDate)
-                .ThenByDescending(order => order.OrId)
-                .Select(order => new OrderListRow
-                {
-                    選択 = false,
-                    受注番号 = order.OrId,
-                    受注日 = order.OrDate,
-                    納品希望日 = order.OrDeliveryDate,
-                    顧客 = order.Cl.ClName,
-                    営業所 = order.So.SoName,
-                    担当者 = order.Em.EmName,
-                    明細数 = order.TOrderDetails.Count(detail => detail.OrQuantity != 0 || detail.OrTotalPrice != 0m),
-                    合計金額 = order.TOrderDetails.Where(detail => detail.OrQuantity != 0 || detail.OrTotalPrice != 0m)
-                        .Sum(detail => detail.OrTotalPrice),
-                    状態 = (order.OrStateFlag ?? 0) == 1 ? "確定" : "確認未定",
-                    表示 = order.OrFlag == 2 ? "非表示" : "表示"
-                })
-                .ToListAsync(token);
+                viewModel.ClearSelection();
+                pageNumber = 1;
+            }
+            using var db = new SalesManagementContext();
+            var size = viewModel.PageSize;
+            var drafts = await LoadDraftPageAsync(db, request, pageNumber, size, viewModel.SelectedDraftIds, token);
+            var page = drafts != null && request.Tab == OrderStatusTab.Draft
+                ? new OrderListPage(drafts.Rows, drafts.CheckedOffPage, await OrderListQuery.CountAsync(db, criteria, token), drafts.TotalCount, drafts.Number)
+                : await OrderListQuery.ReadPageAsync(db, request, pageNumber, size, viewModel.SelectedOrderIds, token);
 
             if (requestVersion != orderQueryVersion || token.IsCancellationRequested) return false;
-            grid.ItemsSource = rows;
-            orderEmptyState.Text = rows.Count == 0 && HasSearchConditions()
-                ? "該当する受注はありません。条件を変更するか、条件クリアをお試しください。"
-                : "受注データはまだありません。";
-            UpdateSelectAllState();
-            UpdateSelectionSummary();
+            appliedOrderRequest = request;
+            viewModel.ShowPage(page.Rows, page.CheckedOffPage, page.TotalCount, page.Number);
+            UpdateSortHeaders();
+            FindVisualChild<ScrollViewer>(grid)?.ScrollToTop();
+            orderEmptyState.Text = EmptyListMessage();
             UpdateClearFiltersButton();
-            resultCount.Text = $"（{rows.Count:N0}件）";
+            resultCount.Text = $"（{page.TotalCount:N0}件）";
             UpdateActiveFilterSummary();
-            allCount.Text = $"{counts?.All ?? 0} 件";
-            pendingCount.Text = $"{counts?.Pending ?? 0} 件";
-            confirmedCount.Text = $"{counts?.Confirmed ?? 0} 件";
-            hiddenCount.Text = $"{counts?.Hidden ?? 0} 件";
+            allCount.Text = $"{page.Counts.All:N0}";
+            pendingCount.Text = $"{page.Counts.Pending:N0}";
+            confirmedCount.Text = $"{page.Counts.Confirmed:N0}";
+            draftCount.Text = drafts?.TotalCount.ToString("N0") ?? "—";
+            hiddenCount.Text = $"{page.Counts.Hidden:N0}";
             return true;
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
@@ -504,14 +452,17 @@ public sealed partial class F_OrderManagement : Window
         catch (Exception ex)
         {
             if (requestVersion != orderQueryVersion || token.IsCancellationRequested) return false;
-            grid.ItemsSource = Array.Empty<OrderListRow>();
-            UpdateSelectAllState();
-            UpdateSelectionSummary();
-            orderEmptyState.Text = "受注一覧を取得できませんでした。";
+            appliedOrderRequest = null;
+            viewModel.ClearSelection();
+            viewModel.ShowPage([], [], 0, 1);
+            UpdateSortHeaders();
+            var title = isHistoryView ? "受注履歴" : viewModel.IsDraftTab ? "下書き一覧" : "受注一覧";
+            orderEmptyState.Text = $"{title}を取得できませんでした。";
             orderEmptyState.Visibility = Visibility.Visible;
             resultCount.Text = "取得失敗";
             pendingCount.Text = "—";
             confirmedCount.Text = "—";
+            draftCount.Text = "—";
             hiddenCount.Text = "—";
             allCount.Text = "—";
             if (isHistoryView)
@@ -521,15 +472,38 @@ public sealed partial class F_OrderManagement : Window
                 historyEmptyState.Text = "操作履歴を取得できませんでした。";
                 historyEmptyState.Visibility = Visibility.Visible;
             }
-            F_OrderNotice.Show(NavigationOwner ?? this, isHistoryView ? "受注履歴の取得に失敗しました" : "受注一覧の取得に失敗しました", ex.Message, OrderNoticeKind.Error);
+            F_OrderNotice.Show(NavigationOwner ?? this, $"{title}の取得に失敗しました", ex.Message, OrderNoticeKind.Error);
         }
         finally
         {
-            if (ReferenceEquals(activeOrderQuery, cancellation)) activeOrderQuery = null;
+            if (ReferenceEquals(activeOrderQuery, cancellation))
+            {
+                activeOrderQuery = null;
+                viewModel.IsLoading = keywordRefreshTimer.IsEnabled;
+            }
             cancellation.Dispose();
         }
         return false;
     }
+
+    private string EmptyListMessage()
+    {
+        var target = viewModel.IsDraftTab ? "下書き" : "受注";
+        return HasSearchConditions() ? $"該当する{target}はありません。検索条件を変更してください。"
+            : viewModel.IsDraftTab ? "保存済みの下書きはありません。" : "受注データはまだありません。";
+    }
+
+    private static async Task<OrderDraftPage?> LoadDraftPageAsync(SalesManagementContext db, OrderListRequest request,
+        int number, int size, IReadOnlyList<Guid> checkedIds, CancellationToken token)
+    {
+        try { return await OrderDraftService.ReadPageAsync(db, request, number, size, checkedIds, token); }
+        catch (Exception ex) when (request.Tab != OrderStatusTab.Draft && !token.IsCancellationRequested)
+        {
+            Trace.TraceError("下書き件数を取得できませんでした: {0}", ex);
+            return null;
+        }
+    }
+
     private void ImportCsv()
     {
         if (!AppSession.CanManageOrders)
@@ -561,7 +535,7 @@ public sealed partial class F_OrderManagement : Window
         {
             var imported = CsvOrderImportService.ImportApproved(preview.Orders);
             MessageBox.Show(NavigationOwner ?? this, $"{imported}件の受注を取り込みました。", "CSV取込完了", MessageBoxButton.OK, MessageBoxImage.Information);
-            LoadRows();
+            _ = LoadRowsAsync(viewModel.PageNumber);
         }
         catch (Exception ex)
         {
@@ -577,41 +551,35 @@ public sealed partial class F_OrderManagement : Window
             return;
         }
 
-        var sort = grid.Items.SortDescriptions.ToArray();
-        var sortCulture = CollectionViewSource.GetDefaultView(grid.ItemsSource)?.Culture;
+        if (!viewModel.CanUseRegisteredOrders) return;
         var tab = viewModel.SelectedTab;
         var search = GetActiveFilterSummary();
-        // Flush the debounce and print all matching query results in the current list order.
-        if (!await LoadRowsAsync() || isHistoryView || tab != viewModel.SelectedTab || search != GetActiveFilterSummary()
-            || grid.ItemsSource is not IEnumerable<OrderListRow> allRows) return;
-
-        var rows = new ListCollectionView(allRows.ToList());
-        if (sortCulture is not null) rows.Culture = sortCulture;
-        using (rows.DeferRefresh())
-            foreach (var column in sort) rows.SortDescriptions.Add(column);
-        var printRows = rows.Cast<OrderListRow>().Select(row => new OrderPrintRow
+        viewModel.IsBusy = true;
+        try
         {
-            OrderId = row.受注番号,
-            OrderDate = row.受注日,
-            DueDate = row.納品希望日?.ToString("yyyy-MM-dd") ?? "未設定",
-            CustomerName = row.顧客,
-            Total = row.合計金額,
-            Status = row.状態表示
-        }).ToList();
-
-        var status = tab switch
+            if (!await LoadRowsAsync(viewModel.PageNumber) || isHistoryView || tab != viewModel.SelectedTab
+                || search != GetActiveFilterSummary() || appliedOrderRequest is not { } request) return;
+            using var db = new SalesManagementContext();
+            var printRows = await OrderListQuery.ReadPrintRowsAsync(db, request, CancellationToken.None);
+            if (isHistoryView || request != appliedOrderRequest || search != GetActiveFilterSummary()) return;
+            var status = tab switch
+            {
+                OrderStatusTab.Pending => "未確定",
+                OrderStatusTab.Confirmed => "確定済み",
+                OrderStatusTab.Hidden => "非表示",
+                _ => "すべて"
+            };
+            new OrderListPrintPreviewWindow(printRows, $"対象：{status}　　{search}")
+            {
+                Owner = NavigationOwner ?? this,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner
+            }.ShowDialog();
+        }
+        catch (Exception ex)
         {
-            OrderStatusTab.Pending => "未確定",
-            OrderStatusTab.Confirmed => "確定済み",
-            OrderStatusTab.Hidden => "非表示",
-            _ => "すべて"
-        };
-        var preview = new OrderListPrintPreviewWindow(printRows, $"対象：{status}　　{search}")
-        {
-            Owner = NavigationOwner ?? this,
-            WindowStartupLocation = WindowStartupLocation.CenterOwner
-        };
-        preview.ShowDialog();
+            F_OrderNotice.Show(NavigationOwner ?? this, "受注一覧の印刷", "印刷データを取得できませんでした。\n" + ex.Message, OrderNoticeKind.Error);
+        }
+        finally { viewModel.IsBusy = false; }
     }
 
     private async Task LoadOperationHistoryAsync(int? customerId, string customerName, long requestVersion, CancellationToken cancellationToken)
@@ -643,14 +611,6 @@ public sealed partial class F_OrderManagement : Window
         UpdateClearFiltersButton();
         UpdateActiveFilterSummary();
     }
-    private static IQueryable<TOrder> ApplyStatusTab(IQueryable<TOrder> query, OrderStatusTab tab) => tab switch
-    {
-        OrderStatusTab.Pending => query.Where(order => order.OrFlag != 2 && (order.OrStateFlag ?? 0) == 0),
-        OrderStatusTab.Confirmed => query.Where(order => order.OrFlag != 2 && (order.OrStateFlag ?? 0) == 1),
-        OrderStatusTab.Hidden => query.Where(order => order.OrFlag == 2),
-        _ => query.Where(order => order.OrFlag != 2)
-    };
-
     private async Task InitializeFilterDataAsync()
     {
         await LoadFilterMastersAsync();
@@ -735,29 +695,21 @@ public sealed partial class F_OrderManagement : Window
         }
         LoadRows();
     }
-    private List<OrderListRow> SelectedRows()
-    {
-        return OrderGrids().SelectMany(currentGrid => currentGrid.Items.OfType<OrderListRow>()).Where(row => row.選択).ToList();
-    }
-
-    private OrderListRow? SelectedRow() => SelectedRows().FirstOrDefault();
-
     private void ConfirmSelected(object? sender, RoutedEventArgs e)
     {
-        ConfirmRows(SelectedRows());
+        ConfirmRows(viewModel.SelectedOrders);
     }
 
-    private void ConfirmRows(IEnumerable<OrderListRow> selectedRows)
+    private async void ConfirmRows(IReadOnlyList<OrderListRow> rows)
     {
-        if (viewModel.IsBusy) return;
+        if (viewModel.IsBusy || viewModel.IsLoading || !viewModel.ShowsActiveOrderActions) return;
         if (!(AppSession.IsAdmin || AppSession.IsSales))
         {
             F_OrderNotice.Show(NavigationOwner ?? this, "権限エラー", "受注確定は管理者または営業担当者のみ実行できます。", OrderNoticeKind.Warning);
             return;
         }
-        var rows = selectedRows.ToList();
         if (rows.Count == 0) { F_OrderNotice.Show(NavigationOwner ?? this, "受注確定", "確定する受注にチェックを付けてください。", OrderNoticeKind.Warning); return; }
-        var eligibleRows = rows.Where(row => row.確定操作可能).ToList();
+        var eligibleRows = rows.Where(row => row.CanConfirm).ToList();
         if (eligibleRows.Count == 0)
         {
             F_OrderNotice.Show(NavigationOwner ?? this, "受注確定", "未確定かつ表示中の受注が選択されていません。", OrderNoticeKind.Warning);
@@ -767,15 +719,18 @@ public sealed partial class F_OrderManagement : Window
         var prompt = $"選択した受注 {eligibleRows.Count} 件を確定します。よろしいですか？"
             + (excludedCount > 0 ? $"\n対象外の {excludedCount} 件は処理しません。" : "")
             + "\n\n受注が確定し、注文が作成されます。在庫はこの操作では減算しません。";
-        if (!F_OrderNotice.Confirm(NavigationOwner ?? this, "受注を確定", prompt, "受注を確定")) return;
         viewModel.IsBusy = true;
+        var attempted = false;
         try
         {
+            if (!F_OrderNotice.Confirm(NavigationOwner ?? this, "受注を確定", prompt, "受注を確定")) return;
+            attempted = true;
             var results = eligibleRows.Select(row =>
             {
-                var succeeded = BusinessService.ConfirmOrder(row.受注番号, AppSession.Employee!.EmId, out var message);
-                return (succeeded, text: $"受注ID {row.受注番号}: {message}");
+                var succeeded = BusinessService.ConfirmOrder(row.OrderId, AppSession.Employee!.EmId, out var message);
+                return (succeeded, row.OrderId, text: $"{row.OrderNumber}：{message}");
             }).ToList();
+            viewModel.UncheckOrders(results.Where(result => result.succeeded).Select(result => result.OrderId));
             var summary = string.Join(Environment.NewLine, results.Select(result => result.text));
             if (excludedCount > 0) summary += $"\n対象外のため処理しなかった受注: {excludedCount} 件";
             var allSucceeded = excludedCount == 0 && results.All(result => result.succeeded);
@@ -788,42 +743,42 @@ public sealed partial class F_OrderManagement : Window
         }
         finally
         {
+            if (attempted) await LoadRowsAsync(viewModel.PageNumber);
             viewModel.IsBusy = false;
-            LoadRows();
         }
     }
 
     private void RowConfirmClick(object? sender, RoutedEventArgs e)
     {
-        if ((sender as FrameworkElement)?.DataContext is not OrderListRow row) return;
-        ConfirmRows(new[] { row });
+        if (TakeRowAction(sender) is { CanConfirm: true } row) ConfirmRows(new[] { row });
     }
 
     private void HideSelected(object? sender, RoutedEventArgs e)
     {
-        HideRows(SelectedRows());
+        HideRows(viewModel.SelectedOrders);
     }
 
-    private void HideRows(IEnumerable<OrderListRow> selectedRows)
+    private async void HideRows(IEnumerable<OrderListRow> selectedRows)
     {
-        if (viewModel.IsBusy) return;
-        var rows = selectedRows.ToList();
-        if (rows.Count == 0) { F_OrderNotice.Show(NavigationOwner ?? this, "受注非表示", "非表示にする受注にチェックを付けてください。", OrderNoticeKind.Warning); return; }
+        if (viewModel.IsBusy || viewModel.IsLoading || !viewModel.ShowsActiveOrderActions) return;
         if (!AppSession.CanManageOrders) { F_OrderNotice.Show(NavigationOwner ?? this, "権限エラー", "受注の非表示は管理者または営業担当者のみ実行できます。", OrderNoticeKind.Warning); return; }
+        var ids = selectedRows.Where(row => row.CanHide).Select(row => row.OrderId).ToArray();
+        if (ids.Length == 0) { F_OrderNotice.Show(NavigationOwner ?? this, "受注非表示", "非表示にできる受注を選択してください。", OrderNoticeKind.Warning); return; }
+        await ChangeOrderVisibilityAsync(ids, restore: false);
+    }
+
+    private async Task ChangeOrderVisibilityAsync(IReadOnlyCollection<int> ids, bool restore)
+    {
+        if (!viewModel.CanUseOrderList || ids.Count == 0 || (restore && !viewModel.ShowsRestoreAction)) return;
         viewModel.IsBusy = true;
         try
         {
-            var dialog = new F_OrderHide(rows.Select(row => row.受注番号).ToArray()) { Owner = NavigationOwner ?? this };
+            var dialog = new F_OrderHide(ids, restore) { Owner = NavigationOwner ?? this };
             dialog.ShowDialog();
             if (dialog.HasAttempted)
             {
-                var remaining = rows.Select(row => row.受注番号).Except(dialog.SuccessfulOrderIds).ToHashSet();
-                // LoadRows retains the active tab/search and recomputes every count under the same visibility policy.
-                LoadRows();
-                foreach (var row in grid.Items.OfType<OrderListRow>()) row.選択 = remaining.Contains(row.受注番号);
-                grid.Items.Refresh();
-                UpdateSelectAllState();
-                UpdateSelectionSummary();
+                viewModel.UncheckOrders(dialog.SuccessfulOrderIds);
+                await LoadRowsAsync(viewModel.PageNumber);
             }
         }
         finally
@@ -834,12 +789,12 @@ public sealed partial class F_OrderManagement : Window
 
     private void RowHideClick(object? sender, RoutedEventArgs e)
     {
-        if ((sender as FrameworkElement)?.DataContext is OrderListRow row) HideRows(new[] { row });
+        if (TakeRowAction(sender) is { CanHide: true } row) HideRows(new[] { row });
     }
 
     private void RowRestoreClick(object? sender, RoutedEventArgs e)
     {
-        if ((sender as FrameworkElement)?.DataContext is OrderListRow row) RestoreOrder(row.受注番号);
+        if (TakeRowAction(sender) is { CanRestore: true } row) RestoreOrder(row.OrderId);
     }
 
     private bool RestoreOrder(int orderId)
@@ -860,13 +815,33 @@ public sealed partial class F_OrderManagement : Window
             F_OrderNotice.Show(NavigationOwner ?? this, "表示復帰", message, OrderNoticeKind.Warning);
             return false;
         }
-        LoadRows();
+        _ = LoadRowsAsync(viewModel.PageNumber);
         return true;
     }
 
-    private void OrderRowDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    private void RowUpdateClick(object? sender, RoutedEventArgs e)
     {
-        if (e.ChangedButton != System.Windows.Input.MouseButton.Left
+        if (TakeRowAction(sender) is not { } row) return;
+        if (!row.CanEdit)
+        {
+            F_OrderNotice.Show(NavigationOwner ?? this, "受注更新", "未確定かつ表示中の受注だけを更新できます。", OrderNoticeKind.Warning);
+            return;
+        }
+        var snapshot = LoadOrderDetailSnapshot(row.OrderId, editableOnly: true);
+        if (snapshot == null)
+        {
+            F_OrderNotice.Show(NavigationOwner ?? this, "受注更新", "この受注は現在更新できません。一覧を更新します。", OrderNoticeKind.Information);
+            _ = LoadRowsAsync(viewModel.PageNumber);
+            return;
+        }
+        var detail = new F_OrderDetail(snapshot, NavigationOwner ?? this);
+        detail.OpenUpdateEditor();
+        _ = LoadRowsAsync(viewModel.PageNumber);
+    }
+
+    private async void OrderRowDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (!viewModel.CanUseOrderList || e.ChangedButton != System.Windows.Input.MouseButton.Left
             || sender is not DataGrid currentGrid
             || e.OriginalSource is not DependencyObject source
             || IsInside<ButtonBase>(source)
@@ -875,23 +850,95 @@ public sealed partial class F_OrderManagement : Window
         e.Handled = true;
         EndListDrag(sender, e);
         currentGrid.SelectedItem = row;
-        ShowDetails(row);
+        if (row.IsDraft) await OpenDraftAsync(row);
+        else ShowDetails(row);
     }
 
-    private void RowDetailsClick(object? sender, RoutedEventArgs e)
+    private async void RowDetailsClick(object? sender, RoutedEventArgs e)
     {
-        if ((sender as FrameworkElement)?.DataContext is OrderListRow row) ShowDetails(row);
+        if (TakeRowAction(sender) is not { } row) return;
+        if (row.IsDraft) await OpenDraftAsync(row);
+        else ShowDetails(row);
     }
 
     private void ShowDetails(OrderListRow row)
     {
-        var snapshot = LoadOrderDetailSnapshot(row);
+        if (!viewModel.CanUseRegisteredOrders || row.IsDraft) return;
+        var snapshot = LoadOrderDetailSnapshot(row.OrderId);
         if (snapshot == null) return;
         new F_OrderDetail(snapshot, NavigationOwner ?? this).ShowDialog();
-        LoadRows();
+        _ = LoadRowsAsync(viewModel.PageNumber);
     }
 
-    private OrderDetailSnapshot? LoadOrderDetailSnapshot(OrderListRow row)
+    private async void RowOpenDraftClick(object sender, RoutedEventArgs e)
+    {
+        if (TakeRowAction(sender) is { IsDraft: true } row) await OpenDraftAsync(row);
+    }
+
+    private async void RowDeleteDraftClick(object sender, RoutedEventArgs e)
+    {
+        if (TakeRowAction(sender) is { DraftToken: { } token } row)
+            await DeleteDraftsAsync([token], row.CustomerName);
+    }
+
+    private async Task OpenDraftAsync(OrderListRow row)
+    {
+        if (!viewModel.CanUseOrderList || !viewModel.IsDraftTab || !viewModel.Rows.Contains(row)
+            || row.DraftToken is not { } token || NavigationOwner is not F_Main owner || !owner.IsOrderWorkspaceActive) return;
+        var version = orderQueryVersion;
+        bool IsCurrent() => version == orderQueryVersion && owner.IsOrderWorkspaceActive;
+        viewModel.IsBusy = true;
+        try
+        {
+            var draft = await Task.Run(() => draftService.Open(token.Id));
+            if (IsCurrent()) owner.ShowOrderRegistration(draft);
+        }
+        catch (Exception ex)
+        {
+            if (IsCurrent()) ShowDraftError(owner, "下書きを開けませんでした", ex);
+            if (owner.IsOrderWorkspaceActive) await LoadRowsAsync(viewModel.PageNumber);
+        }
+        finally
+        {
+            viewModel.IsBusy = false;
+        }
+    }
+
+    private async Task DeleteDraftsAsync(IReadOnlyList<OrderDraftToken> tokens, string? customerName = null)
+    {
+        var owner = NavigationOwner ?? this;
+        bool IsWorkspaceActive() => owner is not F_Main shell || shell.IsOrderWorkspaceActive;
+        if (!viewModel.CanUseOrderList || !viewModel.IsDraftTab || tokens.Count == 0 || !IsWorkspaceActive()) return;
+
+        var prompt = customerName is null ? $"選択した下書き {tokens.Count:N0} 件を削除しますか？"
+            : $"{customerName}の下書きを削除しますか？";
+        viewModel.IsBusy = true;
+        var attempted = false;
+        try
+        {
+            if (!F_OrderNotice.ConfirmDraftDeletion(owner, prompt)) return;
+            attempted = true;
+            await Task.Run(() => draftService.DeleteDrafts(tokens));
+        }
+        catch (Exception ex)
+        {
+            if (IsWorkspaceActive()) ShowDraftError(owner, "下書きを削除できませんでした", ex);
+        }
+        finally
+        {
+            if (attempted && IsWorkspaceActive()) await LoadRowsAsync(viewModel.PageNumber);
+            viewModel.IsBusy = false;
+        }
+    }
+
+    private static void ShowDraftError(Window owner, string title, Exception error)
+    {
+        var message = error is OrderDraftException ? error.Message : "接続を確認してから、もう一度お試しください。";
+        if (error is not OrderDraftException) Trace.TraceError("{0}。{1}", title, error);
+        F_OrderNotice.Show(owner, title, message, OrderNoticeKind.Warning);
+    }
+
+    private OrderDetailSnapshot? LoadOrderDetailSnapshot(int orderId, bool editableOnly = false)
     {
         using var db = new SalesManagementContext();
         var query = db.TOrders
@@ -904,7 +951,8 @@ public sealed partial class F_OrderManagement : Window
             .AsQueryable();
         if (!AppSession.CanManageOrders || AppSession.Employee == null) return null;
         if (!AppSession.IsAdmin) query = query.Where(x => x.SoId == AppSession.Employee.SoId);
-        var order = query.SingleOrDefault(x => x.OrId == row.受注番号);
+        if (editableOnly) query = query.Where(order => order.OrFlag == 0 && (order.OrStateFlag ?? 0) == 0 && !order.TChumons.Any());
+        var order = query.SingleOrDefault(x => x.OrId == orderId);
         if (order == null) return null;
 
         return new OrderDetailSnapshot
@@ -945,25 +993,6 @@ public sealed partial class F_OrderManagement : Window
         public override string ToString() => Display ?? Name;
     }
 
-    private sealed class OrderListRow
-    {
-        public bool 選択 { get; set; }
-        public int 受注番号 { get; init; }
-        public DateTime 受注日 { get; init; }
-        public DateTime? 納品希望日 { get; init; }
-        public string 納品希望日表示 => $"納期: {納品希望日?.ToString("yyyy-MM-dd") ?? "未設定"}";
-        public string 日付説明 => $"受注日（注文日）: {受注日:yyyy-MM-dd}\n納品希望日: {納品希望日?.ToString("yyyy-MM-dd") ?? "未設定"}";
-        public string 顧客 { get; init; } = "";
-        public string 営業所 { get; init; } = "";
-        public string 担当者 { get; init; } = "";
-        public int 明細数 { get; init; }
-        public decimal 合計金額 { get; init; }
-        public string 状態 { get; init; } = "";
-        public string 状態表示 => 状態 == "確認未定" ? "未確定" : 状態;
-        public string 表示 { get; init; } = "";
-        public bool 確定操作可能 => 状態 == "確認未定" && 表示 == "表示";
-        public bool 表示復帰操作可能 => 表示 == "非表示" && AppSession.IsAdmin;
-    }
 }
 
 public sealed class OrderDetailSnapshot

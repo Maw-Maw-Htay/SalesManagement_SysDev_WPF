@@ -378,6 +378,16 @@
             </Trigger>
         </Style.Triggers>
     </Style>
+    <Style TargetType="DatePickerTextBox">
+        <Setter Property="FontSize" Value="{StaticResource TypographyInputSize}" />
+        <Setter Property="FontWeight" Value="{StaticResource TypographyRegular}" />
+    </Style>
+    <Style x:Key="ThemeDatePickerTextEntry" TargetType="DatePickerTextBox" BasedOn="{StaticResource {x:Type DatePickerTextBox}}">
+        <Setter Property="Padding" Value="8,4" />
+    </Style>
+    <Style x:Key="ThemeDatePickerCalendarButton" TargetType="Button" BasedOn="{StaticResource ThemeIconButton}">
+        <Setter Property="Margin" Value="2,0" />
+    </Style>
     <Style TargetType="DatePicker">
         <Setter Property="Height" Value="40" />
         <Setter Property="FontSize" Value="{StaticResource TypographyInputSize}" />
@@ -396,11 +406,11 @@
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="40" />
+                                <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
-                            <DatePickerTextBox x:Name="PART_TextBox" Padding="8,4" BorderThickness="0" Background="Transparent"
+                            <DatePickerTextBox x:Name="PART_TextBox" Style="{DynamicResource ThemeDatePickerTextEntry}" BorderThickness="0" Background="Transparent"
                                                Foreground="{TemplateBinding Foreground}" VerticalContentAlignment="Center" />
-                            <Button x:Name="PART_Button" Grid.Column="1" Style="{StaticResource ThemeIconButton}" Focusable="False"
+                            <Button x:Name="PART_Button" Grid.Column="1" Style="{DynamicResource ThemeDatePickerCalendarButton}" Focusable="False"
                                     ToolTip="カレンダーを開く" AutomationProperties.Name="カレンダーを開く">
                                 <local:LucideIcon Data="{DynamicResource IconCalendar}" Width="16" Height="16" Stroke="{StaticResource ThemeIconDefault}" />
                             </Button>
@@ -421,10 +431,6 @@
                 </ControlTemplate>
             </Setter.Value>
         </Setter>
-    </Style>
-    <Style TargetType="DatePickerTextBox">
-        <Setter Property="FontSize" Value="{StaticResource TypographyInputSize}" />
-        <Setter Property="FontWeight" Value="{StaticResource TypographyRegular}" />
     </Style>
     <Style TargetType="CheckBox">
         <Setter Property="FontSize" Value="{StaticResource TypographyLabelSize}" />

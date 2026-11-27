@@ -41,7 +41,7 @@
                         <TextBlock Text="社員ID" Style="{StaticResource FormLabel}" Width="360" />
                         <Border>
                             <Border.Style><Style TargetType="Border" BasedOn="{StaticResource LoginField}"><Style.Triggers><DataTrigger Binding="{Binding EmployeeIdInvalid}" Value="True"><Setter Property="BorderBrush" Value="{StaticResource ThemeDanger}" /><Setter Property="BorderThickness" Value="2" /></DataTrigger></Style.Triggers></Style></Border.Style>
-                            <Grid Margin="12,0"><Grid.ColumnDefinitions><ColumnDefinition Width="28" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <Grid Margin="12,0" IsEnabled="{Binding CanEditCredentials}"><Grid.ColumnDefinitions><ColumnDefinition Width="28" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                                 <local:LucideIcon Data="{StaticResource IconCustomer}" Width="16" Height="16" HorizontalAlignment="Left" />
                                 <TextBox x:Name="txtEmployeeId" Grid.Column="1" Text="{Binding EmployeeId, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource LoginInput}" MaxLength="10" InputScope="Number" AutomationProperties.Name="社員ID" />
                             </Grid>
@@ -49,7 +49,7 @@
                         <TextBlock Text="パスワード" Style="{StaticResource FormLabel}" Width="360" Margin="0,16,0,8" />
                         <Border>
                             <Border.Style><Style TargetType="Border" BasedOn="{StaticResource LoginField}"><Style.Triggers><DataTrigger Binding="{Binding PasswordInvalid}" Value="True"><Setter Property="BorderBrush" Value="{StaticResource ThemeDanger}" /><Setter Property="BorderThickness" Value="2" /></DataTrigger></Style.Triggers></Style></Border.Style>
-                            <Grid Margin="12,0,4,0"><Grid.ColumnDefinitions><ColumnDefinition Width="28" /><ColumnDefinition Width="*" /><ColumnDefinition Width="36" /></Grid.ColumnDefinitions>
+                            <Grid Margin="12,0,4,0" IsEnabled="{Binding CanEditCredentials}"><Grid.ColumnDefinitions><ColumnDefinition Width="28" /><ColumnDefinition Width="*" /><ColumnDefinition Width="36" /></Grid.ColumnDefinitions>
                                 <local:LucideIcon Data="{StaticResource IconLock}" Width="16" Height="16" HorizontalAlignment="Left" />
                                 <PasswordBox x:Name="txtPassword" Grid.Column="1" MaxLength="10" PasswordChanged="PasswordChanged" AutomationProperties.Name="パスワード">
                                     <PasswordBox.Style><Style TargetType="PasswordBox" BasedOn="{StaticResource {x:Type PasswordBox}}"><Setter Property="Height" Value="Auto" /><Setter Property="Padding" Value="0" /><Setter Property="BorderThickness" Value="0" /><Setter Property="Background" Value="Transparent" /><Style.Triggers><DataTrigger Binding="{Binding PasswordIsVisible}" Value="True"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger></Style.Triggers></Style></PasswordBox.Style>

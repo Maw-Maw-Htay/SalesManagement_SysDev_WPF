@@ -1,13 +1,20 @@
+using System.Reflection;
 using SalesManagement_SysDev;
 
-internal static class Program
+internal static partial class Program
 {
     private static int checks;
-    private static int Main()
+    private static int Main(string[] args)
     {
         try
         {
+            if (args is ["--benchmark-isolated"])
+            {
+                BenchmarkIsolatedSalesDirectory();
+                return 0;
+            }
             CheckSearchAndFormatting();
+            CheckMonthlyVisibleSummary();
             CheckPermissionsAndHideValidation();
             Console.WriteLine($"PASS: {checks} sales management checks.");
             return 0;
@@ -46,6 +53,29 @@ internal static class Program
         Check(new SalesSummary(0, 0m).AverageAmount == 0m, "average safely handles an empty month");
         Check(new SalesSummary(2, 100m).AverageAmount == 50m, "average uses sales-record count");
         Check(SalesManagementViewModel.FormatCurrency(165_000m) == "¥165,000", "currency uses yen and thousands separators");
+    }
+
+    private static void CheckMonthlyVisibleSummary()
+    {
+        var month = new DateTime(2026, 12, 1);
+        var today = month.AddDays(10);
+        var sale = new SalesRecord(1, month, 25, 8, "顧客", 5, "営業所", 11, "担当者",
+            SalesService.ActiveFlag, null, 2, 160_000m);
+        var method = typeof(SalesService).GetMethod("SummarizeVisibleMonth", BindingFlags.Static | BindingFlags.NonPublic)!;
+        SalesSummary Summary(SalesRecord[] rows) => (SalesSummary)method.Invoke(null, [rows, today])!;
+
+        var summary = Summary([
+            sale,
+            sale with { Id = 2, SaleDate = month.AddMonths(1).AddSeconds(-1), Amount = -10_000m },
+            sale with { Id = 3, LineCount = 0, Amount = 0m },
+            sale with { Id = 4, SaleDate = month.AddSeconds(-1) },
+            sale with { Id = 5, SaleDate = month.AddMonths(1) },
+            sale with { Id = 6, ManagementFlag = SalesService.HiddenFlag },
+            sale with { Id = 7, ManagementFlag = 1 }
+        ]);
+        Check(summary == new SalesSummary(3, 150_000m) && summary.AverageAmount == 50_000m,
+            "monthly summary keeps only visible current-month sales and includes a zero-line sale in the count");
+        Check(Summary([]) == new SalesSummary(0, 0m), "monthly summary is zero for an empty authorized list");
     }
 
     private static void CheckPermissionsAndHideValidation()

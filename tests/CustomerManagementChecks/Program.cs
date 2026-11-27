@@ -103,7 +103,7 @@ internal static partial class Program
         var salesEditor = new CustomerEditorViewModel([new CustomerOffice(4, "北大阪")]);
         Check(!salesEditor.CanChangeOffice && salesEditor.OfficeId == 4, "sales office is fixed to the logged-in office");
         AppSession.Employee = Employee("物流", 4);
-        Check(!CustomerService.CanView && !CustomerService.CanEdit && !CustomerService.CanViewHidden, "logistics cannot access customer management");
+        Check(!CustomerService.CanEdit && !CustomerService.CanViewHidden, "logistics is read-only and cannot view hidden customers");
         Check(!CustomerService.CanViewOrders && !CustomerService.Restore(1,
             new(12, 4, "", "", "", "", "", "", CustomerService.HiddenFlag, "理由")).Succeeded,
             "logistics cannot view orders or restore customers");
@@ -189,8 +189,17 @@ internal static partial class Program
             WaitFor(() => vm.Rows.Count == 0, "primary and advanced filters both apply");
             vm.OfficeFilterId = 5;
             WaitFor(() => vm.Rows.Count == 1 && vm.Rows[0].Id == 3, "correcting the office finds the partial company name");
-            vm.ClearConditions(); vm.SelectAllVisible(true);
+            vm.ClearConditions();
+            int selectionNotifications = 0;
+            vm.PropertyChanged += (_, e) => { if (e.PropertyName == nameof(vm.SelectedCount)) selectionNotifications++; };
+            vm.SelectAllVisible(true);
             Check(vm.PageNumber == 1 && search.Text == "" && vm.SelectedRows.Count == 45, "clear resets the page and select all retains its all-page semantics");
+            Check(selectionNotifications == 1 && vm.VisibleSelectionState == true,
+                "bulk selection publishes one final selection update across all pages");
+            selectionNotifications = 0;
+            vm.ClearSelection();
+            Check(selectionNotifications == 1 && vm.SelectedCount == 0 && vm.VisibleSelectionState == false,
+                "clearing all pages publishes one final selection update");
 
             var detail = (Window)Create(assembly.GetType("SalesManagement_SysDev.CustomerDetailDialog")!, rows[^1], true, host);
             detail.Show();
@@ -209,12 +218,13 @@ internal static partial class Program
             var sampleOrder = new OrderDetailSnapshot { OrderId = 1, OfficeId = 4, CustomerId = 3 };
             var readOnlyDetail = (Window)Create(typeof(F_OrderDetail), sampleOrder, host, true);
             var orderVm = (OrderDetailViewModel)readOnlyDetail.DataContext;
-            Check(!orderVm.ConfirmCommand.CanExecute(null) && !orderVm.HideCommand.CanExecute(null)
-                && ((Button)readOnlyDetail.FindName("ConfirmOrderButton")).Visibility == Visibility.Collapsed,
-                "related order detail disables the workflow as well as hiding the buttons");
+            var confirmButton = (Button)readOnlyDetail.FindName("ConfirmOrderButton");
+            Check(!orderVm.EditCommand.CanExecute(null) && !orderVm.ConfirmCommand.CanExecute(null)
+                && !orderVm.HideCommand.CanExecute(null), "related order detail disables the workflow");
+            WaitFor(() => confirmButton.Visibility == Visibility.Collapsed, "related order detail hides the confirmation button");
             readOnlyDetail.Close();
-            var orderWorkspace = new OrderDetailViewModel(sampleOrder, () => { }, () => { }, () => { }, () => { });
-            Check(orderWorkspace.CanConfirm && orderWorkspace.CanHide, "standard order detail keeps its existing actions");
+            var orderWorkspace = new OrderDetailViewModel(sampleOrder, () => { }, () => { }, () => { }, () => { }, () => { });
+            Check(orderWorkspace.CanEdit && orderWorkspace.CanConfirm && orderWorkspace.CanHide, "standard order detail keeps its existing actions");
             host.Close();
         }
         finally { AppSession.Employee = null; app.Shutdown(); }

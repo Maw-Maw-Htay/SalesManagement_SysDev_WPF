@@ -23,14 +23,14 @@ public sealed class PurchaseOrderRow : ViewModelBase
     public Brush ProgressBackground => ProgressLabel switch
     {
         "入庫済" => AppTheme.SuccessSurface,
-        "一部入庫" or "入庫待ち" or "棚入れ待ち" => AppTheme.WarningSurface,
+        "一部入庫" or "入庫待ち" or "入庫要確認" => AppTheme.WarningSurface,
         "数量超過" or "数量要確認" => AppTheme.DangerSurface,
         _ => AppTheme.Subtle
     };
     public Brush ProgressForeground => ProgressLabel switch
     {
         "入庫済" => AppTheme.SuccessText,
-        "一部入庫" or "入庫待ち" or "棚入れ待ち" => AppTheme.WarningText,
+        "一部入庫" or "入庫待ち" or "入庫要確認" => AppTheme.WarningText,
         "数量超過" or "数量要確認" => AppTheme.DangerText,
         _ => AppTheme.SecondaryText
     };
@@ -107,19 +107,15 @@ public sealed class PurchaseOrderManagementViewModel : ViewModelBase, IDisposabl
     public bool IsBusy { get => isBusy; private set { if (Set(ref isBusy, value)) NotifyActions(); } }
     public bool CanReload => !IsLoading && !IsBusy;
     public bool CanRegister => PurchaseOrderService.CanRegister && !IsLoading && !IsBusy;
-    public bool CanAssignOffice => PurchaseOrderService.CanAssignOffice;
-    private bool CanOperateOnSelectedOrder => !IsLoading && !IsBusy && !searchPending
-        && ActiveTab != PurchaseManagementTab.Hidden && SelectedRow is { IsSelectable: true };
-    public bool CanHide => PurchaseOrderService.CanHide && CanOperateOnSelectedOrder;
-    public bool CanConfirmSelected => PurchaseOrderService.CanView && CanOperateOnSelectedOrder
-        && SelectedRow?.Data is { WarehouseFlag: 0, HasLinkedReceipt: false };
+    public bool CanHide => PurchaseOrderService.CanHide && !IsLoading && !IsBusy
+        && !searchPending && ActiveTab != PurchaseManagementTab.Hidden && SelectedRow is { IsSelectable: true };
     public bool CanClearSelection => SelectedRow != null;
     public string SelectionText => SelectedRow == null ? "選択なし" : "選択 1 件";
     public bool CanViewHidden => PurchaseOrderService.CanViewHidden;
     public int TotalCount => source.Count;
     public int VisibleCount => source.Count(x => x.ManagementFlag == PurchaseOrderService.ActiveFlag);
     public int HiddenCount => CanViewHidden ? source.Count(x => x.ManagementFlag == PurchaseOrderService.HiddenFlag) : 0;
-    public int WaitingCount => source.Count(x => x.ManagementFlag == PurchaseOrderService.ActiveFlag && x.IsOutstanding);
+    public int WaitingCount => CountProgress(PurchaseReceiptStatus.Waiting);
     public int PartialCount => CountProgress(PurchaseReceiptStatus.Partial);
     public int ReceivedCount => CountProgress(PurchaseReceiptStatus.Received);
     public string CountText => $"{matches.Count:N0} 件 / 全 {CurrentTabCount:N0} 件";
@@ -307,7 +303,7 @@ public sealed class PurchaseOrderManagementViewModel : ViewModelBase, IDisposabl
             if (revision != Volatile.Read(ref searchRevision) || isDisposed) return;
             var filtered = source.Where(x => PurchaseOrderFilter.Matches(x, criteria, tab,
                 CanViewHidden, productOrderIds, advancedProductOrders)
-                && PurchaseOrderFilter.MatchesProgress(x, tabProgress));
+                && MatchesProgress(x, tabProgress));
             matches = (sortKey == null ? filtered : sortDescending ? filtered.OrderByDescending(sortKey) : filtered.OrderBy(sortKey)).ToArray();
             SearchError = "";
             ShowPage(1);
@@ -327,6 +323,14 @@ public sealed class PurchaseOrderManagementViewModel : ViewModelBase, IDisposabl
 
     private int CountProgress(PurchaseReceiptStatus status) => source.Count(x =>
         x.ManagementFlag == PurchaseOrderService.ActiveFlag && x.ReceiptStatus == status);
+
+    private static bool MatchesProgress(PurchaseOrderRecord order, PurchaseProgressFilter progress) => progress switch
+    {
+        PurchaseProgressFilter.Waiting => order.ReceiptStatus == PurchaseReceiptStatus.Waiting,
+        PurchaseProgressFilter.Partial => order.ReceiptStatus == PurchaseReceiptStatus.Partial,
+        PurchaseProgressFilter.Received => order.ReceiptStatus == PurchaseReceiptStatus.Received,
+        _ => true
+    };
 
     public void GoToPage(int requested)
     {
@@ -366,7 +370,7 @@ public sealed class PurchaseOrderManagementViewModel : ViewModelBase, IDisposabl
     {
         Notify(nameof(Page)); Notify(nameof(PageCount)); Notify(nameof(PageText));
         Notify(nameof(CanNext)); Notify(nameof(CanPrevious)); Notify(nameof(CanExport));
-        Notify(nameof(CanHide)); Notify(nameof(CanConfirmSelected));
+        Notify(nameof(CanHide));
     }
 
     private async Task ReloadCoreAsync()
@@ -410,18 +414,18 @@ public sealed class PurchaseOrderManagementViewModel : ViewModelBase, IDisposabl
         Notify(nameof(TotalCount)); Notify(nameof(VisibleCount)); Notify(nameof(HiddenCount));
         Notify(nameof(WaitingCount)); Notify(nameof(PartialCount)); Notify(nameof(ReceivedCount));
         Notify(nameof(AllTabText)); Notify(nameof(VisibleTabText)); Notify(nameof(HiddenTabText));
-        Notify(nameof(CountText)); Notify(nameof(CanHide)); Notify(nameof(CanConfirmSelected)); NotifyEmptyState();
+        Notify(nameof(CountText)); Notify(nameof(CanHide)); NotifyEmptyState();
     }
 
     private void NotifyCounts() { Notify(nameof(CountText)); Notify(nameof(IsEmpty)); }
     private void NotifyEmptyState() { Notify(nameof(EmptyTitle)); Notify(nameof(EmptyDescription)); Notify(nameof(ShowEmptyState)); }
     private void NotifySelection()
     {
-        Notify(nameof(SelectedRow)); Notify(nameof(CanHide)); Notify(nameof(CanConfirmSelected)); Notify(nameof(CanClearSelection)); Notify(nameof(SelectionText));
+        Notify(nameof(SelectedRow)); Notify(nameof(CanHide)); Notify(nameof(CanClearSelection)); Notify(nameof(SelectionText));
     }
     private void NotifyActions()
     {
-        Notify(nameof(CanReload)); Notify(nameof(CanRegister)); Notify(nameof(CanHide)); Notify(nameof(CanConfirmSelected));
+        Notify(nameof(CanReload)); Notify(nameof(CanRegister)); Notify(nameof(CanHide));
         NotifyPaging();
     }
 
@@ -441,22 +445,22 @@ public sealed class PurchaseOrderDetailViewModel
     public IReadOnlyList<PurchaseReceiptRecord> Receipts { get; }
     public string OfficeName { get; }
     public bool CanHide { get; }
-    public bool CanRestore { get; }
+    public bool CanConfirm { get; }
     public bool IsHidden => Order.ManagementFlag == PurchaseOrderService.HiddenFlag;
     public bool HasHiddenReason => IsHidden && !string.IsNullOrWhiteSpace(Order.HiddenReason);
     public string OrderedQuantityText => $"{Order.OrderedQuantity:N0}";
     public string ReceivedQuantityText => $"{Order.ReceivedQuantity:N0}";
     public string RemainingQuantityText => $"{Order.RemainingQuantity:N0}";
 
-    public PurchaseOrderDetailViewModel(PurchaseOrderDetail detail, bool canHide, bool canRestore = false)
+    public PurchaseOrderDetailViewModel(PurchaseOrderDetail detail, bool canHide, bool canConfirm = false)
     {
         Order = detail.Order;
         Lines = detail.Lines;
         Receipts = detail.Receipts;
         OfficeName = string.IsNullOrWhiteSpace(detail.OfficeName) ? "未記録" : detail.OfficeName;
         CanHide = canHide && !IsHidden;
-        CanRestore = canRestore && PurchaseOrderService.IsRestorablePendingPurchase(
-            Order.ManagementFlag, Order.WarehouseFlag, Order.HasLinkedReceipt);
+        CanConfirm = canConfirm && Order.ManagementFlag == PurchaseOrderService.ActiveFlag
+            && Order.IsAwaitingConfirmation && Receipts.Count == 0;
     }
 }
 
@@ -473,7 +477,7 @@ public sealed class PurchaseOrderDraftLine : ViewModelBase
     public string Code => Product.Code.Length == 0 ? $"P-{Product.Id:0000}" : Product.Code;
     public string Name => Product.Name;
     public string MakerName => Product.MakerName;
-    public int StockQuantity => Product.StockQuantity;
+    public int? StockQuantity => Product.StockQuantity;
     public int SafetyStock => Product.SafetyStock;
     public int OutstandingPurchaseQuantity => Product.OutstandingPurchaseQuantity;
     public PurchaseOrderDraftLine(PurchaseProductOption product, int quantity)
@@ -492,7 +496,7 @@ public sealed class PurchaseOrderRegisterViewModel : ViewModelBase
     private PurchaseProductOption? selectedProduct;
     private (PurchaseOrderDraftLine Line, int Index)? removedLine;
     private DateTime? orderDate = DateTime.Today;
-    private bool isLoading = true, isSaving;
+    private bool isLoading, isSaving;
     private bool hasDateInputError;
 
     public ObservableCollection<PurchaseOrderDraftLine> Lines { get; } = [];
@@ -504,9 +508,18 @@ public sealed class PurchaseOrderRegisterViewModel : ViewModelBase
         get => selectedMaker;
         set
         {
-            if (!Set(ref selectedMaker, value)) return;
-            if (SelectedProduct?.MakerId != value?.Id) SelectedProduct = null;
-            Notify(nameof(AvailableProducts)); NotifyRegistrationState();
+            if (!CanChangeMaker)
+            {
+                if (value?.Id != selectedMaker?.Id) Notify(nameof(SelectedMaker));
+                return;
+            }
+
+            var maker = value == null ? null : makers.FirstOrDefault(option => option.Id == value.Id);
+            if (!Set(ref selectedMaker, maker)) return;
+            removedLine = null;
+            SelectedProduct = null;
+            Notify(nameof(AvailableProducts));
+            NotifyRegistrationState();
         }
     }
     public PurchaseProductOption? SelectedProduct
@@ -514,7 +527,9 @@ public sealed class PurchaseOrderRegisterViewModel : ViewModelBase
         get => selectedProduct;
         set
         {
-            if (!Set(ref selectedProduct, value)) return;
+            var product = value != null && value.MakerId == SelectedMaker?.Id
+                ? products.FirstOrDefault(option => option.Id == value.Id && option.MakerId == value.MakerId) : null;
+            if (!Set(ref selectedProduct, product)) return;
             Notify(nameof(InventoryReferenceText)); Notify(nameof(InventoryWarning));
             Notify(nameof(HasInventoryReference)); NotifyRegistrationState();
         }
@@ -530,28 +545,31 @@ public sealed class PurchaseOrderRegisterViewModel : ViewModelBase
     public bool IsLoading { get => isLoading; private set { if (Set(ref isLoading, value)) NotifyRegistrationState(); } }
     public bool IsSaving { get => isSaving; private set { if (Set(ref isSaving, value)) NotifyRegistrationState(); } }
     public bool CanCancel => !IsSaving;
+    public bool IsMakerLocked => Lines.Count > 0;
+    public bool CanChangeMaker => !IsLoading && !IsSaving && !IsMakerLocked;
+    public bool CanSelectProduct => !IsLoading && !IsSaving && AvailableProducts.Count > 0;
+    public bool HasNoAvailableProducts => !IsLoading && SelectedMaker != null && AvailableProducts.Count == 0;
+    public bool CanClearLines => !IsLoading && !IsSaving && Lines.Count > 0;
     public bool HasInventoryReference => SelectedProduct != null;
-    public string InventoryReferenceText => SelectedProduct is { } product
-        ? $"現在庫 {product.StockQuantity:N0}　発注点 {product.SafetyStock:N0}\n倉庫到着待ち {product.OutstandingPurchaseQuantity:N0}　棚入れ待ち {product.PendingShelvingQuantity:N0}"
-        : "商品を選択すると在庫情報を表示します。";
-
+    public string InventoryReferenceText => SelectedProduct == null ? "商品を選択すると在庫情報を表示します。"
+        : $"現在庫 {SelectedProduct.StockQuantityText}　発注点 {SelectedProduct.SafetyStock:N0}　未入庫発注数量 {SelectedProduct.OutstandingPurchaseQuantity:N0}";
     public string InventoryWarning
     {
         get
         {
-            if (SelectedProduct is { } product
-                && (product.OutstandingPurchaseQuantity > 0 || product.PendingShelvingQuantity > 0))
-                return IsBelowReorderPoint
-                    ? "発注点以下です。追加発注前に倉庫到着待ち・棚入れ待ちの数量を確認してください。"
-                    : "倉庫到着待ちまたは棚入れ待ちの数量があります。登録前に重複がないか確認してください。";
-
-            return IsBelowReorderPoint
-                ? "発注点以下のため補充を検討してください。標準発注量は商品マスタにありません。"
-                : "在庫数・発注点は参照情報です。発注登録では在庫を変更しません。";
+            const string referenceOnly = "在庫数・発注点は参照情報です。発注登録では在庫を変更しません。";
+            if (SelectedProduct is not { } product) return referenceOnly;
+            if (IsBelowReorderPoint)
+                return product.OutstandingPurchaseQuantity > 0
+                    ? $"発注点以下です。既存の未入庫発注数量は {product.OutstandingPurchaseQuantity:N0} です。追加発注前に確認してください。標準発注量は商品マスタにありません。"
+                    : "発注点以下のため補充を検討してください。標準発注量は商品マスタにありません。";
+            var warning = product.OutstandingPurchaseQuantity > 0
+                ? $"同じ商品に未入庫発注数量 {product.OutstandingPurchaseQuantity:N0} があります。登録前に重複がないか確認してください。"
+                : referenceOnly;
+            return product.StockQuantity.HasValue ? warning : $"{InventoryService.DescribeUnavailableStock(product.StockState)}。{warning}";
         }
     }
-
-    public bool IsBelowReorderPoint => SelectedProduct is { } product && product.StockQuantity <= product.SafetyStock;
+    public bool IsBelowReorderPoint => SelectedProduct is { StockQuantity: int quantity } product && quantity <= product.SafetyStock;
     public int TotalLineCount => Lines.Count;
     public long TotalQuantity => Lines.Sum(x => (long)x.Quantity);
     public string EmployeeName => AppSession.Employee?.EmName ?? "ログイン情報を確認できません";
@@ -566,39 +584,37 @@ public sealed class PurchaseOrderRegisterViewModel : ViewModelBase
         : Lines.Any(x => x.Quantity <= 0) ? "各明細の発注数量を1以上の整数で入力してください。"
         : Lines.Any(x => x.Product.MakerId != SelectedMaker.Id) ? "仕入先と異なる商品を明細から削除してください。"
         : "登録内容を確認できます。";
-    public bool CanAddLine => !IsLoading && !IsSaving && SelectedMaker != null && SelectedProduct != null
+    public bool CanAddLine => CanSelectProduct && SelectedMaker != null && SelectedProduct != null
         && SelectedProduct.MakerId == SelectedMaker.Id && int.TryParse(QuantityText, out var quantity) && quantity > 0
         && Lines.All(x => x.Product.Id != SelectedProduct.Id);
     public bool CanRegister => !IsLoading && !IsSaving && PurchaseOrderService.CanRegister && SelectedMaker != null
         && !HasDateInputError && OrderDate != null && Lines.Count > 0 && Lines.All(x => x.Quantity > 0 && x.Product.MakerId == SelectedMaker.Id);
-    public bool CanUndoRemove => !IsSaving && removedLine is { } removed && removed.Line.Product.MakerId == SelectedMaker?.Id
+    public bool CanUndoRemove => !IsLoading && !IsSaving && removedLine is { } removed && removed.Line.Product.MakerId == SelectedMaker?.Id
         && Lines.All(x => x.Product.Id != removed.Line.Product.Id);
     public RelayCommand AddLineCommand { get; }
     public RelayCommand RemoveLineCommand { get; }
     public RelayCommand UndoRemoveCommand { get; }
 
-    public PurchaseOrderRegisterViewModel() : this(loadOnCreate: true) { }
+    public PurchaseOrderRegisterViewModel() : this(PurchaseOrderService.LoadRegistrationCatalog) { }
 
-    internal PurchaseOrderRegisterViewModel(bool loadOnCreate)
+    internal PurchaseOrderRegisterViewModel(Func<PurchaseCatalog> loadCatalog)
     {
         AddLineCommand = new RelayCommand(AddSelectedLine, () => CanAddLine);
         RemoveLineCommand = new RelayCommand(RemoveLine, parameter => !IsSaving && parameter is PurchaseOrderDraftLine);
         UndoRemoveCommand = new RelayCommand(UndoRemove, () => CanUndoRemove);
         Lines.CollectionChanged += (_, _) => { Notify(nameof(TotalLineCount)); Notify(nameof(TotalQuantity)); NotifyRegistrationState(); };
-        if (loadOnCreate) _ = LoadCatalogAsync();
-        else IsLoading = false;
+        _ = LoadCatalogAsync(loadCatalog);
     }
 
-    public async Task LoadCatalogAsync()
+    private async Task LoadCatalogAsync(Func<PurchaseCatalog> loadCatalog)
     {
         IsLoading = true;
         try
         {
-            var catalog = await Task.Run(PurchaseOrderService.LoadRegistrationCatalog);
+            var catalog = await Task.Run(loadCatalog);
             makers = catalog.Makers;
             products = catalog.Products;
             Notify(nameof(Makers)); Notify(nameof(AvailableProducts));
-            if (SelectedMaker == null && makers.Count == 1) SelectedMaker = makers[0];
             Feedback = makers.Count == 0 ? "利用できるメーカーがありません。メーカーと商品マスタを確認してください。" : "";
         }
         catch (Exception ex)
@@ -642,6 +658,14 @@ public sealed class PurchaseOrderRegisterViewModel : ViewModelBase
         Lines.Insert(Math.Min(removed.Index, Lines.Count), removed.Line);
     }
 
+    internal void ClearLines()
+    {
+        if (!CanClearLines) return;
+        removedLine = null;
+        foreach (var line in Lines) line.PropertyChanged -= LineChanged;
+        Lines.Clear();
+    }
+
     private void LineChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName != nameof(PurchaseOrderDraftLine.Quantity)) return;
@@ -651,17 +675,18 @@ public sealed class PurchaseOrderRegisterViewModel : ViewModelBase
 
     public async Task<PurchaseOperationResult> RegisterAsync()
     {
-        if (!CanRegister || SelectedMaker == null)
+        if (!CanRegister || SelectedMaker is not { } maker || AppSession.Employee is not { } employee)
             return new(false, null, ValidationMessage);
+        var date = OrderDate;
         var input = Lines.Select(x => new PurchaseLineInput(x.Product.Id, x.Quantity)).ToArray();
-        if (PurchaseOrderService.ValidateRegistration(SelectedMaker.Id, OrderDate, input) is { } validation)
+        if (PurchaseOrderService.ValidateRegistration(maker.Id, date, input) is { } validation)
             return new(false, null, validation);
         IsSaving = true;
         Feedback = "発注を登録しています…";
         try
         {
             var result = await Task.Run(() => PurchaseOrderService.Register(
-                AppSession.Employee!.EmId, SelectedMaker.Id, OrderDate, input));
+                employee.EmId, maker.Id, date, input));
             Feedback = result.Message;
             return result;
         }
@@ -678,6 +703,8 @@ public sealed class PurchaseOrderRegisterViewModel : ViewModelBase
 
     private void NotifyRegistrationState()
     {
+        Notify(nameof(IsMakerLocked)); Notify(nameof(CanChangeMaker)); Notify(nameof(CanSelectProduct));
+        Notify(nameof(HasNoAvailableProducts)); Notify(nameof(CanClearLines));
         Notify(nameof(ValidationMessage)); Notify(nameof(CanAddLine)); Notify(nameof(CanRegister)); Notify(nameof(CanCancel));
         AddLineCommand?.Refresh(); RemoveLineCommand?.Refresh(); UndoRemoveCommand?.Refresh();
     }

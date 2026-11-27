@@ -4,7 +4,7 @@ using System.Windows.Threading;
 
 namespace SalesManagement_SysDev;
 
-public enum OrderStatusTab { All, Pending, Confirmed, Hidden, History }
+public enum OrderStatusTab { All, Pending, Confirmed, Hidden, History, Draft }
 
 public sealed record OrderLineView(int ProductId, string ProductCode, string ProductName, int Quantity, decimal? UnitPrice,
     decimal? LineTotal, int? CurrentStock, bool StockLookupFailed = false, int Number = 0)
@@ -139,33 +139,38 @@ public sealed class ChumonManagementViewModel : ViewModelBase
         var officeId = employee.SoId;
         try
         {
-            var loaded = await Task.Run(() =>
+            var loaded = await Task.Run(async () =>
             {
                 using var db = new SalesManagementContext();
-                var query = db.TChumons.AsNoTracking().AsQueryable();
-                if (!isAdmin) query = query.Where(x => x.SoId == officeId);
-                var source = query.Include(x => x.Cl).Include(x => x.So).Include(x => x.Or).Include(x => x.TChumonDetails)
-                    .ThenInclude(x => x.Pr).ToList();
-                var orderIds = source.Select(x => x.OrId).Distinct().ToList();
-                var originalLines = db.TOrderDetails.AsNoTracking()
-                    .Where(x => orderIds.Contains(x.OrId) && (x.OrQuantity != 0 || x.OrTotalPrice != 0m))
-                    .Select(x => new { x.OrId, x.PrId, x.OrQuantity, x.OrTotalPrice }).ToList()
-                    .GroupBy(x => (x.OrId, x.PrId)).ToDictionary(g => g.Key, g => g.ToList());
-                return source.Select(order =>
-                {
-                    var totalQuantity = order.TChumonDetails.Sum(x => x.ChQuantity);
-                    var orderLines = originalLines.Where(x => x.Key.OrId == order.OrId).SelectMany(x => x.Value).ToList();
-                    return new OrderManagementRow
+                var orders = db.TChumons.AsNoTracking();
+                if (!isAdmin) orders = orders.Where(order => order.SoId == officeId);
+
+                var details = db.TChumonDetails.AsQueryable();
+                if (!isAdmin) details = details.Where(line => line.Ch.SoId == officeId);
+                var quantities = details.GroupBy(line => line.ChId)
+                    .Select(group => new
                     {
-                        OrderId = order.ChId, CustomerId = order.ClId, Customer = order.Cl.ClName,
-                        OfficeId = order.SoId, Office = order.So.SoName,
-                        OrderDate = order.ChDate, DeliveryDate = order.Or.OrDeliveryDate,
-                        State = (order.ChStateFlag ?? 0) == 1 ? "確定済み" : "未確定",
-                        RelatedOrderId = order.OrId, LineCount = order.TChumonDetails.Count,
-                        TotalQuantity = totalQuantity, Total = orderLines.Count > 0 ? orderLines.Sum(x => x.OrTotalPrice) : null,
-                        ManagementFlag = order.ChFlag
-                    };
-                }).ToList();
+                        OrderId = group.Key, LineCount = (int?)group.Count(), Quantity = (int?)group.Sum(line => line.ChQuantity)
+                    });
+                var savedTotals = db.TOrderDetails
+                    .Where(line => (line.OrQuantity != 0 || line.OrTotalPrice != 0m) && orders.Any(order => order.OrId == line.OrId))
+                    .GroupBy(line => line.OrId)
+                    .Select(group => new { OrderId = group.Key, Amount = (decimal?)group.Sum(line => line.OrTotalPrice) });
+                return await (from order in orders
+                              join quantity in quantities on order.ChId equals quantity.OrderId into orderQuantities
+                              from quantity in orderQuantities.DefaultIfEmpty()
+                              join total in savedTotals on order.OrId equals total.OrderId into orderTotals
+                              from total in orderTotals.DefaultIfEmpty()
+                              select new OrderManagementRow
+                              {
+                                  OrderId = order.ChId, CustomerId = order.ClId, Customer = order.Cl.ClName,
+                                  OfficeId = order.SoId, Office = order.So.SoName,
+                                  OrderDate = order.ChDate, DeliveryDate = order.Or.OrDeliveryDate,
+                                  State = (order.ChStateFlag ?? 0) == 1 ? "確定済み" : "未確定",
+                                  RelatedOrderId = order.OrId, LineCount = quantity.LineCount ?? 0,
+                                  TotalQuantity = quantity.Quantity ?? 0, Total = total.Amount,
+                                  ManagementFlag = order.ChFlag
+                              }).ToListAsync();
             });
             ApplyLoadedRows(loaded);
         }

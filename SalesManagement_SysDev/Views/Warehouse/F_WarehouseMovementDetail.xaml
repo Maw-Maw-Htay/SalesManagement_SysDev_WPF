@@ -91,7 +91,7 @@
                                                Padding="7,6" TextWrapping="Wrap" Margin="0,6,0,0"/>
                                     <TextBlock Text="同じ商品が複数明細に分かれている場合、明細単位の発注数量・差異は表示しません。"
                                                Foreground="{StaticResource ThemeSecondaryText}" TextWrapping="Wrap" FontSize="11" Margin="0,5,0,0"
-                                               Visibility="{Binding HasRelatedPurchase, Converter={StaticResource BooleanVisibility}}"/>
+                                               Visibility="{Binding ShowReceiptDifferences, Converter={StaticResource BooleanVisibility}}"/>
                                 </StackPanel>
                             </Border>
                             <TextBlock Text="{Binding HideRestrictionText}" Foreground="{StaticResource ThemeWarningText}" TextWrapping="Wrap" Margin="0,8,0,0"
@@ -121,7 +121,7 @@
                         </StackPanel>
                     </ScrollViewer>
                 </TabItem>
-                <TabItem Header="在庫情報" Visibility="{Binding IsInbound, Converter={StaticResource BooleanVisibility}}">
+                <TabItem Header="在庫情報" Visibility="{Binding ShowStockTab, Converter={StaticResource BooleanVisibility}}">
                     <Grid Margin="2,10,5,2">
                         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                         <TextBlock Text="入庫商品ごとの現在庫" FontWeight="SemiBold" Foreground="{StaticResource ThemeText}" Margin="0,0,0,6"/>

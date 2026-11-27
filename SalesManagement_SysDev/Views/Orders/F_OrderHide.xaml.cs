@@ -11,9 +11,14 @@ public partial class F_OrderHide : Window
     private readonly OrderHideViewModel viewModel;
 
     public F_OrderHide(IReadOnlyCollection<int> orderIds, IOrderHideDataSource? source = null)
+        : this(orderIds, restore: false, source)
+    {
+    }
+
+    internal F_OrderHide(IReadOnlyCollection<int> orderIds, bool restore, IOrderHideDataSource? source = null)
     {
         InitializeComponent();
-        viewModel = new OrderHideViewModel(orderIds, () => DialogResult = viewModel!.HasChanges, source);
+        viewModel = new OrderHideViewModel(orderIds, () => DialogResult = viewModel!.HasChanges, restore, source);
         DataContext = viewModel;
         viewModel.PropertyChanged += (_, e) =>
         {

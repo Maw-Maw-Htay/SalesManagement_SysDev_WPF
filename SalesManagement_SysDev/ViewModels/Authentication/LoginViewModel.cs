@@ -1,4 +1,4 @@
-using Microsoft.Data.SqlClient;
+﻿using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 
 namespace SalesManagement_SysDev;
@@ -8,12 +8,17 @@ public enum LoginFeedback { None, EmployeeIdError, PasswordError, CredentialsErr
 public sealed class LoginViewModel : ViewModelBase
 {
     private string employeeId = "", password = "", message = "", connectionState = "Pending";
-    private bool passwordIsVisible, employeeIdInvalid, passwordInvalid;
+    private bool passwordIsVisible, employeeIdInvalid, passwordInvalid, isBusy;
+    private readonly CancellationToken lifetime;
     private LoginFeedback feedback;
-    public LoginViewModel(Action loggedIn, Action changePassword)
+    public LoginViewModel(Action loggedIn, Action changePassword, CancellationToken lifetime = default)
     {
-        LoginCommand = new RelayCommand(async () => { if (DatabaseReady || await PrepareDatabaseAsync()) Login(loggedIn); }, () => !checking);
-        ChangePasswordCommand = new RelayCommand(async () => { if (DatabaseReady || await PrepareDatabaseAsync()) changePassword(); }, () => !checking);
+        this.lifetime = lifetime;
+        LoginCommand = new RelayCommand(async () => await LoginAsync(loggedIn), () => CanEditCredentials);
+        ChangePasswordCommand = new RelayCommand(async () =>
+        {
+            if ((DatabaseReady || await PrepareDatabaseAsync()) && !lifetime.IsCancellationRequested) changePassword();
+        }, () => CanEditCredentials);
         ForgotPasswordCommand = new RelayCommand(() =>
         {
             ClearFieldErrors();
@@ -55,121 +60,75 @@ public sealed class LoginViewModel : ViewModelBase
     public LoginFeedback Feedback => feedback;
     public string ConnectionState => connectionState;
     public bool DatabaseReady => connectionState == "Ready";
+    public bool CanEditCredentials => !isBusy && !lifetime.IsCancellationRequested;
     public string LoginLabel => connectionState == "Failed" ? "接続を再試行" : "ログイン";
     public string ConnectionMessage => connectionState switch
     {
         "Ready" => "システムに接続しました。ログインできます。",
-        "Failed" => "データベースの準備を完了できませんでした。",
+        "Failed" => "システムに接続できません。管理者へお問い合わせください。",
         _ => "システムに接続しています…"
     };
 
-    private bool checking;
     public async Task<bool> PrepareDatabaseAsync()
     {
-        if (checking) return false;
-        checking = true;
-        LoginCommand.Refresh();
-        ChangePasswordCommand.Refresh();
+        if (!CanEditCredentials) return false;
+        var resetPool = connectionState == "Failed";
+        SetBusy(true);
+        SetConnection("Pending");
         try
         {
-            var retry = connectionState == "Failed";
-            SetConnection("Pending");
-            return ShowDatabaseResult(await Task.Run(() => CheckDatabase(retry)));
-        }
-        finally
-        {
-            checking = false;
-            LoginCommand.Refresh();
-            ChangePasswordCommand.Refresh();
-        }
-    }
-
-    public bool PrepareDatabase() => ShowDatabaseResult(CheckDatabase(connectionState == "Failed"));
-
-    private enum DatabaseCheckResult { Ready, ConnectionFailed, SchemaFailed }
-
-    private static DatabaseCheckResult CheckDatabase(bool resetPool)
-    {
-        var failure = DatabaseCheckResult.ConnectionFailed;
-        for (var attempt = 0; attempt < 2; attempt++)
-        {
-            try
+            for (var attempt = 0; attempt < 2; attempt++)
             {
-                if (SalesManagementContext.IsPracticeMode && !SalesManagementContext.IsDemoMode)
-                    DatabaseInitializer.EnsureReady(resetPool || attempt > 0);
-                using var db = new SalesManagementContext();
-                if ((resetPool || attempt > 0) && (!SalesManagementContext.IsPracticeMode || SalesManagementContext.IsDemoMode))
-                    SqlConnection.ClearPool((SqlConnection)db.Database.GetDbConnection());
-                if (!(SalesManagementContext.IsDemoMode ? IsDemoReady(db) : db.Database.CanConnect()))
-                    throw new InvalidOperationException($"{SalesManagementContext.CatalogName} に接続できません。");
-
-                if (!SalesManagementContext.IsDemoMode && !SalesManagementContext.IsPracticeMode)
+                // Login health checks must not create schema or seed data. They only probe the existing database.
+                try
                 {
-                    db.Database.OpenConnection();
-                    failure = DatabaseCheckResult.SchemaFailed;
-                    using var probe = db.Database.GetDbConnection().CreateCommand();
-                    probe.CommandText = """
-                        SELECT
-                            CASE WHEN COL_LENGTH(N'dbo.M_Employee', N'EmPasswordHash') IS NULL
-                                OR OBJECT_ID(N'dbo.T_EmployeeAssignmentHistory', N'U') IS NULL THEN 1 ELSE 0 END
-                          + CASE WHEN COL_LENGTH(N'dbo.T_Order', N'OrDeliveryDate') IS NULL THEN 2 ELSE 0 END
-                          + CASE WHEN OBJECT_ID(N'dbo.T_OrderOperationHistory', N'U') IS NULL THEN 4 ELSE 0 END;
-                        """;
-                    var missing = (int)probe.ExecuteScalar()!;
-                    if ((missing & 1) != 0) EmployeeSchemaInitializer.EnsureReady(db);
-                    if ((missing & 2) != 0) OrderSchemaInitializer.EnsureReady(db);
-                    if ((missing & 4) != 0) OrderHistoryService.EnsureReady(db);
+                    using var db = new SalesManagementContext();
+                    if (resetPool || attempt > 0)
+                        SqlConnection.ClearPool((SqlConnection)db.Database.GetDbConnection());
+                    if (!(SalesManagementContext.IsDemoMode ? await IsDemoReadyAsync(db, lifetime) : await db.Database.CanConnectAsync(lifetime)))
+                        throw new InvalidOperationException($"{SalesManagementContext.CatalogName} に接続できません。");
+
+                    lifetime.ThrowIfCancellationRequested();
+                    SetConnection("Ready");
+                    ClearFieldErrors();
+                    ShowFeedback("", LoginFeedback.None);
+                    return true;
                 }
-                failure = DatabaseCheckResult.SchemaFailed;
-                PurchaseSchemaInitializer.EnsureReady(db);
-                return DatabaseCheckResult.Ready;
+                catch (Exception exception)
+                {
+                    lifetime.ThrowIfCancellationRequested();
+                    System.Diagnostics.Debug.WriteLine($"Database connection check attempt {attempt + 1} failed: {exception}");
+                    if (attempt == 0) await Task.Delay(500, lifetime);
+                }
             }
-            catch (Exception exception)
-            {
-                System.Diagnostics.Debug.WriteLine($"Database connection check attempt {attempt + 1} failed: {exception}");
-                if (attempt == 0) System.Threading.Thread.Sleep(500);
-            }
-        }
-
-        return failure;
-    }
-
-    private bool ShowDatabaseResult(DatabaseCheckResult result)
-    {
-        if (result == DatabaseCheckResult.Ready)
-        {
-            SetConnection("Ready");
+            SetConnection("Failed");
             ClearFieldErrors();
-            ShowFeedback("", LoginFeedback.None);
-            return true;
+            ShowFeedback(SalesManagementContext.IsDemoMode
+                ? "SalesManagement_Demo の準備を確認できませんでした。デモデータを準備してから「接続を再試行」を押してください。"
+                : "接続を確認できませんでした。SQL Server LocalDB (MSSQLLocalDB) と SalesManagement データベースの状態を確認し、「接続を再試行」を押してください。",
+                LoginFeedback.ConnectionError);
+            return false;
         }
-        SetConnection("Failed");
-        ClearFieldErrors();
-        var failureMessage = result switch
-        {
-            DatabaseCheckResult.SchemaFailed => "DBには接続できましたが、必要なテーブルや列を準備できませんでした。DB管理者にスキーマと更新権限の確認を依頼してください。",
-            _ when SalesManagementContext.IsDemoMode => "SalesManagement_Demo の準備を確認できませんでした。デモデータを準備してから「接続を再試行」を押してください。",
-            _ when SalesManagementContext.IsPracticeMode => "SalesManagement_Practice を準備できませんでした。SQL Server LocalDB (MSSQLLocalDB) の状態を確認し、「接続を再試行」を押してください。",
-            _ => "接続を確認できませんでした。設定したSQL Serverとデータベースの状態を確認し、「接続を再試行」を押してください。既定の接続先はLocalDBのSalesManagementです。"
-        };
-        ShowFeedback(failureMessage, LoginFeedback.ConnectionError);
-        return false;
+        catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { return false; }
+        finally { SetBusy(false); }
     }
 
-    private static bool IsDemoReady(SalesManagementContext db)
+    private static async Task<bool> IsDemoReadyAsync(SalesManagementContext db, CancellationToken cancellationToken)
     {
         var connection = db.Database.GetDbConnection();
-        connection.Open();
+        await connection.OpenAsync(cancellationToken);
         using var command = connection.CreateCommand();
         command.CommandText = """
             SELECT 1 FROM sys.extended_properties
             WHERE DB_NAME() = N'SalesManagement_Demo' AND class = 0
               AND name = N'KansaiOADemoReady' AND CONVERT(nvarchar(32), value) = N'KansaiOA/v1';
             """;
-        return command.ExecuteScalar() is 1;
+        return await command.ExecuteScalarAsync(cancellationToken) is 1;
     }
-    private void Login(Action loggedIn)
+    private async Task LoginAsync(Action loggedIn)
     {
+        if (!DatabaseReady && !await PrepareDatabaseAsync()) return;
+        if (!CanEditCredentials) return;
         if (!int.TryParse(EmployeeId.Trim(), out var id) || id <= 0)
         {
             EmployeeIdInvalid = true;
@@ -187,7 +146,11 @@ public sealed class LoginViewModel : ViewModelBase
         ShowFeedback("", LoginFeedback.None);
         try
         {
-            var employee = BusinessService.Login(id, Password);
+            MEmployee? employee;
+            SetBusy(true);
+            try { employee = await BusinessService.LoginAsync(id, Password, lifetime); }
+            finally { SetBusy(false); }
+            if (lifetime.IsCancellationRequested) return;
             if (employee == null)
             {
                 Password = "";
@@ -200,8 +163,10 @@ public sealed class LoginViewModel : ViewModelBase
             loggedIn();
             Password = "";
         }
+        catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
         catch
         {
+            if (lifetime.IsCancellationRequested) return;
             SetConnection("Failed");
             ClearFieldErrors();
             ShowFeedback("ログインできませんでした。しばらくしてからもう一度お試しください。", LoginFeedback.ConnectionError);
@@ -216,6 +181,13 @@ public sealed class LoginViewModel : ViewModelBase
         FocusRequested?.Invoke("Login");
     }
     private void ClearFieldErrors() { EmployeeIdInvalid = PasswordInvalid = false; }
+    private void SetBusy(bool busy)
+    {
+        isBusy = busy;
+        Notify(nameof(CanEditCredentials));
+        LoginCommand.Refresh();
+        ChangePasswordCommand.Refresh();
+    }
     private void ShowFeedback(string text, LoginFeedback kind)
     {
         message = text; feedback = kind;

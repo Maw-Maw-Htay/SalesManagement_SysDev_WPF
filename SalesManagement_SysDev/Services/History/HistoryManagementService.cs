@@ -96,11 +96,25 @@ public static class HistoryManagementService
         var index = Math.Clamp(filter.PageIndex, 0, total == 0 ? 0 : (total - 1) / pageSize);
         if (total == 0) return new([], 0, 0, pageSize, counts);
 
-        // Merge only scalar audit keys in SQL, then load the detailed payload for this page.
-        var orderKeys = filter.Module is "" or OrdersModule ? orders?.Select(x => new { x.Id, x.RecordedAt, Source = 1 }) : null;
-        var employeeKeys = filter.Module is "" or EmployeesModule or MasterModule
-            ? assignments?.Select(x => new { x.Id, x.RecordedAt, Source = 0 }) : null;
-        var keys = await (orderKeys == null ? employeeKeys! : employeeKeys == null ? orderKeys : orderKeys.Concat(employeeKeys))
+        var orderPage = filter.Module is "" or OrdersModule ? orders : null;
+        var employeePage = filter.Module is "" or EmployeesModule or MasterModule ? assignments : null;
+        if (employeePage is null && orderPage is not null)
+        {
+            var entries = await orderPage.OrderByDescending(x => x.RecordedAt).ThenByDescending(x => x.Id)
+                .Skip(index * pageSize).Take(pageSize).ToListAsync(cancellationToken);
+            return new(entries.Select(ToEventRow).ToArray(), total, index, pageSize, counts);
+        }
+        if (orderPage is null && employeePage is not null)
+        {
+            var entries = await employeePage.OrderByDescending(x => x.RecordedAt).ThenByDescending(x => x.Id)
+                .Skip(index * pageSize).Take(pageSize).ToListAsync(cancellationToken);
+            return new(entries.Select(ToEventRow).ToArray(), total, index, pageSize, counts);
+        }
+
+        // Merge only scalar audit keys in SQL when both sources can be displayed together.
+        var orderKeys = orderPage!.Select(x => new { x.Id, x.RecordedAt, Source = 1 });
+        var employeeKeys = employeePage!.Select(x => new { x.Id, x.RecordedAt, Source = 0 });
+        var keys = await orderKeys.Concat(employeeKeys)
             .OrderByDescending(x => x.RecordedAt).ThenBy(x => x.Source).ThenByDescending(x => x.Id)
             .Skip(index * pageSize).Take(pageSize).ToListAsync(cancellationToken);
         var orderIds = keys.Where(x => x.Source == 1).Select(x => x.Id).ToArray();

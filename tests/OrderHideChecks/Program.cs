@@ -159,7 +159,7 @@ internal static class Program
 
         var older = new OrderOperationHistory { Id = 21, OrderId = 173, OfficeId = 1, RecordedAt = entry.RecordedAt };
         var newest = new OrderOperationHistory { Id = 22, OrderId = 173, OfficeId = 1, RecordedAt = entry.RecordedAt.AddSeconds(1) };
-        var detail = new OrderDetailViewModel(new OrderDetailSnapshot { OrderId = 173, OfficeId = 1 }, () => { }, () => { }, () => { }, () => { });
+        var detail = new OrderDetailViewModel(new OrderDetailSnapshot { OrderId = 173, OfficeId = 1 }, () => { }, () => { }, () => { }, () => { }, () => { });
         detail.SetHistory([older, entry, newest]);
         Check(detail.History.Select(value => value.Display.Entry.Id).SequenceEqual(new long[] { 22, 21, 20 }),
             "timeline sorts recorded timestamp descending with stable event ID ordering");
@@ -179,18 +179,19 @@ internal static class Program
 
     private static void CheckOrderDetails()
     {
-        var prints=0; var confirmations=0; var hides=0;
-        OrderDetailViewModel Model(OrderDetailSnapshot sample)=>new(sample,()=>confirmations++,()=>hides++,()=>prints++,()=>{});
+        var prints=0; var edits=0; var confirmations=0; var hides=0;
+        OrderDetailViewModel Model(OrderDetailSnapshot sample, bool readOnly = false) =>
+            new(sample, () => edits++, () => confirmations++, () => hides++, () => prints++, () => { }, readOnly);
         var draft=Model(DetailSample()); var confirmed=Model(DetailSample(1)); var hidden=Model(DetailSample(1,2));
-        Check(draft.HeaderStatus==new OrderDetailBadge("未確定","Warning") && draft.CanConfirm && !draft.CanPrint,
-            "draft details expose confirmation and an orange status while printing is unavailable");
+        Check(draft.HeaderStatus==new OrderDetailBadge("未確定","Warning") && draft.CanEdit && draft.CanConfirm && !draft.CanPrint,
+            "draft details expose confirmation/editing and an orange status while printing is unavailable");
         draft.PrintCommand.Execute(null);
         Check(prints==0 && draft.ShowPrintHint && draft.PrintHint=="受注確定後に印刷できます", "printing an unconfirmed order cannot invoke the existing print workflow");
         Check(confirmed.HeaderStatus==new OrderDetailBadge("確定済み","Success") && confirmed.ConfirmButtonText=="確定済み"
-            && !confirmed.ConfirmCommand.CanExecute(null) && confirmed.PrintCommand.CanExecute(null),
+            && !confirmed.EditCommand.CanExecute(null) && !confirmed.ConfirmCommand.CanExecute(null) && confirmed.PrintCommand.CanExecute(null),
             "confirmed details retain the existing edit/confirmation denial and enable printing");
-        confirmed.PrintCommand.Execute(null); confirmed.ConfirmCommand.Execute(null);
-        Check(prints==1 && confirmations==0, "confirmed print action delegates once without editing or confirming again");
+        confirmed.PrintCommand.Execute(null); confirmed.EditCommand.Execute(null); confirmed.ConfirmCommand.Execute(null);
+        Check(prints==1 && edits==0 && confirmations==0, "confirmed print action delegates once without editing or confirming again");
         Check(hidden.HeaderStatus==new OrderDetailBadge("非表示","Neutral") && hidden.ManagementStatus.Tone=="Neutral" && !hidden.CanHide,
             "hidden status remains distinct and neutral without changing the recorded state");
         SetRole("営業",2);
@@ -202,8 +203,8 @@ internal static class Program
         confirmed.SetHistory([],"検証用の取得失敗");
         Check(confirmed.HistoryCountText=="取得失敗" && confirmed.ShowHistoryNotice,
             "failed audit retrieval is distinguished from an empty recorded history");
-        draft.ConfirmCommand.Execute(null); draft.HideCommand.Execute(null);
-        Check(confirmations==1 && hides==1, "permitted actions delegate once to the existing workflows");
+        draft.EditCommand.Execute(null); draft.ConfirmCommand.Execute(null); draft.HideCommand.Execute(null);
+        Check(edits==1 && confirmations==1 && hides==1, "permitted actions delegate once to the existing workflows");
 
         foreach(var state in new[] {0,1})
         {
@@ -212,7 +213,7 @@ internal static class Program
             owner.Show(); Pump();
             var view=new F_OrderDetail(sample,owner);
             var closed=0;
-            var vm=new OrderDetailViewModel(sample,()=>{},()=>{},()=>{},()=>closed++);
+            var vm=new OrderDetailViewModel(sample,()=>{},()=>{},()=>{},()=>{},()=>closed++);
             vm.SetHistory(Enumerable.Range(1,24).Select(index=>new OrderOperationHistory
             {
                 Id=index,OrderId=173,OfficeId=1,RecordedAt=new DateTimeOffset(2026,11,2,10,0,0,TimeSpan.FromHours(9)).AddMinutes(index),
@@ -226,8 +227,12 @@ internal static class Program
             var body=(ScrollViewer)view.FindName("DetailBodyScroll");
             var header=(FrameworkElement)view.FindName("DetailHeader");
             var footer=(FrameworkElement)view.FindName("DetailFooter");
-            var edit=view.FindName("EditOrderButton");
-            var print=(Button)view.FindName("PrintOrderButton");
+            var actionBar = (Grid)view.FindName("DetailActionBar");
+            var actionButtons = FindVisualChildren<Button>(actionBar).ToArray();
+            Button[] VisibleActions() => actionButtons.Where(button => button.IsVisible).ToArray();
+            var visibleActions = VisibleActions();
+            string[] expectedActions = state == 0 ? ["ConfirmOrderButton", "EditOrderButton", "HideOrderButton"]
+                : ["PrintOrderButton", "HideOrderButton"];
             var expander=(Expander)view.FindName("DetailHistoryExpander");
             var historyGrid=(DataGrid)view.FindName("DetailHistoryGrid");
             var itemsGrid=(DataGrid)view.FindName("DetailItemsGrid");
@@ -236,9 +241,10 @@ internal static class Program
                 && vm.HeaderSummary.Contains("2026/11/02") && vm.HeaderSummary.Contains(sample.OfficeName),
                 "fixed header uses the selected order number, date and office");
             Check(((TextBlock)view.FindName("DetailHistoryCount")).Text=="24件", "collapsed history shows the actual retrieved count");
-            Check(edit == null && print.IsEnabled==(state==1)
-                && !expander.IsExpanded && ((Button)view.FindName("ConfirmOrderButton")).Visibility==(state==1 ? Visibility.Collapsed : Visibility.Visible),
+            Check(visibleActions.Select(button => button.Name).SequenceEqual(expectedActions)
+                && visibleActions.All(button => button.IsEnabled) && !expander.IsExpanded,
                 "compact action bar respects order rules and initially collapses history, state "+state);
+            var firstAction = visibleActions[0];
             foreach(var (width,height,label) in DetailLayoutSizes())
             {
                 host.Width=width; host.Height=height; host.UpdateLayout(); Pump();
@@ -251,12 +257,9 @@ internal static class Program
                 var itemScroll=FindVisualChild<ScrollViewer>(itemsGrid)!;
                 Check(itemsGrid.Columns.All(column=>column.ActualWidth>=28) && itemScroll.ScrollableWidth<1,
                     "all item columns fit without horizontal scrolling at width "+width);
-                var actions=(Grid)view.FindName("DetailActionBar");
                 var badge=(FrameworkElement)view.FindName("HeaderStatusBadge");
-                var confirm=(Button)view.FindName("ConfirmOrderButton");
-                var first=state==0 ? confirm : print;
-                Check(badge.TransformToAncestor(actions).Transform(new Point(badge.ActualWidth,0)).X
-                    <=first.TransformToAncestor(actions).Transform(new Point()).X,
+                Check(badge.TransformToAncestor(actionBar).Transform(new Point(badge.ActualWidth,0)).X
+                    <=firstAction.TransformToAncestor(actionBar).Transform(new Point()).X,
                     "status badge and existing actions do not overlap at width "+width);
             }
             Check(itemsGrid.Columns.Select(column=>column.Header.ToString())
@@ -350,7 +353,7 @@ internal static class Program
                     OfficeName="北大阪営業所",EmployeeName="検証担当者",StateFlag=1,OrderDate=new DateTime(2026,11,2),DeliveryDate=new DateTime(2026,11,9),
                     Lines=[new OrderDetailLine {ProductId=1,ProductCode="4902602600083",ProductName="24型フルHD液晶ディスプレイ",Quantity=1,UnitPrice=25800,Subtotal=25800}]
                 };
-                var preview=new OrderDetailViewModel(previewData,()=>{},()=>{},()=>{},()=>{});
+                var preview=new OrderDetailViewModel(previewData,()=>{},()=>{},()=>{},()=>{},()=>{});
                 preview.SetHistory(vm.History.Take(3).Select(row=>row.Display.Entry));
                 host.DataContext=preview;expander.IsExpanded=false;host.UpdateLayout();body.ScrollToTop();Pump();
                 Render(root,"order-detail-reference");
@@ -358,6 +361,12 @@ internal static class Program
                     $"compact order layout fits without hiding management information (overflow={body.ScrollableHeight}, body={body.ActualHeight}, history={historyGrid.ActualHeight}, footer={preview.FooterSummary})");
                 expander.IsExpanded=true;host.UpdateLayout();body.ScrollToBottom();Pump();
                 Render(root,"order-detail-reference-expanded");
+                host.DataContext = hidden;
+                Pump();
+                Check(VisibleActions() is [{ Name: "PrintOrderButton", IsEnabled: true }], "hidden confirmed detail shows the available print action");
+                host.DataContext = Model(sample, readOnly: true);
+                Pump();
+                Check(actionButtons.All(button => button.Visibility == Visibility.Collapsed), "read-only details hide the entire set of order actions");
                 host.DataContext=vm;host.UpdateLayout();Pump();
             }
             ((Button)view.FindName("DetailCloseButton")).Command.Execute(null);
@@ -611,7 +620,7 @@ internal static class Program
             && actualLines.All(line=>slipText.Contains(line.Pr.PrName)),
             "individual slip print document contains only the selected order and its persisted products");
         var records=OrderHistoryService.Read(db,new OrderHistoryFilter {OrderId=orderId.Value}).Rows;
-        var model=new OrderDetailViewModel(snapshot!,()=>{},()=>{},()=>{},()=>{});
+        var model=new OrderDetailViewModel(snapshot!,()=>{},()=>{},()=>{},()=>{},()=>{});
         model.SetHistory(records);
         Check(model.History.Count==records.Count && records.All(record=>record.OrderId==orderId),
             "existing audit query displays only recorded events for the selected real order");
@@ -640,7 +649,9 @@ internal static class Program
         host.Close();view.Close();owner.Close();
         Check(!db.ChangeTracker.HasChanges(),"read-only verification leaves the existing database unchanged");
         var login=new LoginViewModel(()=>throw new InvalidOperationException("Connection checks must not authenticate."),()=>{});
-        Check(login.PrepareDatabase() && login.DatabaseReady && login.LoginLabel=="ログイン",
+        var prepare = login.PrepareDatabaseAsync();
+        Wait(prepare);
+        Check(prepare.Result && login.DatabaseReady && login.LoginLabel=="ログイン",
             "the login screen's actual connection check reaches Ready without authenticating or initializing data");
     }
     private static OrderHideResult Hide(int id, string? reason=" 重複登録\r\n確認済み ", int? employee=null)
@@ -660,6 +671,7 @@ internal static class Program
         try
         {
             using (var db=Context()) { db.Database.EnsureCreated(); created=true; Seed(db); }
+            CheckLoginAgainstFixture();
             Check(!Hide(1,"　\r\n").Succeeded && !Hide(0).Succeeded && !Hide(99999).Succeeded, "service rejects whitespace, invalid and missing targets");
             SetRole("物流"); Check(!Hide(1).Succeeded,"service role denial");
             AppSession.Employee=null; Check(!Hide(1).Succeeded,"service unauthenticated denial");
@@ -708,6 +720,37 @@ internal static class Program
             if (created) {using var db=Context();db.Database.EnsureDeleted();Console.WriteLine("Disposable database removed: "+catalog);}
         }
     }
+
+    private static void CheckLoginAgainstFixture()
+    {
+        const string setting = "SALESMANAGEMENT_CONNECTION_STRING";
+        var original = Environment.GetEnvironmentVariable(setting);
+        Environment.SetEnvironmentVariable(setting, testConnection);
+        try
+        {
+            var rejected = BusinessService.LoginAsync(1, "wrong");
+            Wait(rejected);
+            Check(rejected.Result == null, "async login rejects an incorrect password");
+            using (var db = Context())
+                Check(db.MEmployees.Single().EmPasswordHash == null, "an incorrect password does not migrate legacy credentials");
+
+            var migrated = BusinessService.LoginAsync(1, "test");
+            Wait(migrated);
+            Check(migrated.Result is { EmId: 1, Po.PoName: "営業", EmPasswordHash: null },
+                "async login returns the assigned role without the password hash");
+            using (var db = Context())
+            {
+                var employee = db.MEmployees.Single();
+                Check(employee.EmPassword != "test" && EmployeePasswordHasher.Verify("test", employee.EmPasswordHash),
+                    "async login migrates the valid legacy password in the disposable database");
+            }
+            var signedIn = BusinessService.LoginAsync(1, "test");
+            Wait(signedIn);
+            Check(signedIn.Result?.EmId == 1, "async login accepts the migrated password on the next attempt");
+        }
+        finally { Environment.SetEnvironmentVariable(setting, original); }
+    }
+
     private static void Seed(SalesManagementContext db)
     {
         var office=new MSalesOffice {SoName="北大阪営業所"};

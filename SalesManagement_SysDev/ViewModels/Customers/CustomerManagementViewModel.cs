@@ -83,6 +83,7 @@ public sealed class CustomerManagementViewModel : ViewModelBase
     private readonly Func<(IReadOnlyList<CustomerRecord> Customers, IReadOnlyList<CustomerOffice> Offices)> loadDirectory;
     private List<CustomerRow> sourceRows = [];
     private CustomerRow[] filteredRows = [];
+    private bool updatingSelection;
     private List<CustomerOffice> offices = [];
     private string quickSearch = "", codeFilter = "", nameFilter = "", phoneFilter = "", addressFilter = "", feedback = "";
     private int? officeFilterId;
@@ -194,7 +195,7 @@ public sealed class CustomerManagementViewModel : ViewModelBase
     public void SelectTab(CustomerStatusTab tab)
     {
         if (tab == CustomerStatusTab.Hidden && !CanViewHidden) return;
-        foreach (var row in sourceRows) row.IsSelected = false;
+        SetSelection(sourceRows, false);
         ActiveTab = tab;
         ApplyFilters(resetPage: true);
     }
@@ -202,14 +203,24 @@ public sealed class CustomerManagementViewModel : ViewModelBase
     public void SelectAllVisible(bool selected)
     {
         if (!CanEditCustomers || ActiveTab == CustomerStatusTab.Hidden) return;
-        foreach (var row in filteredRows) row.IsSelected = selected && row.IsSelectable;
+        SetSelection(filteredRows, selected);
         NotifySelection();
     }
 
     public void ClearSelection()
     {
-        foreach (var row in sourceRows) row.IsSelected = false;
+        SetSelection(sourceRows, false);
         NotifySelection();
+    }
+
+    private void SetSelection(IEnumerable<CustomerRow> rows, bool selected)
+    {
+        updatingSelection = true;
+        try
+        {
+            foreach (var row in rows) row.IsSelected = selected && row.IsSelectable;
+        }
+        finally { updatingSelection = false; }
     }
 
     public void ClearConditions()
@@ -315,7 +326,7 @@ public sealed class CustomerManagementViewModel : ViewModelBase
         var ordered = sortDirection == ListSortDirection.Descending ? matches.OrderByDescending(key) : matches.OrderBy(key);
         filteredRows = ordered.ThenBy(x => x.Id).ToArray();
         var visible = filteredRows.ToHashSet();
-        foreach (var row in sourceRows.Where(x => x.IsSelected && !visible.Contains(x))) row.IsSelected = false;
+        SetSelection(sourceRows.Where(x => x.IsSelected && !visible.Contains(x)), false);
         ApplyPage(resetPage ? 1 : pageNumber);
         NotifyList(); NotifySelection();
     }
@@ -342,6 +353,7 @@ public sealed class CustomerManagementViewModel : ViewModelBase
     private void NotifyTabState() { Notify(nameof(CountText)); Notify(nameof(CanHideSelected)); Notify(nameof(CanSelectAll)); }
     private void NotifySelection()
     {
+        if (updatingSelection) return;
         Notify(nameof(SelectedCount)); Notify(nameof(VisibleSelectionState));
         Notify(nameof(CanHideSelected)); Notify(nameof(CanClearSelection)); Notify(nameof(CanSelectAll));
     }
