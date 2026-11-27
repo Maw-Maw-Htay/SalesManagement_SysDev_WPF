@@ -74,7 +74,7 @@ internal static class Program
     {
         AppSession.Employee = Employee("営業");
         Check(!EmployeeService.CanManage, "sales role cannot administer employees");
-        Check(!EmployeeService.Create(1, "社員", "000", 1, 1, "a123").Succeeded, "employee creation rejects unauthorized callers before database access");
+        Check(!EmployeeService.Create(1, 2, "社員", "000", 1, 1, "a123").Succeeded, "employee creation rejects unauthorized callers before database access");
         AppSession.Employee = Employee("物流");
         Check(!EmployeeService.CanManage, "logistics role cannot administer employees");
         AppSession.Employee = Employee("管理者");

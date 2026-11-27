@@ -19,7 +19,6 @@ internal static class Program
 {
     private static int checks;
     private static readonly List<string> bindingErrors = [];
-    private static readonly Assembly assembly = typeof(F_OrderUpdate).Assembly;
     private static string output = "";
 
     [STAThread]
@@ -35,10 +34,8 @@ internal static class Program
             PresentationTraceSources.DataBindingSource.Switch.Level = SourceLevels.Error;
             PresentationTraceSources.DataBindingSource.Listeners.Add(new BindingListener());
             SetRole("管理者");
-            if(args.Contains("--preview-only")) RenderLayout(1150,720,"update-ux-preview",true,count:2);
-            else if(args.Contains("--layout-only")) CheckLayouts();
-            else if(args.Contains("--database-only")) { }
-            else { CheckViewModel(); CheckQuantityInputs(); CheckUpdateWorkflow(); CheckInventoryStatus(); CheckCompletionRoutes(); CheckConcurrencySnapshot(); CheckLayouts(); }
+            CheckSavedOrderPolicy();
+            if (!args.Contains("--database-only")) CheckRegistrationInputs();
             if (!args.Contains("--skip-database")) CheckDatabase();
             else Console.WriteLine("SKIPPED: database integration tests (--skip-database).");
             Check(bindingErrors.Count == 0, "XAML binding errors: " + string.Join(" | ", bindingErrors));
@@ -71,68 +68,15 @@ internal static class Program
         }).ToList()
     };
 
-    private static void CheckViewModel()
+    private static void CheckSavedOrderPolicy()
     {
-        var source = new ControlledSource(); var closed = false;
-        var vm = new OrderUpdateViewModel(Sample(), saved => closed = saved, source);
-        Check(!vm.CanSave && !vm.HasUnsavedChanges && vm.Feedback == "変更はありません。", "initial state / save disabled");
-        var confirmations = 0;
-        Check(vm.TryApproveClose(() => { confirmations++; return false; }) && confirmations == 0, "clean close needs no confirmation");
-        vm.Lines[0].Quantity = "3";
-        Check(vm.CanSave && vm.Subtotal == 6170 && !vm.HasPendingQuantity && vm.HasUnsavedChanges,
-            "valid quantity immediately updates the preview and save state without Enter");
-        Check(vm.CanSave && vm.Subtotal == 6170 && vm.Tax == 617 && vm.Total == 6787, "quantity / document totals");
-        Check(vm.Lines[0].IsQuantityChanged && vm.HasUnsavedChanges, "quantity dirty marker");
-        Check(!vm.TryApproveClose(() => { confirmations++; return false; }) && confirmations == 1, "continue editing cancels close");
-        Check(vm.TryApproveClose(() => true), "discard accepts close");
-        vm.Lines[0].Quantity = "2";
-        Check(!vm.HasUnsavedChanges && !vm.CanSave && vm.Subtotal==4936, "reverting quantity immediately restores the clean original state");
-        Check(typeof(OrderUpdateLine).GetProperty(nameof(OrderUpdateLine.UnitPrice))!.SetMethod == null
-            && vm.Lines[0].UnitPrice == 1234, "unit price is an immutable display value");
-        foreach (var value in new[] { "", "abc", "-1", "0", "1.5", "1,2", "2147483648" })
+        foreach (var role in new[] { "管理者", "営業", "物流" })
         {
-            vm.Lines[0].Quantity = value;
-            Check(!vm.CanSave && vm.IsError && vm.Lines[0].QuantityError.Length > 0, "invalid quantity: " + value);
+            SetRole(role);
+            var saved = Sample();
+            Check(!BusinessService.UpdateOrder(saved.OrderId, 1, 1, 1, 1, saved.OrderDate, null, 0, 0, null,
+                "変更", [], saved, out var reason) && reason.Contains("保存済み"), role + " cannot edit a saved order");
         }
-        vm.Lines[0].Quantity = "10000000";
-        Check(!vm.CanSave && vm.Lines[0].QuantityError.Contains("行合計"), "quantity change exceeds stored line amount range");
-        Check(vm.Subtotal == 4936, "invalid edits retain last valid totals");
-        vm.Lines[0].Quantity = "2";
-        var free = Sample(1);
-        free.Lines[0] = new OrderDetailLine { DetailId=1, ProductId=1, Quantity=2, UnitPrice=0, Subtotal=0 };
-        var freeVm = new OrderUpdateViewModel(free, _ => { }); freeVm.Lines[0].Quantity="3";
-        Check(freeVm.CanSave && freeVm.Total == 0 && freeVm.Lines[0].UnitPrice == 0, "stored zero unit price remains zero");
-        vm.Remarks = new string('あ', 51);
-        Check(!vm.CanSave && vm.RemarksError.Length > 0, "remarks max length");
-        vm.Remarks = "午前中に納品";
-        Check(vm.CanSave && vm.HasUnsavedChanges, "remarks dirty detection");
-        source.Pending = new TaskCompletionSource<OrderUpdateResult>();
-        var saving = vm.SaveAsync();
-        Check(vm.IsBusy && !vm.CanSave && !vm.CloseCommand.CanExecute(null) && !vm.CanEdit && vm.Feedback == "保存中…", "saving state locks edits / close");
-        Check(!vm.TryApproveClose(() => true), "system close blocked while saving");
-        Wait(vm.SaveAsync()); Check(source.Calls == 1, "duplicate save suppressed");
-        source.Pending.SetResult(new(false, "保存できませんでした。再試行してください。")); Wait(saving);
-        Check(!closed && vm.CanSave && vm.Remarks == "午前中に納品" && vm.IsError, "failed save preserves input and permits retry");
-        source.Pending = null; source.Throw = true; Wait(vm.SaveAsync());
-        Check(!closed && vm.CanSave && vm.Feedback.Contains("入力内容は保持"), "exception preserves input");
-        source.Throw = false; Wait(vm.SaveAsync());
-        Check(closed && vm.HasSaved && !vm.HasUnsavedChanges && !vm.CanSave && vm.Feedback == "受注を更新しました。", "success only after awaited save / clear dirty state");
-        var legacy = Sample(1);
-        legacy.Lines[0] = new OrderDetailLine { DetailId = 1, ProductId = 1, Quantity = 3, UnitPrice = 33, Subtotal = 100 };
-        var legacyVm = new OrderUpdateViewModel(legacy, _ => { }); legacyVm.Remarks = "備考だけ";
-        Check(legacyVm.Subtotal == 100 && legacyVm.Lines[0].TryRead(out _, out _, out var subtotal) && subtotal == 100, "remarks edit preserves legacy rounded stored amounts");
-        legacyVm.Lines[0].Quantity="4";
-        Check(legacyVm.Subtotal==132, "automatic quantity updates use the stored unit price");
-        legacyVm.Lines[0].Quantity="3";
-        Check(legacyVm.Subtotal==100, "automatic reversion preserves the original legacy line total");
-        foreach (var sample in new[] { Sample(state: 1), Sample(hidden: 2) })
-        {
-            var locked = new OrderUpdateViewModel(sample, _ => { }); locked.Remarks = "変更";
-            Check(!locked.CanEdit && !locked.CanSave, "confirmed/hidden read-only");
-        }
-        SetRole("営業"); Check(new OrderUpdateViewModel(Sample(), _ => { }).CanEdit, "sales can edit quantity and remarks");
-        SetRole("物流"); Check(!new OrderUpdateViewModel(Sample(), _ => { }).CanEdit, "role deny by default");
-        SetRole("営業", 2); Check(!new OrderUpdateViewModel(Sample(), _ => { }).CanEdit, "office scope in UI");
         SetRole("管理者");
     }
 
@@ -143,229 +87,6 @@ internal static class Program
             Dispatcher.CurrentDispatcher.Invoke(DispatcherPriority.Background, new Action(() => { }));
         if (!task.IsCompleted) throw new TimeoutException();
         task.GetAwaiter().GetResult();
-    }
-
-    private static void CheckUpdateWorkflow()
-    {
-        var saved=Sample(); var source=new ControlledSource(); var lookups=new UpdateLookupSource();
-        var allowCustomer=false; var confirmations=0; var completed=0;
-        using var vm=new OrderUpdateViewModel(saved,success=>{if(success) completed++;},source,lookups,
-            _=>{confirmations++;return allowCustomer;});
-        vm.Load();
-        Check(vm.OrderDate==saved.OrderDate && vm.DeliveryDate==saved.DeliveryDate && vm.Detail.EmployeeName==saved.EmployeeName
-            && vm.CustomerDisplay.Contains("C-0001") && !vm.HasUnsavedChanges,"update loads original customer, dates, employee and clean draft");
-        foreach(var query in new[] {"8","0008","C-0008"})
-        {vm.Entry.CustomerSearch=query;Check(vm.Entry.Clients.Any(client=>client.ClId==8),"shared customer search resolves "+query);}
-        var candidate=vm.Entry.Clients.Single(client=>client.ClId==8);
-        vm.SelectCustomerCommand.Execute(candidate);
-        Check(confirmations==1 && vm.CustomerDisplay.Contains("C-0001") && source.Calls==0,"cancelled customer confirmation preserves original without writing");
-        allowCustomer=true;vm.SelectCustomerCommand.Execute(candidate);
-        Check(vm.CustomerDisplay.Contains("C-0008") && vm.HasUnsavedChanges && source.Calls==0,"confirmed customer change stays in draft until save");
-        vm.OrderDate=saved.OrderDate.AddDays(1);vm.DeliveryDate=saved.DeliveryDate!.Value.AddDays(2);vm.Remarks="更新する備考";
-        vm.Entry.SelectedProduct=vm.Entry.Products.Single(product=>product.PrId==2);vm.Entry.Quantity="2";vm.AddLineCommand.Execute(null);
-        Check(vm.Lines.Count==2 && vm.Lines[1].Quantity=="4" && vm.Lines[1].UnitPrice==1234,
-            "shared duplicate add merges into the saved row using its saved price");
-        vm.Entry.SelectedProduct=vm.Entry.Products.Single(product=>product.PrId==3);vm.Entry.Quantity="4";vm.AddLineCommand.Execute(null);
-        var added=vm.Lines.Single(line=>line.ProductId==3);var amount=vm.Subtotal;
-        Check(vm.Lines.Count==3 && added.IsNew && added.UnitPrice==2000 && vm.Remarks=="更新する備考" && source.Calls==0,
-            "new product uses catalog price and preserves remarks without a database write");
-        Check(vm.RemoveLineCommand.CanExecute(vm.Lines[0]),"existing saved detail can be removed during an order update");
-        vm.RemoveLineCommand.Execute(added);Check(vm.Lines.Count==2 && vm.HasUndo,"new draft row removal reuses registration Undo");
-        vm.UndoRemoveLineCommand.Execute(null);added=vm.Lines.Single(line=>line.ProductId==3);
-        Check(vm.Lines.Count==3 && added.Quantity=="4" && vm.Subtotal==amount && added.UnitPrice==2000,"shared Undo restores quantity, original price and totals");
-        lookups.StockState=InventoryStockState.Available;
-        vm.Entry.SelectedProduct=vm.Entry.Products.Single(product=>product.PrId==3);vm.Entry.SelectedProduct=null;
-        added.Quantity="6";
-        Check(added.StockStatus.Text=="在庫不足：1点" && added.StockStatus.Tooltip.Contains("現在庫：5点") && vm.CanSave,
-            "quantity changes refresh actual-stock shortage wording without blocking update");
-        lookups.StockState=InventoryStockState.QueryFailed;
-        vm.Entry.SelectedProduct=vm.Entry.Products.Single(product=>product.PrId==3);
-        Check(vm.EntryStockStatus.Text=="在庫情報の取得に失敗しました" && added.StockStatus==vm.EntryStockStatus,
-            "a failed product lookup stays visible below the matching row's quantity");
-        vm.Entry.ShowProductDetailsCommand.Execute(null);
-        Check(vm.Entry.IsProductDetailsVisible && !vm.CanSave,"shared product details keeps the pending update and suspends save");
-        vm.EscapeCommand.Execute(null);vm.Entry.SelectedProduct=null;
-        Check(!vm.Entry.IsProductDetailsVisible && vm.Remarks=="更新する備考" && vm.Lines.Count==3,"Escape closes only product details and retains draft");
-        vm.SetDateInputText(false,"invalid date");Check(!vm.CanSave,"invalid typed date blocks update without replacing saved date");
-        vm.SetDateInputText(false,vm.OrderDate!.Value.ToString("d"));
-        Wait(vm.SaveAsync());
-        Check(completed==1 && source.Calls==1 && source.Expected==saved && source.Edited!.CustomerId==8
-            && source.Edited.OrderId==saved.OrderId && source.Edited.EmployeeId==saved.EmployeeId && source.Expected.OrderDate==saved.OrderDate
-            && source.SubmittedLines!.Single(line=>line.ProductId==3).DetailId==null,
-            "save submits original concurrency snapshot separately from edited header and newly added detail");
-        Wait(vm.SaveAsync());Check(source.Calls==1 && !vm.CanEdit && !vm.HasUnsavedChanges,"successful save retains read-only contents and prevents a second save");
-    }
-
-    private static void CheckInventoryStatus()
-    {
-        var saved=Sample();
-        saved.Lines[0]=new OrderDetailLine {DetailId=1,ProductId=3,Quantity=9,UnitPrice=1234,Subtotal=11106};
-        var source=new ControlledSource();
-        var lookups=new UpdateLookupSource();
-        using var vm=new OrderUpdateViewModel(saved,_=>{},source,lookups);
-        vm.Load();
-        var row=vm.Lines[0];
-        Check(row.StockStatus.Text=="在庫情報が未登録です" && row.StockStatus.Tone==OrderStockTone.Warning && !vm.HasUnsavedChanges,
-            "missing stock is amber and does not dirty the draft");
-        vm.Remarks="受注更新の在庫表示を検証";
-        foreach(var (state,quantity,text,tone) in new[]
-        {
-            (InventoryStockState.Available,15,"在庫：15点",OrderStockTone.Normal),
-            (InventoryStockState.Available,0,"在庫がありません",OrderStockTone.Danger),
-            (InventoryStockState.Available,5,"在庫不足：4点",OrderStockTone.Danger),
-            (InventoryStockState.Available,-1,"在庫情報を確認できません",OrderStockTone.Warning),
-            (InventoryStockState.InactiveRecord,0,"有効な在庫情報がありません",OrderStockTone.Warning),
-            (InventoryStockState.DuplicateActiveRecords,0,"在庫情報が重複しています",OrderStockTone.Warning),
-            (InventoryStockState.MissingRecord,0,"在庫情報が未登録です",OrderStockTone.Warning)
-        })
-        {
-            lookups.StockState=state;lookups.StockQuantity=quantity;
-            Wait(vm.RefreshInventoryAsync());
-            Check(row.StockStatus.Text==text && row.StockStatus.Tone==tone && vm.CanSave && row.Quantity=="9" && source.Calls==0,
-                "refresh keeps stock and draft separate: "+text);
-        }
-        lookups.StockState=InventoryStockState.Available;lookups.StockQuantity=5;
-        Wait(vm.RefreshInventoryAsync());
-        row.Quantity="5";
-        Check(row.StockStatus.Text=="在庫：5点" && vm.Subtotal==7*1234 && vm.CanSave,
-            "quantity edit immediately clears the shortage and recalculates totals");
-        lookups.ThrowOnStock=true;
-        Wait(vm.RefreshInventoryAsync());
-        Check(row.StockStatus.Text=="在庫情報の取得に失敗しました" && row.StockStatus.Tone==OrderStockTone.Warning
-            && vm.CanSave && source.Calls==0, "failed stock refresh is distinct from missing and zero stock");
-        Wait(vm.SaveAsync());
-        Check(vm.HasSaved && source.Calls==1 && source.Edited!.OrderId==saved.OrderId
-            && source.Edited.EmployeeId==saved.EmployeeId && source.SubmittedLines!.Single(line=>line.ProductId==3).Quantity==5,
-            "an unconfirmed order saves through the existing workflow with an unverified stock lookup");
-        using var registration = new OrderRegistrationViewModel(() => { }, source: lookups);
-        registration.Load();
-        registration.SelectedOffice = registration.Offices.First();
-        registration.SelectedClient = registration.Clients.First();
-        registration.SelectedProduct = registration.Products.Single(product => product.PrId == 3);
-        Check(registration.StockStatus.Text == "在庫情報の取得に失敗しました" && registration.StockStatus.Tone == OrderStockTone.Warning
-            && registration.CanAddProduct, "registration shows stock lookup failures separately and still accepts the line");
-    }
-
-    [DllImport("user32.dll")]
-    [return:MarshalAs(UnmanagedType.Bool)]
-    private static extern bool IsWindowEnabled(IntPtr window);
-
-    private static void CheckCompletionRoutes()
-    {
-        foreach(var route in new[] {"Close","Escape","List","Details"})
-        {
-            var source=new ControlledSource();var lookups=new UpdateLookupSource();var lists=0;var details=0;
-            using var editor=new F_OrderUpdate(Sample(),()=>lists++,_=>details++,source,lookups);
-            var root=editor.DetachView();
-            var host=new Window {Content=root,Width=1150,Height=760,Left=-30000,Top=-30000,ShowInTaskbar=false,ShowActivated=false};
-            host.Show();host.UpdateLayout();
-            var vm=(OrderUpdateViewModel)((FrameworkElement)root).DataContext;
-            vm.Remarks="完了経路の検証";
-            Exception? failure=null;
-            Dispatcher.CurrentDispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle,new Action(()=>
-            {
-                var notice=Application.Current.Windows.OfType<F_OrderNotice>().Single();
-                try
-                {
-                    Check(!IsWindowEnabled(new WindowInteropHelper(host).Handle),"completion is actually modal: "+route);
-                    var model=(OrderNoticeViewModel)notice.DataContext;
-                    Check(model.Title=="受注更新完了" && model.Message.Contains(vm.Detail.OrderNumber),"completion displays the saved order number: "+route);
-                    if(route=="Close") model.CloseCommand.Execute(null);
-                    else if(route=="Escape") notice.InputBindings.OfType<KeyBinding>().Single().Command.Execute(null);
-                    else if(route=="List") model.CancelCommand.Execute(null);
-                    else model.ConfirmCommand.Execute(null);
-                }
-                catch(Exception ex) {failure=ex;notice.Close();}
-            }));
-            Wait(vm.SaveAsync());FlushBindings();if(failure!=null) throw failure;
-            Check(vm.HasSaved && host.IsVisible && host.OwnedWindows.Count==0 && IsWindowEnabled(new WindowInteropHelper(host).Handle)
-                && ((ScrollViewer)editor.FindName("ContentScroller")).IsEnabled,
-                "completion closes fully and restores host interaction and scrolling: "+route);
-            Check(lists==(route=="List" ? 1 : 0) && details==(route=="Details" ? 1 : 0)
-                && !vm.SaveCommand.CanExecute(null) && source.Calls==1 && vm.Remarks=="完了経路の検証",
-                "completion route preserves saved contents without duplicate persistence: "+route);
-            if(route=="Close") Render((FrameworkElement)root,"update-completed-inline");
-            host.Close();
-        }
-    }
-
-    private static void CheckQuantityInputs()
-    {
-        var saveSource = new ControlledSource();
-        var lookups = new UpdateLookupSource { TestedProductId=1, StockState=InventoryStockState.Available };
-        using var editor = new F_OrderUpdate(Sample(), updateSource:saveSource, lookupSource:lookups);
-        var vm = (OrderUpdateViewModel)editor.DataContext;
-        var root = (FrameworkElement)editor.Content; editor.Content = null;
-        var host = new Window { Content=root, DataContext=vm, Width=1050, Height=720, Left=-30000, Top=-30000,
-            WindowStyle=WindowStyle.None, ShowInTaskbar=false, ShowActivated=false };
-        host.Show(); host.UpdateLayout();
-        var grid = (DataGrid)editor.FindName("ItemsGrid");
-        var row = (DataGridRow)grid.ItemContainerGenerator.ContainerFromItem(vm.Lines[0]);
-        var number = Descendants<QuantityUpDown>(row).Single(); number.ApplyTemplate();
-        var stock = Descendants<TextBlock>(row).Single(text=>text.Text=="在庫：5点");
-        Check(stock.TextWrapping==TextWrapping.NoWrap && stock.TransformToAncestor(row).Transform(new Point()).Y
-            >= number.TransformToAncestor(row).Transform(new Point()).Y+number.ActualHeight,
-            "actual stock is visible on one line directly below the quantity control");
-        var quantityText = (TextBox)number.Template.FindName("PART_Input", number);
-        var plus=(Button)number.Template.FindName("PART_Increase",number);
-        var minus=(Button)number.Template.FindName("PART_Decrease",number);
-        Check(number.Text=="2" && plus.IsEnabled && minus.IsEnabled
-            && plus.TransformToAncestor(number).Transform(new Point()).Y < minus.TransformToAncestor(number).Transform(new Point()).Y,
-            "update quantity uses the same stacked plus/minus control as registration");
-        plus.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); FlushBindings();
-        Check(vm.Lines[0].Quantity=="3" && vm.Subtotal==6170 && vm.Tax==617 && vm.Total==6787 && vm.CanSave
-            && vm.HasUnsavedChanges && !vm.HasPendingQuantity && !vm.TryApproveClose(() => false) && saveSource.Calls==0,
-            "plus immediately updates quantity, tax, totals and save eligibility without writing to the database");
-        minus.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); FlushBindings();
-        Check(vm.Lines[0].Quantity=="2" && vm.Subtotal==4936 && !vm.CanSave && !vm.HasUnsavedChanges,
-            "minus immediately restores the original quantity and amounts");
-        quantityText.Text="37"; FlushBindings();
-        Check(vm.Lines[0].Quantity=="37" && vm.CanSave && vm.Subtotal==39*1234 && vm.Tax==4813 && vm.Total==52939
-            && vm.Lines[0].TotalText=="¥50,224" && vm.Lines[0].UnitPrice==1234 && saveSource.Calls==0,
-            "direct numeric input immediately recalculates row and document totals while preserving the saved price");
-        Check(!Descendants<TextBlock>(row).Any(text=>text.Text.Contains("Enter")) && !vm.Feedback.Contains("Enter"),
-            "automatic quantity entry displays no Enter confirmation hint");
-        row.IsSelected=true;FlushBindings();
-        Check(stock.Text=="在庫不足：32点" && Equals(stock.Foreground,stock.FindResource("ThemeDangerText"))
-            && Equals(row.Background,row.FindResource("ThemePaleBlue")),"the selected row retains red shortage text on a subtle background");
-        lookups.StockState=InventoryStockState.MissingRecord;
-        Wait(vm.RefreshInventoryAsync());FlushBindings();
-        Check(stock.Text=="在庫情報が未登録です" && Equals(stock.Foreground,stock.FindResource("ThemeWarningText")),
-            "a fresh missing lookup is amber in the existing quantity cell");
-        Check(PressEnter(number) && vm.Subtotal==39*1234 && saveSource.Calls==0,
-            "Enter is consumed without adding a confirmation step or saving the order");
-        Render(root,"update-quantity-updown");
-        foreach(var value in new[] { "0", "-1", "1.5", "abc", "" })
-        {
-            quantityText.Text=value; FlushBindings();
-            Check(!vm.CanSave && vm.Lines[0].QuantityError.Length>0, "invalid automatic update input blocks saving: "+value);
-            quantityText.RaiseEvent(new KeyboardFocusChangedEventArgs(Keyboard.PrimaryDevice,Environment.TickCount,quantityText,host)
-                { RoutedEvent=Keyboard.LostKeyboardFocusEvent });
-            Check(vm.Lines[0].Quantity==value && vm.Subtotal==39*1234 && saveSource.Calls==0, "invalid update text and the last valid amount survive focus loss: "+value);
-        }
-        quantityText.Text="1"; FlushBindings();
-        Check(!minus.IsEnabled && plus.IsEnabled && vm.CanSave && vm.Subtotal==3*1234,
-            "correcting invalid input immediately recovers the totals and save state; decrement stops at one");
-        quantityText.SelectAll();
-        foreach(var value in new[] { "0", "-1", "1.5", "abc", "2147483648" })
-        {
-            var paste=new DataObjectPastingEventArgs(new DataObject(DataFormats.UnicodeText,value),false,DataFormats.UnicodeText)
-                { RoutedEvent=DataObject.PastingEvent };
-            quantityText.RaiseEvent(paste);
-            Check(paste.CommandCancelled && number.Text=="1", "update numeric paste rejects invalid or oversized input: "+value);
-        }
-        quantityText.Text=vm.Lines[0].MaximumQuantity.ToString(CultureInfo.InvariantCulture); FlushBindings();
-        Check(!plus.IsEnabled && minus.IsEnabled && vm.CanSave, "automatic update quantity respects the existing line amount maximum");
-        quantityText.Text="2"; FlushBindings();
-        Check(!vm.HasUnsavedChanges && number.Text=="2", "update numeric control reflects reverted quantity");
-        var large=Sample(1).Lines[0];
-        large=new OrderDetailLine { DetailId=large.DetailId, ProductId=large.ProductId, Quantity=1234, UnitPrice=1, Subtotal=1234 };
-        Check(new OrderUpdateLine(large).Quantity=="1234", "stored quantities above one thousand load as editable numeric text");
-        number.IsEnabled=false; FlushBindings();
-        Check(!quantityText.IsEnabled && !plus.IsEnabled && !minus.IsEnabled, "disabled update numeric control blocks text and step buttons");
-        host.Close(); editor.Close();
-
-        CheckRegistrationInputs();
     }
 
     private static void CheckRegistrationInputs()
@@ -588,110 +309,8 @@ internal static class Program
         return false;
     }
 
-    private static bool PressEnter(QuantityUpDown number)
-    {
-        var input = (TextBox)number.Template.FindName("PART_Input", number);
-        var key = new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(input), Environment.TickCount, Key.Enter)
-            { RoutedEvent=Keyboard.PreviewKeyDownEvent };
-        input.RaiseEvent(key); FlushBindings();
-        return key.Handled;
-    }
-
     private static void FlushBindings() => Dispatcher.CurrentDispatcher.Invoke(DispatcherPriority.Background, new Action(() => { }));
 
-    private static void CheckConcurrencySnapshot()
-    {
-        var snapshot = Sample(1);
-        var matches = typeof(OrderUpdateRules).GetMethod("Matches", BindingFlags.Static | BindingFlags.NonPublic)!;
-        TOrder Current() => new()
-        {
-            OrId=snapshot.OrderId, SoId=snapshot.OfficeId, ClId=snapshot.CustomerId, EmId=snapshot.EmployeeId,
-            OrDate=snapshot.OrderDate, OrDeliveryDate=snapshot.DeliveryDate, OrStateFlag=0, OrFlag=0,
-            TOrderDetails=[new TOrderDetail { OrDetailId=1, PrId=1, OrQuantity=2, OrTotalPrice=2468 }]
-        };
-        Check((bool)matches.Invoke(null, [snapshot, Current()])!, "matching concurrency snapshot");
-        foreach (var change in new Action<TOrder>[]
-        {
-            order => order.ClCharge="変更済み", order => order.TOrderDetails.First().OrQuantity=3,
-            order => order.TOrderDetails.First().OrTotalPrice=2500, order => order.OrStateFlag=1,
-            order => order.OrFlag=2, order => order.ClId=2, order => order.SoId=2, order => order.EmId=2,
-            order => order.OrDeliveryDate=null, order => order.TOrderDetails.Clear(),
-            order => order.TOrderDetails.First().PrId=2
-        })
-        {
-            var current = Current(); change(current);
-            Check(!(bool)matches.Invoke(null, [snapshot, current])!, "changed header/detail concurrency snapshot rejected");
-        }
-    }
-
-    private static void CheckLayouts()
-    {
-        var calculate = assembly.GetType("SalesManagement_SysDev.RegistrationWindowPlacement")!.GetMethod("Calculate", BindingFlags.NonPublic | BindingFlags.Static)!;
-        foreach (var (width, height) in new[] { (1920,1080), (1600,900), (1366,768), (1280,720) })
-        foreach (var scale in new[] { 1d, 1.25d, 1.5d })
-        {
-            var work = new Rect(-width, 80, width, height - 40 * scale);
-            var placement = calculate.Invoke(null, [work, work, scale, scale, 1050d, 720d, true, 900d, 580d])!;
-            var type = placement.GetType();
-            var bounds = (Rect)type.GetProperty("Pixels")!.GetValue(placement)!;
-            var label = $"{width}x{height}-{scale * 100:0}";
-            Check(work.Contains(bounds) && bounds.Width <= width * .95 && bounds.Height <= work.Height * .90, "monitor/taskbar bounds " + label);
-            Check(Math.Abs(bounds.Left - (work.Left + (work.Width - bounds.Width)/2)) <= 1, "owner centering / negative monitor origin " + label);
-            RenderLayout(bounds.Width/scale, bounds.Height/scale, label, width == 1920 && scale == 1 || width == 1280 && scale == 1.5);
-        }
-        RenderLayout(1050, 720, "validation", true, invalid: true);
-    }
-
-    private static void RenderLayout(double width, double height, string name, bool saveImage, bool invalid = false,int count=30)
-    {
-        var editor = new F_OrderUpdate(Sample(count),updateSource:new ControlledSource(),lookupSource:new UpdateLookupSource());
-        var vm = (OrderUpdateViewModel)editor.DataContext;
-        if (invalid) vm.Lines[0].Quantity = "-1";
-        if(count==2) vm.Load();
-        var root = (FrameworkElement)editor.Content; editor.Content = null;
-        var host = new Window { Content = root, DataContext = vm, Width = width, Height = height, Left = -30000, Top = -30000,
-            WindowStyle = WindowStyle.None, ResizeMode = ResizeMode.NoResize, ShowInTaskbar = false, ShowActivated = false };
-        host.Show(); host.UpdateLayout();
-        host.UpdateLayout(); Dispatcher.CurrentDispatcher.Invoke(DispatcherPriority.Background, new Action(() => { }));
-        var header = (FrameworkElement)editor.FindName("Header");
-        var footer = (FrameworkElement)editor.FindName("Footer");
-        var save = (Button)editor.FindName("SaveButton");
-        var grid = (DataGrid)editor.FindName("ItemsGrid");
-        var scroller = (ScrollViewer)editor.FindName("ContentScroller");
-        Check(Math.Abs(header.ActualHeight-68)<1 && Math.Abs(footer.ActualHeight-64)<1 && save.ActualHeight==40,
-            "fixed header/footer/button " + name);
-        var buttonPoint = save.TransformToAncestor(root).Transform(new Point());
-        Check(buttonPoint.X >= 0 && buttonPoint.X + save.ActualWidth <= root.ActualWidth + 1
-            && buttonPoint.Y + save.ActualHeight <= root.ActualHeight + 1, "save button visible " + name);
-        var overflow=Descendants<ScrollViewer>(root).Where(scroll=>scroll.ScrollableWidth>=1).ToArray();
-        if(overflow.Length>0) Render(root,"overflow-"+name);
-        Check(overflow.Length==0,"no horizontal scrolling "+name+" "+string.Join(";",overflow.Select(scroll=>$"{scroll.Name}:{scroll.ScrollableWidth}/{scroll.ViewportWidth}/{scroll.ExtentWidth}")));
-        Check(Descendants<ScrollViewer>(root).Count(scroll => scroll.ComputedVerticalScrollBarVisibility == Visibility.Visible) <= 2,
-            "only the independent input and item panes scroll " + name);
-        var firstRow = grid.ItemContainerGenerator.ContainerFromItem(vm.Lines[0]) as DataGridRow;
-        if (firstRow != null)
-        {
-            Check(Descendants<QuantityUpDown>(firstRow).All(input => input.ActualHeight >= 36
-                && input.TransformToAncestor(firstRow).Transform(new Point()).Y + input.ActualHeight <= firstRow.ActualHeight + 1), "numeric inputs fit row " + name);
-            Check(Descendants<QuantityUpDown>(firstRow).Count() == 1
-                && Descendants<TextBlock>(firstRow).Any(text => System.Windows.Automation.AutomationProperties.GetName(text) == "単価"
-                    && text.Text == "¥1,234"), "unit price displayed without an input control " + name);
-        }
-        if (saveImage) Render(root, name);
-        grid.ScrollIntoView(vm.Lines[^1]); host.UpdateLayout();
-        Check(grid.ItemContainerGenerator.ContainerFromItem(vm.Lines[^1])!=null,"last order item accessible "+name);
-        scroller.ScrollToBottom();host.UpdateLayout();
-        var remarks=(FrameworkElement)editor.FindName("RemarksInput");
-        var point=remarks.TransformToAncestor(scroller).Transform(new Point());
-        Check(point.Y>=-1 && point.Y+remarks.ActualHeight<=scroller.ActualHeight+1,"remarks accessible in independent input pane "+name);
-        var totals=(FrameworkElement)editor.FindName("AmountSummary");
-        var totalsPosition=totals.TransformToAncestor(root).Transform(new Point());
-        var footerPosition=footer.TransformToAncestor(root).Transform(new Point());
-        Check(totalsPosition.Y+totals.ActualHeight<=footerPosition.Y+1,"totals remain fixed above footer "+name);
-        Check(editor.InputBindings.OfType<KeyBinding>().Any(key => key.Key == Key.Escape), "Escape close route " + name);
-        if (invalid) vm.Lines[0].Quantity = "2";
-        host.Close(); editor.Close();
-    }
     private static IEnumerable<T> Descendants<T>(DependencyObject item) where T : DependencyObject
     {
         for (var index = 0; index < VisualTreeHelper.GetChildrenCount(item); index++)
@@ -725,71 +344,127 @@ internal static class Program
         try
         {
             using (var db = TestContext()) { db.Database.EnsureCreated(); created = true; Seed(db); }
-            var original = Snapshot();
-            Check(Save(original, "備考だけ", Updates(original)).Succeeded, "database commit / remarks update");
+            int orderId;
+            int customerOffice;
             using (var db = TestContext())
             {
-                Check(db.TOrderDetails.Single().OrTotalPrice == 100, "database preserves untouched legacy line amount");
-                var audit = db.OrderOperationHistories.Single();
-                Check(audit.ActorEmployeeId == 1 && audit.OfficeId == 1 && audit.RecordedAt != default
-                    && audit.Operation == OrderHistoryOperations.Updated && audit.Details.Contains("備考"), "audit actor/time/office/change recorded");
-            }
-            var current = Snapshot();
-            var updated = Updates(current, quantity: 4);
-            Check(Save(current, "数量変更", updated).Succeeded, "database quantity change uses stored unit price");
-            using (var db = TestContext())
-                Check(db.TOrderDetails.Single().OrTotalPrice == 132 && db.TOrderDetails.Single().OrQuantity == 4
-                    && db.MProducts.Single().Price == 9999
-                    && db.TOrders.Single().OrStateFlag == 0 && db.TChumons.Count() == 0 && db.TSales.Count() == 0
-                    && db.TStocks.Single().StQuantity == 50, "ordinary update leaves confirmation / stock / sales unchanged");
-            Check(Snapshot().Lines[0].UnitPrice == 33, "stored unit price preserved after quantity update despite different catalog price");
-            var conflict = Save(current, "古いウィンドウ", updated);
-            Check(!conflict.Succeeded && conflict.Message.Contains("他の利用者"), "stale editor concurrency conflict");
-            current = Snapshot();
-            Check(!Save(current, "", Updates(current, quantity: 0)).Succeeded, "service rejects zero quantity");
-            Check(!Save(current, "", Updates(current, quantity: int.MaxValue)).Succeeded, "service rejects line amount overflow");
-            foreach (var price in new[] { -1m, 0m, 35m, decimal.MaxValue })
-            {
-                var rejected = Save(current, "単価変更", Updates(current, price: price));
-                Check(!rejected.Succeeded && rejected.Message.Contains("単価を変更できません"), "service rejects manager price change: " + price);
-            }
-            var forged = Snapshot();
-            forged.Lines[0] = new OrderDetailLine { DetailId=current.Lines[0].DetailId, ProductId=current.Lines[0].ProductId,
-                Quantity=current.Lines[0].Quantity, Subtotal=current.Lines[0].Subtotal, UnitPrice=35 };
-            Check(!Save(forged, "元の単価を偽装", Updates(forged)).Succeeded, "service derives price independently of forged snapshot");
-            Check(Snapshot().CustomerContact == current.CustomerContact && Snapshot().Lines[0].UnitPrice == 33,
-                "rejected price changes leave saved data unchanged");
-            Check(!Save(current, new string('あ', 51), Updates(current)).Succeeded, "service rejects overlength remarks");
-            Check(!Save(current, "", [new OrderDetailUpdate(current.Lines[0].DetailId, 99999, 1, 1)]).Succeeded, "service rejects product identity change");
-            SetRole("物流"); Check(!Save(current, "権限なし", Updates(current)).Succeeded, "service role denial");
-            SetRole("営業", 2); Check(!Save(current, "拠点外", Updates(current)).Succeeded, "service office scope denial");
-            SetRole("営業");
-            Check(!Save(current, "営業による価格変更", Updates(current, price: 36)).Succeeded, "service rejects sales price change");
-            Check(Save(current, "営業による数量変更", Updates(current, quantity: 5)).Succeeded, "sales quantity editing remains permitted");
-            SetRole("管理者");
-            current = Snapshot();
-            using (var db = TestContext()) db.Database.ExecuteSqlRaw("CREATE TRIGGER OrderUpdateChecksFailure ON T_OrderOperationHistory AFTER INSERT AS THROW 51000, N'OrderUpdateChecks rollback', 1;");
-            try
-            {
-                Check(!Save(current, "保存失敗", Updates(current, quantity: 7)).Succeeded, "actual SQL save failure");
-                var unchanged = Snapshot();
-                Check(unchanged.CustomerContact == current.CustomerContact && unchanged.Lines[0].Subtotal == current.Lines[0].Subtotal,
-                    "database rollback preserves original order");
-            }
-            finally { using var db = TestContext(); db.Database.ExecuteSqlRaw("DROP TRIGGER OrderUpdateChecksFailure"); }
-            CheckExtendedDatabaseUpdate();
-            current = Snapshot();
-            foreach (var (state, flag) in new[] { (1,0), (0,2) })
-            {
-                using (var db = TestContext()) { var order = db.TOrders.Single(); order.OrStateFlag=state; order.OrFlag=flag; db.SaveChanges(); }
-                Check(!Save(Snapshot(), "更新不可", Updates(current)).Succeeded, "service confirmed/hidden denial");
+                var actor = db.MEmployees.Include(x => x.Po).Include(x => x.So).Single();
+                AppSession.Employee = actor;
+                var customer = db.MClients.Single();
+                customerOffice = customer.SoId;
+                Check(actor.SoId != customerOffice, "administrator belongs to another office");
+                var line = new OrderDetailUpdate(null, db.MProducts.Single().PrId, 2, 30);
+                Check(BusinessService.CreateOrderCore(db, actor.EmId, customer.ClId, customerOffice, DateTime.Today,
+                    " 山田様 ", [line], out orderId, out var reason), "cross-office registration: " + reason);
             }
             using (var db = TestContext())
             {
-                var order = db.TOrders.Single(); order.OrFlag=0; order.OrStateFlag=0;
-                db.TChumons.Add(new TChumon { OrId=order.OrId, ClId=order.ClId, SoId=order.SoId, ChDate=DateTime.Today }); db.SaveChanges();
+                Check(db.TOrders.Single(x => x.OrId == orderId).ClCharge == "山田様", "customer contact stored");
+                Check(BusinessService.ConfirmOrderCore(db, orderId, 1, out var reason), "cross-office confirmation: " + reason);
             }
-            Check(!Save(Snapshot(), "連携済み", Updates(current)).Succeeded, "service linked order denial");
+            using (var db = TestContext())
+            {
+                Check(!BusinessService.ConfirmOrderCore(db, orderId, 1, out _), "duplicate confirmation denied");
+                var saved = db.TOrders.Single(x => x.OrId == orderId);
+                var next = db.TChumons.Include(x => x.TChumonDetails).Single(x => x.OrId == orderId);
+                Check(saved.EmId == 1 && saved.OrStateFlag == 1 && next.SoId == customerOffice && next.EmId == null
+                    && next.TChumonDetails.Single().ChQuantity == 2, "one pending order retains registered office and lines");
+            }
+            using (var db = TestContext())
+            {
+                var employee = db.MEmployees.Single();
+                employee.EmFlag = 2;
+                db.SaveChanges();
+            }
+            using (var db = TestContext())
+            {
+                var customer = db.MClients.Single();
+                var line = new OrderDetailUpdate(null, db.MProducts.Single().PrId, 1, 30);
+                Check(!BusinessService.CreateOrderCore(db, 1, customer.ClId, customer.SoId, DateTime.Today,
+                    null, [line], out _, out var reason) && reason.Contains("権限"),
+                    "deactivated employee cannot register an order using their existing session");
+                db.MEmployees.Single().EmFlag = 0;
+                db.SaveChanges();
+            }
+
+            int inboundId;
+            using (var db = TestContext())
+            {
+                var product = db.MProducts.Single();
+                var receipt = new TWarehousing
+                {
+                    Ha = new THattyu
+                    {
+                        MaId = product.MaId,
+                        EmId = 1,
+                        RegisteredOfficeId = customerOffice,
+                        HaDate = DateTime.Today,
+                        WaWarehouseFlag = 1,
+                        THattyuDetails = [new THattyuDetail { PrId = product.PrId, HaQuantity = 5 }]
+                    },
+                    WaShelfFlag = 0,
+                    TWarehousingDetails = [new TWarehousingDetail { PrId = product.PrId, WaQuantity = 5 }]
+                };
+                db.TWarehousings.Add(receipt);
+                db.SaveChanges();
+                inboundId = receipt.WaId;
+            }
+
+            using (var db = TestContext())
+            {
+                var client = db.MClients.Single();
+                client.SoId = AppSession.Employee!.SoId;
+                var product = db.MProducts.Include(x => x.Ma).Single();
+                var originalMaker = product.Ma;
+                product.Ma = new MMaker
+                {
+                    MaName = "変更後メーカー",
+                    MaAddress = originalMaker.MaAddress,
+                    MaPhone = originalMaker.MaPhone,
+                    MaPostal = originalMaker.MaPostal,
+                    MaFax = originalMaker.MaFax
+                };
+                db.SaveChanges();
+            }
+
+            int outboundId;
+            using (var db = TestContext())
+            {
+                var productId = db.MProducts.Single().PrId;
+                var hidden = ProductService.Hide(db, 1, productId, "新規受注での使用を停止");
+                Check(hidden.Succeeded, "hide a product after order acceptance and warehouse arrival: " + hidden.Message);
+                var customerId = db.MClients.Single().ClId;
+                var hiddenCustomer = CustomerService.Hide(db, 1, customerId, "新規受注での使用を停止");
+                Check(hiddenCustomer.Succeeded, "hide a customer after order acceptance: " + hiddenCustomer.Message);
+            }
+            using (var db = TestContext())
+            {
+                var order = db.TChumons.Single(x => x.OrId == orderId);
+                Check(BusinessService.ConfirmChumonCore(db, order.ChId, 1, out var reason, out var generatedId),
+                    "confirm a linked order after product visibility changes: " + reason);
+                outboundId = generatedId!.Value;
+            }
+            using (var db = TestContext())
+            {
+                var confirmed = OutboundService.ConfirmInContext(db, 1, outboundId);
+                Check(confirmed.Succeeded && db.TStocks.Single().StQuantity == 48
+                    && db.TArrivals.Count(x => x.OrId == orderId && x.SoId == customerOffice) == 1,
+                    "outbound retains the order office after the customer moves without deducting stock twice: " + confirmed.Message);
+            }
+            using (var db = TestContext())
+            {
+                var received = WarehousingService.ConfirmShelfInContext(db, 1, inboundId, expected: null);
+                Check(received.Succeeded && db.TStocks.Single().StQuantity == 53
+                    && db.TWarehousings.Any(x => x.WaId == inboundId && x.WaShelfFlag == 1
+                        && x.Ha.MaId != db.MProducts.Select(product => product.MaId).First()),
+                    "shelving uses the purchase maker after the product maker changes: " + received.Message);
+            }
+            using (var db = TestContext())
+            {
+                Check(!WarehousingService.ConfirmShelfInContext(db, 1, inboundId, expected: null).Succeeded
+                    && db.TStocks.Single().StQuantity == 53,
+                    "repeating shelf confirmation does not add stock again");
+            }
         }
         finally
         {
@@ -803,94 +478,17 @@ internal static class Program
             }
         }
     }
-    private static IReadOnlyCollection<OrderDetailUpdate> Updates(OrderDetailSnapshot snapshot, int? quantity = null, decimal? price = null) =>
-        snapshot.Lines.Select(line => new OrderDetailUpdate(line.DetailId, line.ProductId, quantity ?? line.Quantity, price ?? line.UnitPrice)).ToArray();
-    private static OrderUpdateResult Save(OrderDetailSnapshot expected, string remarks, IReadOnlyCollection<OrderDetailUpdate> updates,
-        int? customerId=null,DateTime? orderDate=null,DateTime? deliveryDate=null,int? assignedEmployeeId=null,int? officeId=null)
-    {
-        using var db = TestContext();
-        object?[] values = [db, expected.OrderId, AppSession.Employee!.EmId, customerId??expected.CustomerId, officeId??expected.OfficeId, assignedEmployeeId??expected.EmployeeId,
-            orderDate??expected.OrderDate, deliveryDate??expected.DeliveryDate, expected.StateFlag, expected.ManagementFlag, expected.HiddenReason, remarks, updates, expected, null];
-        var result = (bool)typeof(BusinessService).GetMethod("UpdateOrderCore", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, values)!;
-        return new(result, (string)values[^1]!);
-    }
-    private static OrderDetailSnapshot Snapshot()
-    {
-        using var db = TestContext(); var order = db.TOrders.Include(x => x.TOrderDetails).Single();
-        return new OrderDetailSnapshot
-        {
-            OrderId=order.OrId, CustomerId=order.ClId, OfficeId=order.SoId, EmployeeId=order.EmId, OrderDate=order.OrDate,
-            DeliveryDate=order.OrDeliveryDate, CustomerContact=order.ClCharge, StateFlag=order.OrStateFlag ?? 0,
-            ManagementFlag=order.OrFlag, HiddenReason=order.OrHidden,
-            Lines=order.TOrderDetails.OrderBy(line=>line.OrDetailId).Select(line => new OrderDetailLine { DetailId=line.OrDetailId, ProductId=line.PrId,
-                Quantity=line.OrQuantity, UnitPrice=decimal.Round(line.OrTotalPrice/line.OrQuantity, 0), Subtotal=line.OrTotalPrice }).ToList()
-        };
-    }
-    private static void CheckExtendedDatabaseUpdate()
-    {
-        var original=Snapshot();int customerId,productId,editorId;
-        using(var db=TestContext())
-        {
-            var savedProduct=db.MProducts.Single();var savedEmployee=db.MEmployees.Single();
-            var customer=new MClient {ClName="変更先の実DB顧客",SoId=original.OfficeId};
-            var product=new MProduct {PrName="追加商品の実DB検証",Price=2000,MaId=savedProduct.MaId,ScId=savedProduct.ScId,PrReleaseDate=DateTime.Today};
-            var employee=new MEmployee {EmId=2,EmName="更新実行者",SoId=original.OfficeId,PoId=savedEmployee.PoId,EmHiredate=DateTime.Today};
-            db.AddRange(customer,product,employee);
-            foreach(var entry in db.ChangeTracker.Entries())
-            foreach(var property in entry.Properties.Where(property=>property.Metadata.ClrType==typeof(string) && !property.Metadata.IsNullable && property.CurrentValue==null)) property.CurrentValue="test";
-            db.SaveChanges();customerId=customer.ClId;productId=product.PrId;editorId=employee.EmId;
-            AppSession.Employee=db.MEmployees.Include(employee=>employee.Po).Include(employee=>employee.So).Single(employee=>employee.EmId==editorId);
-        }
-        var edits=Updates(original).Append(new OrderDetailUpdate(null,productId,2,2000)).ToArray();
-        Check(!Save(original,"無効顧客",edits,customerId:99999).Succeeded,"service rejects a missing or invalid replacement customer");
-        Check(!Save(original,"営業所変更",edits,officeId:original.OfficeId+1).Succeeded
-            && !Save(original,"担当者変更",edits,assignedEmployeeId:editorId).Succeeded,"service preserves receiving office and original employee");
-        Check(!Save(original,"明細削除",[]).Succeeded,"service prevents saving an order with no active details");
-        Check(!Save(original,"新規単価の偽装",Updates(original).Append(new OrderDetailUpdate(null,productId,2,1999)).ToArray()).Succeeded,
-            "new product price is checked against the current catalog inside the transaction");
-        var orderDate=original.OrderDate.AddDays(1);var deliveryDate=orderDate.AddDays(7);var historyCount=0;
-        using(var db=TestContext())
-        {
-            historyCount=db.OrderOperationHistories.Count();
-            db.Database.ExecuteSqlRaw("CREATE TRIGGER OrderUpdateChecksFailure ON T_OrderOperationHistory AFTER INSERT AS THROW 51000, N'OrderUpdateChecks rollback', 1;");
-        }
-        try
-        {
-            Check(!Save(original,"ヘッダー・追加行のロールバック",edits,customerId,orderDate,deliveryDate).Succeeded,
-                "SQL failure rejects the combined header and added-product update");
-            using var db=TestContext();var order=db.TOrders.Include(order=>order.TOrderDetails).Single();
-            Check(order.ClId==original.CustomerId && order.OrDate==original.OrderDate && order.TOrderDetails.Count==original.Lines.Count
-                && db.OrderOperationHistories.Count()==historyCount,"failed combined update rolls back customer, dates, added rows and audit atomically");
-        }
-        finally {using var db=TestContext();db.Database.ExecuteSqlRaw("DROP TRIGGER OrderUpdateChecksFailure");}
-        Check(Save(original,"顧客・日付・商品を更新",edits,customerId,orderDate,deliveryDate).Succeeded,"existing service commits customer, dates and an additional product");
-        var after=Snapshot();
-        using(var db=TestContext())
-        {
-            var audit=db.OrderOperationHistories.OrderByDescending(row=>row.Id).First();
-            Check(after.OrderId==original.OrderId && after.CustomerId==customerId && after.OrderDate==orderDate && after.DeliveryDate==deliveryDate
-                && after.EmployeeId==original.EmployeeId && after.Lines.Single(line=>line.ProductId==productId).Subtotal==4000
-                && db.TOrders.Count()==1 && db.TStocks.Single().StQuantity==50 && db.TChumons.Count()==0 && db.TSales.Count()==0,
-                "combined update keeps order identity, original receiving employee, stock and unconfirmed state");
-            Check(audit.ActorEmployeeId==editorId && audit.CustomerId==customerId && audit.Details.Contains("変更先の実DB顧客")
-                && audit.Details.Contains("追加商品の実DB検証"),"existing audit records edited customer, added product and the distinct updating employee");
-        }
-        Check(!Save(original,"古い編集画面",edits,customerId,orderDate,deliveryDate).Succeeded,"combined update still rejects a stale original snapshot");
-        var unchanged=Save(after,after.CustomerContact??"",Updates(after));
-        Check(!unchanged.Succeeded && unchanged.Message=="変更はありません。","unchanged resubmission creates no second save");
-        SetRole("管理者");
-    }
     private static void Seed(SalesManagementContext db)
     {
         var office = new MSalesOffice { SoName="北大阪営業所" };
         var position = new MPosition { PoName="管理者" };
-        var employee = new MEmployee { EmId=1, EmName="高谷春男", EmHiredate=DateTime.Today, So=office, Po=position, EmPassword="test" };
+        var employee = new MEmployee { EmId=1, EmName="高谷春男", EmHiredate=DateTime.Today, So=new MSalesOffice { SoName="本社" }, Po=position, EmPassword="test" };
         var customer = new MClient { ClName="INATUGI", So=office };
         var major = new MMajorClassification { McName="電子機器" };
         var small = new MSmallClassification { ScName="入力機器", Mc=major };
         var maker = new MMaker { MaName="テストメーカー" };
         var product = new MProduct { PrName="キーボード", Price=9999, Sc=small, Ma=maker, PrReleaseDate=DateTime.Today };
-        var order = new TOrder { So=office, Em=employee, Cl=customer, OrDate=DateTime.Today, OrStateFlag=0,
+        var order = new TOrder { So=office, Em=employee, Cl=customer, OrDate=DateTime.Today, OrStateFlag=1,
             TOrderDetails=[new TOrderDetail { Pr=product, OrQuantity=3, OrTotalPrice=100 }] };
         db.Add(order); db.Add(new TStock { Pr=product, StQuantity=50 });
         foreach (var entry in db.ChangeTracker.Entries())
@@ -899,16 +497,6 @@ internal static class Program
         db.SaveChanges();
     }
 
-    private sealed class ControlledSource : IOrderUpdateDataSource
-    {
-        public OrderDetailSnapshot? Expected, Edited; public IReadOnlyCollection<OrderDetailUpdate>? SubmittedLines;
-        public int Calls; public bool Throw; public TaskCompletionSource<OrderUpdateResult>? Pending;
-        public Task<OrderUpdateResult> SaveAsync(OrderDetailSnapshot expected, OrderDetailSnapshot edited, string remarks, IReadOnlyCollection<OrderDetailUpdate> lines)
-        {
-            Expected=expected; Edited=edited; SubmittedLines=lines; Calls++; if (Throw) throw new InvalidOperationException("test failure");
-            return Pending?.Task ?? Task.FromResult(new OrderUpdateResult(true, "受注を更新しました。"));
-        }
-    }
     private sealed class QuantityRegistrationSource : IOrderRegistrationDataSource
     {
         public IReadOnlyList<MSalesOffice> LoadOffices() => [new MSalesOffice { SoId=1, SoName="北大阪営業所" }];
@@ -919,25 +507,6 @@ internal static class Program
         public bool Register(int employeeId, int customerId, int officeId, DateTime orderDate, DateTime deliveryDate,
             string remarks, IReadOnlyCollection<OrderDetailUpdate> details, out int orderId, out string message) => throw new InvalidOperationException("UI checks must not write to a database.");
         public OrderDetailSnapshot? LoadRegisteredOrder(int orderId) => null;
-        public void Dispose() { }
-    }
-    private sealed class UpdateLookupSource : IOrderRegistrationDataSource
-    {
-        private readonly QuantityRegistrationSource catalog=new();
-        public int TestedProductId=3;
-        public InventoryStockState StockState=InventoryStockState.MissingRecord;
-        public int StockQuantity=5;
-        public bool ThrowOnStock;
-        public IReadOnlyList<MSalesOffice> LoadOffices()=>catalog.LoadOffices();
-        public IReadOnlyList<MClient> LoadClients(int officeId)=>[..catalog.LoadClients(officeId),new MClient {ClId=8,ClName="変更先の顧客",SoId=officeId}];
-        public IReadOnlyList<RegistrationProduct> LoadProducts()=>catalog.LoadProducts();
-        public InventoryStockLookup LoadStock(int productId)=>productId==TestedProductId
-            ? ThrowOnStock ? throw new InvalidOperationException("Simulated read failure.")
-                : new(StockState,StockState==InventoryStockState.Available ? StockQuantity : null)
-            : new(InventoryStockState.Available,5);
-        public OrderDetailSnapshot? LoadRegisteredOrder(int orderId)=>Sample();
-        public bool Register(int employeeId,int customerId,int officeId,DateTime orderDate,DateTime deliveryDate,
-            string remarks,IReadOnlyCollection<OrderDetailUpdate> details,out int orderId,out string message)=>throw new InvalidOperationException("Update must never register a new order.");
         public void Dispose() { }
     }
     private sealed class RegistrationSubmissionSource : IOrderRegistrationDataSource

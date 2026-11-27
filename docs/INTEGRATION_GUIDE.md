@@ -31,9 +31,9 @@
 
 ### 取引とDBの境界
 
-- `Entity/SalesManagementContext.cs` が既存SQL Serverスキーマのテーブル、外部キー、列型を定義します。`OnConfiguring` は `(localdb)\MSSQLLocalDB` の `SalesManagement` にWindows認証で接続する構成です。現行の通常起動に環境変数で接続先を切り替える経路は見当たりません。チームでは各自の開発用DBを用意します。
+- `Entity/SalesManagementContext.cs` が既存SQL Serverスキーマのテーブル、外部キー、列型を定義します。通常起動は環境変数 `SALESMANAGEMENT_CONNECTION_STRING` があればその接続先を使います。既定ではLocalDBの `SalesManagement` にWindows認証で接続します。練習・デモ起動では専用のLocalDBを使います。
 - 受注確定で注文を作成し、注文確定で在庫を減らして出庫を作成します。出庫確定で入荷、入荷確定で出荷を作成します。出荷確定で売上を作成し、条件が一致する既存売上があれば再利用します。発注と入庫は発注明細と入庫の実績を共有し、棚入れ確定で在庫が増えます。各段階の状態、取引データの論理取消、重複防止、拠点、履歴を変えるPRは隣接機能と一緒に確認します。
-- `DatabaseInitializer` には `EnsureCreated`、スキーマ補助、シード、受注履歴初期化の経路があります。現行の `F_login → LoginViewModel.PrepareDatabase` は `CanConnect` による接続確認で、アプリの通常起動経路に `DatabaseInitializer.EnsureReady` の呼び出しは見つかりませんでした。READMEの「起動時にマスタ・アカウントや履歴スキーマを準備する」という説明は、現行経路と照合して別途整合させます。初回起動の前に、開発用スキーマとテストアカウントを用意してください。
+- 通常起動は接続を確認した後、不足している社員認証・納品希望日・履歴の列やテーブルを準備します。更新できない場合は、DB管理者がスキーマと更新権限を確認します。初回起動の前に開発用DBとテストアカウントを用意してください。練習起動では専用DBにサンプルデータも準備します。
 
 ## 共有ファイルを変更するとき
 

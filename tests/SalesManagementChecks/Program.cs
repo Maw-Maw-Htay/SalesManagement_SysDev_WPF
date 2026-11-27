@@ -51,8 +51,8 @@ internal static class Program
     private static void CheckPermissionsAndHideValidation()
     {
         AppSession.Employee = Employee("営業");
-        Check(SalesService.CanView && !SalesService.CanHide, "sales staff can view but cannot hide sales");
-        Check(!SalesService.Hide(10, 1, "理由").Succeeded, "sales staff are rejected before a database write");
+        Check(SalesService.CanView && SalesService.CanHide, "sales staff may hide sales in their office");
+        Check(!SalesService.Hide(999, 1, "理由").Succeeded, "mismatched actor is rejected before a database write");
         AppSession.Employee = Employee("物流");
         Check(!SalesService.CanView, "logistics staff cannot open sales management");
         AppSession.Employee = Employee("管理者");

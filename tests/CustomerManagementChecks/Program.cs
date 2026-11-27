@@ -103,7 +103,7 @@ internal static partial class Program
         var salesEditor = new CustomerEditorViewModel([new CustomerOffice(4, "北大阪")]);
         Check(!salesEditor.CanChangeOffice && salesEditor.OfficeId == 4, "sales office is fixed to the logged-in office");
         AppSession.Employee = Employee("物流", 4);
-        Check(!CustomerService.CanEdit && !CustomerService.CanViewHidden, "logistics is read-only and cannot view hidden customers");
+        Check(!CustomerService.CanView && !CustomerService.CanEdit && !CustomerService.CanViewHidden, "logistics cannot access customer management");
         Check(!CustomerService.CanViewOrders && !CustomerService.Restore(1,
             new(12, 4, "", "", "", "", "", "", CustomerService.HiddenFlag, "理由")).Succeeded,
             "logistics cannot view orders or restore customers");
@@ -209,12 +209,12 @@ internal static partial class Program
             var sampleOrder = new OrderDetailSnapshot { OrderId = 1, OfficeId = 4, CustomerId = 3 };
             var readOnlyDetail = (Window)Create(typeof(F_OrderDetail), sampleOrder, host, true);
             var orderVm = (OrderDetailViewModel)readOnlyDetail.DataContext;
-            Check(!orderVm.EditCommand.CanExecute(null) && !orderVm.ConfirmCommand.CanExecute(null) && !orderVm.HideCommand.CanExecute(null)
+            Check(!orderVm.ConfirmCommand.CanExecute(null) && !orderVm.HideCommand.CanExecute(null)
                 && ((Button)readOnlyDetail.FindName("ConfirmOrderButton")).Visibility == Visibility.Collapsed,
                 "related order detail disables the workflow as well as hiding the buttons");
             readOnlyDetail.Close();
-            var orderWorkspace = new OrderDetailViewModel(sampleOrder, () => { }, () => { }, () => { }, () => { }, () => { });
-            Check(orderWorkspace.CanEdit && orderWorkspace.CanConfirm && orderWorkspace.CanHide, "standard order detail keeps its existing actions");
+            var orderWorkspace = new OrderDetailViewModel(sampleOrder, () => { }, () => { }, () => { }, () => { });
+            Check(orderWorkspace.CanConfirm && orderWorkspace.CanHide, "standard order detail keeps its existing actions");
             host.Close();
         }
         finally { AppSession.Employee = null; app.Shutdown(); }

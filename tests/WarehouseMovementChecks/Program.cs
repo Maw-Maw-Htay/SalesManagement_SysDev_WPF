@@ -281,8 +281,12 @@ internal static partial class Program
         Check(WarehouseMovementRules.ValidateConfirmation(2, 0) != null, "hidden records cannot be confirmed");
         Check(WarehouseMovementRules.ValidateConfirmation(0, 1) != null, "duplicate confirmation is rejected");
         Check(WarehouseMovementRules.ValidateConfirmation(0, null) != null, "unknown confirmation state is rejected");
-        Check(WarehouseMovementRules.ValidateHide(0, 0) != null, "unconfirmed records cannot be hidden");
+        Check(WarehouseMovementRules.ValidateHide(0, 0) == null, "unconfirmed records can be hidden");
         Check(WarehouseMovementRules.ValidateHide(0, 1) == null, "confirmed records may be hidden");
+        var hiddenReceipt = Record(WarehouseMovementKind.Inbound, 1, 0, 2) with { HiddenReason = "入力誤り" };
+        Check(WarehousingService.IsRestorable(hiddenReceipt), "an unconfirmed hidden receipt with a reason can be restored");
+        Check(!WarehousingService.IsRestorable(hiddenReceipt with { HiddenReason = null }),
+            "an unconfirmed hidden receipt without a reason remains ineligible for restore");
         Check(WarehouseMovementRules.ValidateHide(2, 1) != null, "already hidden records cannot be hidden again");
         Check(WarehouseMovementRules.ValidateLines([]) != null, "empty movement details are rejected");
         Check(WarehouseMovementRules.ValidateLines([new(10, 0)]) != null, "zero line quantity is rejected");
@@ -306,8 +310,8 @@ internal static partial class Program
     {
         AppSession.Employee = Employee("物流");
         Check(WarehousingService.CanView && OutboundService.CanConfirm, "logistics can view and confirm warehouse movements");
-        Check(!WarehousingService.CanHide && !OutboundService.CanViewHidden, "logistics cannot hide records or view hidden records");
-        Check(!WarehousingService.Hide(10, 1, "理由").Succeeded, "unauthorized hide is denied before database access");
+        Check(WarehousingService.CanHide && OutboundService.CanHide && !OutboundService.CanViewHidden, "logistics may hide warehouse movements in their office");
+        Check(!WarehousingService.Hide(999, 1, "理由").Succeeded, "unauthorized hide is denied before database access");
         Check(!OutboundService.Confirm(10, 0).Succeeded, "authorized movement confirm rejects an invalid id before database access");
 
         AppSession.Employee = Employee("営業");

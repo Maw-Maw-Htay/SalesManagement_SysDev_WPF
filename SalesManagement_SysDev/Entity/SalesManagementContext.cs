@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Windows;
 using Microsoft.EntityFrameworkCore;
@@ -8,7 +8,8 @@ namespace SalesManagement_SysDev;
 public partial class SalesManagementContext : DbContext
 {
     internal static bool IsDemoMode { get; } = Environment.GetCommandLineArgs().Contains("--demo-database", StringComparer.Ordinal);
-    internal static string CatalogName => IsDemoMode ? "SalesManagement_Demo" : "SalesManagement";
+    internal static bool IsPracticeMode => Environment.GetCommandLineArgs().Contains("--practice");
+    internal static string CatalogName => IsDemoMode ? "SalesManagement_Demo" : IsPracticeMode ? "SalesManagement_Practice" : "SalesManagement";
 
     public SalesManagementContext()
     {
@@ -74,8 +75,10 @@ public partial class SalesManagementContext : DbContext
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
         if (optionsBuilder.IsConfigured) return;
+        var connectionString = IsDemoMode || IsPracticeMode
+            ? null
+            : Environment.GetEnvironmentVariable("SALESMANAGEMENT_CONNECTION_STRING");
 
-        var connectionString = Environment.GetEnvironmentVariable("SALESMANAGEMENT_CONNECTION_STRING");
         if (string.IsNullOrWhiteSpace(connectionString))
             connectionString = $"Data Source=(LocalDB)\\MSSQLLocalDB;Initial Catalog={CatalogName};Integrated Security=True";
 

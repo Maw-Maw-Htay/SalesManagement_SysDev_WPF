@@ -1,0 +1,284 @@
+<UserControl x:Class="SalesManagement_SysDev.PurchaseOrderManagementView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:SalesManagement_SysDev"
+             Background="{StaticResource ThemeCanvas}" SizeChanged="View_SizeChanged">
+    <UserControl.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="/SalesManagement_SysDev;component/Resources/OrderManagement.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+            <Style x:Key="PurchaseCell" TargetType="TextBlock" BasedOn="{StaticResource TableText}">
+                <Setter Property="Margin" Value="6,0" />
+                <Setter Property="FontSize" Value="13" />
+            </Style>
+            <Style x:Key="PurchaseNumber" TargetType="TextBlock" BasedOn="{StaticResource PurchaseCell}">
+                <Setter Property="TextAlignment" Value="Right" />
+            </Style>
+            <Style x:Key="PurchaseHeader" TargetType="DataGridColumnHeader" BasedOn="{StaticResource OrderColumnHeader}">
+                <Setter Property="Padding" Value="6,0" />
+                <Setter Property="Background" Value="{StaticResource OrderSurfaceAlt}" />
+            </Style>
+            <Style x:Key="PurchaseButton" TargetType="Button" BasedOn="{StaticResource OrderToolbarButton}">
+                <Setter Property="Height" Value="34" />
+                <Setter Property="Margin" Value="6,0,0,0" />
+                <Setter Property="Padding" Value="9,0" />
+            </Style>
+            <Style x:Key="PurchaseDate" TargetType="DatePicker" BasedOn="{StaticResource FilterDate}">
+                <Setter Property="MinHeight" Value="36" />
+                <Setter Property="Height" Value="36" />
+            </Style>
+        </ResourceDictionary>
+    </UserControl.Resources>
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+        <Grid x:Name="QuickSearchRow" Margin="0,0,0,8" SizeChanged="QuickSearchRow_SizeChanged">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+            <Border x:Name="QuickSearchField" Style="{StaticResource OrderQuickSearchFrame}" Background="{StaticResource OrderInput}" CornerRadius="8" MinHeight="44">
+                <Grid>
+                    <TextBox x:Name="QuickSearch" Text="{Binding Keyword, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource FilterInput}"
+                             Height="42" Padding="40,4,40,4" BorderThickness="0" Background="Transparent" AutomationProperties.Name="発注一覧を検索" />
+                    <local:LucideIcon Data="{StaticResource IconSearch}" Width="17" Height="17" HorizontalAlignment="Left" Margin="12,0,0,0" Stroke="{StaticResource OrderSecondaryText}" />
+                    <TextBlock Text="発注番号・仕入先名・商品名で検索..." Margin="40,0,40,0" IsHitTestVisible="False" TextTrimming="CharacterEllipsis"
+                               Foreground="{StaticResource OrderSecondaryText}" FontSize="13" VerticalAlignment="Center">
+                        <TextBlock.Style><Style TargetType="TextBlock">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers><DataTrigger Binding="{Binding Text, ElementName=QuickSearch}" Value=""><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers>
+                        </Style></TextBlock.Style>
+                    </TextBlock>
+                    <Button Click="ClearQuickSearch_Click" HorizontalAlignment="Right" Width="36" Height="36" Margin="0,0,3,0"
+                            Background="Transparent" BorderBrush="Transparent" Padding="0" ToolTip="キーワードを消去" AutomationProperties.Name="キーワードを消去">
+                        <local:LucideIcon Data="{StaticResource IconX}" Width="16" Height="16" />
+                        <Button.Style><Style TargetType="Button" BasedOn="{StaticResource ThemeIconButton}">
+                            <Style.Triggers><DataTrigger Binding="{Binding Text, ElementName=QuickSearch}" Value=""><Setter Property="Visibility" Value="Collapsed" /></DataTrigger></Style.Triggers>
+                        </Style></Button.Style>
+                    </Button>
+                </Grid>
+            </Border>
+            <WrapPanel x:Name="SearchActions" Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Center">
+                <Button Click="ToggleFilters_Click" Style="{StaticResource PurchaseButton}" ToolTip="{Binding FiltersToggleLabel}">
+                    <StackPanel Orientation="Horizontal">
+                        <local:LucideIcon Width="15" Height="15" Data="{StaticResource IconOrderFilter}" Margin="0,0,6,0" />
+                        <TextBlock Text="詳細条件" />
+                        <local:LucideIcon Width="12" Height="12" Margin="5,0,0,0">
+                            <local:LucideIcon.Style><Style TargetType="local:LucideIcon" BasedOn="{StaticResource {x:Type local:LucideIcon}}">
+                                <Setter Property="Data" Value="{StaticResource IconChevronDown}" />
+                                <Style.Triggers><DataTrigger Binding="{Binding IsFiltersExpanded}" Value="True"><Setter Property="Data" Value="{StaticResource IconChevronUp}" /></DataTrigger></Style.Triggers>
+                            </Style></local:LucideIcon.Style>
+                        </local:LucideIcon>
+                    </StackPanel>
+                </Button>
+                <Button Content="再読込" Click="Reload_Click" Style="{StaticResource PurchaseButton}" IsEnabled="{Binding CanReload}" />
+            </WrapPanel>
+        </Grid>
+
+        <Border Grid.Row="1" Background="{StaticResource OrderSurface}" BorderBrush="{StaticResource OrderDivider}" BorderThickness="1" CornerRadius="8"
+                Padding="8" Margin="0,0,0,8" Visibility="{Binding IsFiltersExpanded, Converter={StaticResource OrderBooleanVisibility}}">
+            <DockPanel>
+                <Button DockPanel.Dock="Bottom" HorizontalAlignment="Right" Content="条件クリア" Click="ClearConditions_Click"
+                        IsEnabled="{Binding HasConditions}" Style="{StaticResource PurchaseButton}" Height="30" />
+                <ScrollViewer x:Name="FilterScroll" MaxHeight="140" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <UniformGrid x:Name="FilterFields" Columns="4">
+                            <StackPanel Margin="4,0,4,6">
+                                <TextBlock Text="発注番号" Style="{StaticResource OrderFilterLabel}" />
+                                <TextBox Text="{Binding OrderCode, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource FilterInput}" Height="36" />
+                            </StackPanel>
+                            <StackPanel Margin="4,0,4,6">
+                                <TextBlock Text="仕入先" Style="{StaticResource OrderFilterLabel}" />
+                                <ComboBox ItemsSource="{Binding MakerOptions}" SelectedValue="{Binding MakerSelection}" DisplayMemberPath="Name" SelectedValuePath="Id" Style="{StaticResource FilterCombo}" Height="36" />
+                            </StackPanel>
+                            <StackPanel Margin="4,0,4,6">
+                                <TextBlock Text="発注日（開始）" Style="{StaticResource OrderFilterLabel}" />
+                                <DatePicker SelectedDate="{Binding StartDate, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource PurchaseDate}" DateValidationError="Date_Invalid" SelectedDateChanged="Date_Changed" PreviewTextInput="Date_Editing" />
+                            </StackPanel>
+                            <StackPanel Margin="4,0,4,6">
+                                <TextBlock Text="発注日（終了）" Style="{StaticResource OrderFilterLabel}" />
+                                <DatePicker SelectedDate="{Binding EndDate, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource PurchaseDate}" DateValidationError="Date_Invalid" SelectedDateChanged="Date_Changed" PreviewTextInput="Date_Editing" />
+                            </StackPanel>
+                            <StackPanel Margin="4,0,4,6">
+                                <TextBlock Text="商品コード・商品名" Style="{StaticResource OrderFilterLabel}" />
+                                <TextBox Text="{Binding ProductFilter, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource FilterInput}" Height="36" />
+                            </StackPanel>
+                            <StackPanel Margin="4,0,4,6">
+                                <TextBlock Text="発注担当者" Style="{StaticResource OrderFilterLabel}" />
+                                <ComboBox ItemsSource="{Binding EmployeeOptions}" SelectedValue="{Binding EmployeeSelection}" DisplayMemberPath="Name" SelectedValuePath="Id" Style="{StaticResource FilterCombo}" Height="36" />
+                            </StackPanel>
+                            <StackPanel Margin="4,0,4,6">
+                                <TextBlock Text="入庫状況" Style="{StaticResource OrderFilterLabel}" />
+                                <ComboBox ItemsSource="{Binding ProgressOptions}" SelectedValue="{Binding SelectedProgress}" DisplayMemberPath="Name" SelectedValuePath="Value" Style="{StaticResource FilterCombo}" Height="36" />
+                            </StackPanel>
+                    </UniformGrid>
+                </ScrollViewer>
+            </DockPanel>
+        </Border>
+
+        <Grid x:Name="StatusFiltersRow" Grid.Row="2" Margin="0,0,0,8" SizeChanged="StatusFiltersRow_SizeChanged">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+            <Menu x:Name="StatusTabs" Background="Transparent" Padding="0" IsMainMenu="False" AutomationProperties.Name="発注・入庫状況">
+                <Menu.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></Menu.ItemsPanel>
+                    <MenuItem x:Name="AllTab" Style="{StaticResource StatusMenuItem}" Click="AllTab_Click">
+                        <MenuItem.Header>
+                            <StackPanel Orientation="Horizontal">
+                                <local:LucideIcon Width="15" Height="15" Data="{StaticResource IconBoxes}" Tag="{StaticResource OrderHeader}" Style="{StaticResource StatusTabIcon}" Margin="0,0,5,0" />
+                                <TextBlock Text="すべて" Tag="{StaticResource OrderHeader}" Style="{StaticResource StatusTabColoredText}" VerticalAlignment="Center" />
+                                <Border Tag="{StaticResource OrderInput}" Style="{StaticResource StatusTabCountBadge}" CornerRadius="5" Padding="5,0" Margin="5,0,0,0" VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding TotalCount, StringFormat={}{0:N0}}" Tag="{StaticResource OrderHeader}" Style="{StaticResource StatusTabColoredText}" FontSize="11" />
+                                </Border>
+                            </StackPanel>
+                        </MenuItem.Header>
+                    </MenuItem>
+                    <MenuItem x:Name="VisibleTab" Style="{StaticResource StatusMenuItem}" Click="VisibleTab_Click" Visibility="{Binding CanViewHidden, Converter={StaticResource OrderBooleanVisibility}}">
+                        <MenuItem.Header>
+                            <StackPanel Orientation="Horizontal">
+                                <local:LucideIcon Width="15" Height="15" Data="{StaticResource IconEye}" Tag="{StaticResource OrderSecondaryText}" Style="{StaticResource StatusTabIcon}" Margin="0,0,5,0" />
+                                <TextBlock Text="表示中" Tag="{StaticResource OrderSecondaryText}" Style="{StaticResource StatusTabColoredText}" VerticalAlignment="Center" />
+                                <Border Tag="{StaticResource OrderInput}" Style="{StaticResource StatusTabCountBadge}" CornerRadius="5" Padding="5,0" Margin="5,0,0,0" VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding VisibleCount, StringFormat={}{0:N0}}" Tag="{StaticResource OrderSecondaryText}" Style="{StaticResource StatusTabColoredText}" FontSize="11" />
+                                </Border>
+                            </StackPanel>
+                        </MenuItem.Header>
+                    </MenuItem>
+                    <MenuItem x:Name="WaitingTab" Style="{StaticResource StatusMenuItem}" Click="WaitingTab_Click">
+                        <MenuItem.Header>
+                            <StackPanel Orientation="Horizontal">
+                                <local:LucideIcon Width="15" Height="15" Data="{StaticResource IconPending}" Tag="{StaticResource OrderSecondaryText}" Style="{StaticResource StatusTabIcon}" Margin="0,0,5,0" />
+                                <TextBlock Text="入庫待ち" Tag="{StaticResource OrderSecondaryText}" Style="{StaticResource StatusTabColoredText}" VerticalAlignment="Center" />
+                                <Border Tag="{StaticResource OrderInput}" Style="{StaticResource StatusTabCountBadge}" CornerRadius="5" Padding="5,0" Margin="5,0,0,0" VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding WaitingCount, StringFormat={}{0:N0}}" Tag="{StaticResource OrderSecondaryText}" Style="{StaticResource StatusTabColoredText}" FontSize="11" />
+                                </Border>
+                            </StackPanel>
+                        </MenuItem.Header>
+                    </MenuItem>
+                    <MenuItem x:Name="PartialTab" Style="{StaticResource StatusMenuItem}" Click="PartialTab_Click">
+                        <MenuItem.Header>
+                            <StackPanel Orientation="Horizontal">
+                                <local:LucideIcon Width="15" Height="15" Data="{StaticResource IconInbound}" Tag="{StaticResource OrderOrange}" Style="{StaticResource StatusTabIcon}" Margin="0,0,5,0" />
+                                <TextBlock Text="一部入庫" Tag="{StaticResource OrderOrange}" Style="{StaticResource StatusTabColoredText}" VerticalAlignment="Center" />
+                                <Border Tag="{StaticResource OrderInput}" Style="{StaticResource StatusTabCountBadge}" CornerRadius="5" Padding="5,0" Margin="5,0,0,0" VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding PartialCount, StringFormat={}{0:N0}}" Tag="{StaticResource OrderOrange}" Style="{StaticResource StatusTabColoredText}" FontSize="11" />
+                                </Border>
+                            </StackPanel>
+                        </MenuItem.Header>
+                    </MenuItem>
+                    <MenuItem x:Name="ReceivedTab" Style="{StaticResource StatusMenuItem}" Click="ReceivedTab_Click">
+                        <MenuItem.Header>
+                            <StackPanel Orientation="Horizontal">
+                                <local:LucideIcon Width="15" Height="15" Data="{StaticResource IconCheckCircle}" Tag="{StaticResource OrderGreen}" Style="{StaticResource StatusTabIcon}" Margin="0,0,5,0" />
+                                <TextBlock Text="入庫完了" Tag="{StaticResource OrderGreen}" Style="{StaticResource StatusTabColoredText}" VerticalAlignment="Center" />
+                                <Border Tag="{StaticResource OrderInput}" Style="{StaticResource StatusTabCountBadge}" CornerRadius="5" Padding="5,0" Margin="5,0,0,0" VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding ReceivedCount, StringFormat={}{0:N0}}" Tag="{StaticResource OrderGreen}" Style="{StaticResource StatusTabColoredText}" FontSize="11" />
+                                </Border>
+                            </StackPanel>
+                        </MenuItem.Header>
+                    </MenuItem>
+                    <MenuItem x:Name="HiddenTab" Style="{StaticResource StatusMenuItem}" Click="HiddenTab_Click" Visibility="{Binding CanViewHidden, Converter={StaticResource OrderBooleanVisibility}}">
+                        <MenuItem.Header>
+                            <StackPanel Orientation="Horizontal">
+                                <local:LucideIcon Width="15" Height="15" Data="{StaticResource IconHidden}" Tag="{StaticResource OrderDanger}" Style="{StaticResource StatusTabIcon}" Margin="0,0,5,0" />
+                                <TextBlock Text="非表示" Tag="{StaticResource OrderDanger}" Style="{StaticResource StatusTabColoredText}" VerticalAlignment="Center" />
+                                <Border Tag="{StaticResource OrderInput}" Style="{StaticResource StatusTabCountBadge}" CornerRadius="5" Padding="5,0" Margin="5,0,0,0" VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding HiddenCount, StringFormat={}{0:N0}}" Tag="{StaticResource OrderDanger}" Style="{StaticResource StatusTabColoredText}" FontSize="11" />
+                                </Border>
+                            </StackPanel>
+                        </MenuItem.Header>
+                    </MenuItem>
+            </Menu>
+            <WrapPanel x:Name="StatusActions" Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Center">
+                <Button Content="発注履歴" Click="History_Click" Style="{StaticResource PurchaseButton}" IsEnabled="{Binding CanReload}" />
+                <Button Content="発注書出力" Click="Print_Click" ToolTip="一覧で1件選択して発注書を表示">
+                    <Button.Style><Style TargetType="Button" BasedOn="{StaticResource PurchaseButton}">
+                        <Style.Triggers><DataTrigger Binding="{Binding SelectedItem, ElementName=OrdersGrid}" Value="{x:Null}"><Setter Property="IsEnabled" Value="False" /></DataTrigger></Style.Triggers>
+                    </Style></Button.Style>
+                </Button>
+                <Button Content="CSV出力" Click="Csv_Click" Style="{StaticResource PurchaseButton}" IsEnabled="{Binding CanExport}" ToolTip="検索結果の全ページを出力" />
+            </WrapPanel>
+        </Grid>
+
+        <Border Grid.Row="3" Background="{StaticResource OrderSurface}" BorderBrush="{StaticResource OrderDivider}" BorderThickness="1" CornerRadius="8" Padding="8">
+            <Grid>
+                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                <DockPanel Margin="2,0,2,6">
+                    <WrapPanel DockPanel.Dock="Right" HorizontalAlignment="Right">
+                        <TextBlock Text="{Binding SelectionText}" Foreground="{StaticResource OrderSecondaryText}" VerticalAlignment="Center" FontSize="12" />
+                        <Button Content="旧発注の営業所を設定" Click="AssignOffice_Click" Style="{StaticResource PurchaseButton}" Visibility="{Binding CanAssignOffice, Converter={StaticResource OrderBooleanVisibility}}" Height="28" />
+                        <Button Content="発注確定" Click="ConfirmSelected_Click" Style="{StaticResource PurchaseButton}" IsEnabled="{Binding CanConfirmSelected}" Height="28" />
+                        <Button Content="非表示" Click="HideSelected_Click" Style="{StaticResource PurchaseButton}" IsEnabled="{Binding CanHide}" Height="28" />
+                    </WrapPanel>
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock Text="発注一覧" FontSize="15" FontWeight="SemiBold" Margin="0,0,8,0" />
+                        <TextBlock Text="{Binding CountText}" FontSize="12" Foreground="{StaticResource OrderSecondaryText}" VerticalAlignment="Center" />
+                    </StackPanel>
+                </DockPanel>
+                <StackPanel Grid.Row="1" Margin="2,0">
+                    <TextBlock Text="{Binding Feedback}" Foreground="{StaticResource OrderSecondaryText}" TextWrapping="Wrap">
+                        <TextBlock.Style><Style TargetType="TextBlock"><Style.Triggers><DataTrigger Binding="{Binding Feedback}" Value="">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                        </DataTrigger></Style.Triggers></Style></TextBlock.Style>
+                    </TextBlock>
+                    <TextBlock Text="{Binding SearchError}" Foreground="{StaticResource OrderDanger}" TextWrapping="Wrap"
+                               Visibility="{Binding ShowSearchError, Converter={StaticResource OrderBooleanVisibility}}" />
+                </StackPanel>
+                <DataGrid x:Name="OrdersGrid" Grid.Row="2" ItemsSource="{Binding Rows}" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" CanUserDeleteRows="False"
+                          SelectionMode="Single" HeadersVisibility="Column" FrozenColumnCount="2" RowHeight="36" ColumnHeaderHeight="34"
+                          ColumnHeaderStyle="{StaticResource PurchaseHeader}" CellStyle="{StaticResource OrderListCell}" RowStyle="{StaticResource OrderGridRow}"
+                          Background="{StaticResource OrderSurface}" BorderThickness="0" GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="{StaticResource OrderDivider}"
+                          AlternationCount="2" RowBackground="{StaticResource OrderSurface}" AlternatingRowBackground="{StaticResource OrderSurfaceAlt}"
+                          EnableRowVirtualization="True" EnableColumnVirtualization="True" VirtualizingPanel.VirtualizationMode="Recycling"
+                          ScrollViewer.CanContentScroll="True" ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                          Sorting="OrdersGrid_Sorting" MouseDoubleClick="OrdersGrid_MouseDoubleClick">
+                    <DataGrid.Columns>
+                        <DataGridTemplateColumn Header="選択" Width="40" CanUserResize="False" CanUserSort="False">
+                            <DataGridTemplateColumn.CellTemplate><DataTemplate>
+                                <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" IsEnabled="{Binding IsSelectable}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </DataTemplate></DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTextColumn Header="発注番号" Binding="{Binding Code}" Width="99" SortMemberPath="Id" ElementStyle="{StaticResource PurchaseCell}" />
+                        <DataGridTextColumn Header="発注日" Binding="{Binding OrderDateText}" Width="91" SortMemberPath="OrderDate" ElementStyle="{StaticResource PurchaseCell}" />
+                        <DataGridTextColumn Header="仕入先" Binding="{Binding MakerName}" Width="2*" MinWidth="95" SortMemberPath="MakerName" ElementStyle="{StaticResource PurchaseCell}" />
+                        <DataGridTextColumn Header="発注担当者" Binding="{Binding EmployeeName}" Width="1.25*" MinWidth="85" SortMemberPath="EmployeeName" ElementStyle="{StaticResource PurchaseCell}" />
+                        <DataGridTextColumn Header="明細数" Binding="{Binding Data.ProductLineCount}" Width="55" SortMemberPath="ProductLineCount" ElementStyle="{StaticResource PurchaseNumber}" />
+                        <DataGridTextColumn Header="発注数量" Binding="{Binding OrderedQuantityText}" Width="70" SortMemberPath="OrderedQuantity" ElementStyle="{StaticResource PurchaseNumber}" />
+                        <DataGridTemplateColumn Header="入庫状況" Width="85" SortMemberPath="ReceiptStatus">
+                            <DataGridTemplateColumn.CellTemplate><DataTemplate>
+                                <Border Background="{Binding ProgressBackground}" CornerRadius="10" Padding="5,2" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding ProgressLabel}" Foreground="{Binding ProgressForeground}" FontSize="12" />
+                                </Border>
+                            </DataTemplate></DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTemplateColumn Header="管理状態" Width="74" SortMemberPath="ManagementFlag">
+                            <DataGridTemplateColumn.CellTemplate><DataTemplate>
+                                <Border Background="{Binding ManagementBackground}" CornerRadius="10" Padding="5,2" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding ManagementLabel}" Foreground="{Binding ManagementForeground}" FontSize="12" />
+                                </Border>
+                            </DataTemplate></DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTemplateColumn Header="詳細" Width="56" CanUserSort="False">
+                            <DataGridTemplateColumn.CellTemplate><DataTemplate>
+                                <Button Content="詳細" Click="Detail_Click" Tag="{Binding}" Style="{StaticResource PurchaseButton}" Height="26" Margin="0" Padding="5,0" HorizontalAlignment="Center" />
+                            </DataTemplate></DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                    </DataGrid.Columns>
+                </DataGrid>
+                <TextBlock Grid.Row="2" Text="{Binding EmptyDescription}" Foreground="{StaticResource OrderSecondaryText}" TextWrapping="Wrap"
+                           HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False"
+                           Visibility="{Binding ShowEmptyState, Converter={StaticResource OrderBooleanVisibility}}" />
+                <DockPanel Grid.Row="3" Margin="1,6,1,0" LastChildFill="False">
+                    <TextBlock DockPanel.Dock="Left" Text="{Binding PageText}" FontSize="12" VerticalAlignment="Center" Margin="0,0,6,0" />
+                    <WrapPanel DockPanel.Dock="Right" HorizontalAlignment="Right">
+                        <Button Content="前へ" Click="Previous_Click" Style="{StaticResource PurchaseButton}" IsEnabled="{Binding CanPrevious}" Height="30" />
+                        <TextBox x:Name="PageNumber" Text="{Binding Page, Mode=OneWay}" KeyDown="PageNumber_KeyDown" Width="42" Height="30" Padding="3,0" Margin="6,0,0,0"
+                                 Style="{StaticResource FilterInput}" TextAlignment="Center" AutomationProperties.Name="ページ番号" ToolTip="ページ番号を入力して Enter" />
+                        <TextBlock Text="{Binding PageCount, StringFormat=/ {0:N0}}" VerticalAlignment="Center" Margin="4,0,0,0" FontSize="12" />
+                        <Button Content="次へ" Click="Next_Click" Style="{StaticResource PurchaseButton}" IsEnabled="{Binding CanNext}" Height="30" />
+                        <ComboBox SelectedItem="{Binding PageSize}" ItemsSource="{Binding PageSizes}" Style="{StaticResource FilterCombo}" Height="30" Width="67" Margin="6,0,0,0"
+                                  AutomationProperties.Name="1ページの表示件数" />
+                    </WrapPanel>
+                </DockPanel>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

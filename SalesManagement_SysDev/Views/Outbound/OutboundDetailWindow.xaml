@@ -1,0 +1,124 @@
+<Window x:Class="SalesManagement_SysDev.OutboundDetailWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="出庫詳細" Width="860" Height="650" WindowStartupLocation="CenterOwner" WindowStyle="None"
+        AllowsTransparency="True" Background="Transparent" ShowInTaskbar="False" ResizeMode="CanResize">
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries><ResourceDictionary Source="/SalesManagement_SysDev;component/Resources/OrderManagement.xaml" /></ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </Window.Resources>
+    <Border Background="{StaticResource ThemeCanvas}" BorderBrush="{StaticResource OrderDivider}" BorderThickness="1" CornerRadius="8">
+        <Grid>
+            <Grid.RowDefinitions><RowDefinition Height="56" /><RowDefinition Height="*" /><RowDefinition Height="60" /></Grid.RowDefinitions>
+            <Border Background="{StaticResource OrderHeader}" CornerRadius="8,8,0,0" Padding="16,0">
+                <DockPanel VerticalAlignment="Center">
+                    <Button DockPanel.Dock="Right" Click="Close_Click" Content="×" Width="34" Height="34" Padding="0" FontSize="20"
+                            Background="Transparent" BorderBrush="Transparent" Foreground="White" AutomationProperties.Name="閉じる" />
+                    <WrapPanel VerticalAlignment="Center">
+                        <TextBlock Text="出庫詳細" Foreground="White" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center" />
+                        <TextBlock Text="{Binding Record.Code}" Foreground="White" FontSize="14" Margin="12,0" VerticalAlignment="Center" />
+                        <Border Background="{Binding StateBackground}" CornerRadius="9" Padding="8,3" Margin="0,0,7,0">
+                            <TextBlock Text="{Binding StateLabel}" Foreground="{Binding StateForeground}" />
+                        </Border>
+                        <Border Background="{StaticResource OrderInput}" CornerRadius="9" Padding="8,3">
+                            <TextBlock Text="{Binding Record.ArrivalStatusLabel}" Foreground="{StaticResource OrderHeader}" />
+                        </Border>
+                    </WrapPanel>
+                </DockPanel>
+            </Border>
+
+            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <StackPanel Margin="14">
+                    <Border Background="{StaticResource OrderSurface}" CornerRadius="7" BorderBrush="{StaticResource OrderDivider}" BorderThickness="1" Padding="10" Margin="0,0,0,9">
+                        <StackPanel>
+                            <TextBlock Text="出庫情報" FontSize="15" FontWeight="SemiBold" Margin="5,0,0,9" />
+                            <UniformGrid Columns="4">
+                            <StackPanel Margin="5,0,5,8">
+                                <TextBlock Text="出庫番号" Style="{StaticResource OrderFilterLabel}" />
+                                <TextBlock Text="{Binding Record.Code}" TextWrapping="Wrap" />
+                            </StackPanel>
+                            <StackPanel Margin="5,0,5,8">
+                                <TextBlock Text="関連注文番号" Style="{StaticResource OrderFilterLabel}" />
+                                <TextBlock Text="{Binding Record.RelatedOrderCode}" TextWrapping="Wrap" />
+                            </StackPanel>
+                            <StackPanel Margin="5,0,5,8">
+                                <TextBlock Text="顧客名" Style="{StaticResource OrderFilterLabel}" />
+                                <TextBlock Text="{Binding Record.PartnerName}" TextWrapping="Wrap" />
+                            </StackPanel>
+                            <StackPanel Margin="5,0,5,8">
+                                <TextBlock Text="担当営業所" Style="{StaticResource OrderFilterLabel}" />
+                                <TextBlock Text="{Binding Record.OfficeName}" TextWrapping="Wrap" />
+                            </StackPanel>
+                            <StackPanel Margin="5,0,5,8">
+                                <TextBlock Text="出庫日" Style="{StaticResource OrderFilterLabel}" />
+                                <TextBlock Text="{Binding Record.MovementDateText}" TextWrapping="Wrap" />
+                            </StackPanel>
+                            <StackPanel Margin="5,0,5,8">
+                                <TextBlock Text="出庫担当者" Style="{StaticResource OrderFilterLabel}" />
+                                <TextBlock Text="{Binding Record.EmployeeName}" TextWrapping="Wrap" />
+                            </StackPanel>
+                            <StackPanel Margin="5,0,5,8">
+                                <TextBlock Text="管理状態" Style="{StaticResource OrderFilterLabel}" />
+                                <TextBlock Text="{Binding ManagementLabel}" TextWrapping="Wrap" />
+                            </StackPanel>
+                            <StackPanel Margin="5,0,5,8">
+                                <TextBlock Text="出庫数量合計" Style="{StaticResource OrderFilterLabel}" />
+                                <TextBlock Text="{Binding QuantityText}" TextWrapping="Wrap" />
+                            </StackPanel>
+                            </UniformGrid>
+                            <TextBlock Margin="5,0" Foreground="{StaticResource OrderSecondaryText}">
+                                <Run Text="関連受注 " /><Run Text="{Binding SourceSalesOrderCode, Mode=OneWay}" />
+                            </TextBlock>
+                            <TextBlock Margin="5,6,0,0" TextWrapping="Wrap" Foreground="{StaticResource OrderSecondaryText}"
+                                       Text="{Binding Record.HiddenReason, StringFormat=非表示理由：{0}}"
+                                       Visibility="{Binding HasHiddenReason, Converter={StaticResource OrderBooleanVisibility}}" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Background="{StaticResource OrderSurface}" CornerRadius="7" BorderBrush="{StaticResource OrderDivider}" BorderThickness="1" Padding="10" Margin="0,0,0,9">
+                        <StackPanel>
+                            <DockPanel Margin="3,0,3,7">
+                                <TextBlock DockPanel.Dock="Right" Text="{Binding LineCountText}" Foreground="{StaticResource OrderSecondaryText}" />
+                                <TextBlock Text="出庫商品明細" FontSize="15" FontWeight="SemiBold" />
+                            </DockPanel>
+                            <DataGrid x:Name="LinesGrid" ItemsSource="{Binding OutboundLines}" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False"
+                                      HeadersVisibility="Column" RowHeight="34" ColumnHeaderHeight="33" MaxHeight="290"
+                                      ColumnHeaderStyle="{StaticResource OrderColumnHeader}" CellStyle="{StaticResource OrderListCell}" RowStyle="{StaticResource OrderGridRow}"
+                                      AlternationCount="2" AlternatingRowBackground="{StaticResource OrderSurfaceAlt}">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="No." Binding="{Binding Number}" Width="55" ElementStyle="{StaticResource TableNumber}" />
+                                    <DataGridTextColumn Header="商品コード" Binding="{Binding Line.ProductCode}" Width="125" ElementStyle="{StaticResource TableText}" />
+                                    <DataGridTextColumn Header="商品名" Binding="{Binding Line.ProductName}" Width="*" ElementStyle="{StaticResource TableText}" />
+                                    <DataGridTextColumn Header="出庫数量" Binding="{Binding Line.QuantityText}" Width="104" ElementStyle="{StaticResource TableNumber}" />
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Background="{StaticResource OrderSurface}" CornerRadius="7" BorderBrush="{StaticResource OrderDivider}" BorderThickness="1" Padding="10">
+                        <StackPanel>
+                            <TextBlock Text="関連情報" FontSize="15" FontWeight="SemiBold" Margin="3,0,0,7" />
+                            <WrapPanel Margin="0,0,0,6">
+                                <Button Content="関連注文詳細" Click="Order_Click" Height="32" Margin="0,0,6,0" Style="{StaticResource OrderToolbarButton}" IsEnabled="{Binding CanOpenRelatedOrder}" />
+                                <Button Content="関連入荷情報" Click="Arrival_Click" Height="32" Style="{StaticResource OrderToolbarButton}" IsEnabled="{Binding CanOpenRelatedArrival}" />
+                            </WrapPanel>
+                            <TextBlock Text="{Binding RelatedArrivalMessage}" Foreground="{StaticResource OrderSecondaryText}" TextWrapping="Wrap" Margin="3,0,0,4" />
+                            <TextBlock Text="出庫の操作履歴は未記録です。" Foreground="{StaticResource OrderSecondaryText}" Margin="3,0,0,0" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+
+            <Border Grid.Row="2" Background="{StaticResource OrderSurface}" BorderBrush="{StaticResource OrderDivider}" BorderThickness="0,1,0,0" Padding="12,0">
+                <StackPanel HorizontalAlignment="Right" VerticalAlignment="Center" Orientation="Horizontal">
+                    <Button Content="非表示" Click="Hide_Click" Height="36" Margin="0,0,7,0" Style="{StaticResource OrderHideActionButton}"
+                            Visibility="{Binding CanHide, Converter={StaticResource OrderBooleanVisibility}}" />
+                    <Button Content="出庫確定" Click="Confirm_Click" Height="36" Margin="0,0,7,0" Style="{StaticResource OrderRegisterButton}"
+                            Visibility="{Binding CanConfirm, Converter={StaticResource OrderBooleanVisibility}}" />
+                    <Button Content="閉じる" Click="Close_Click" IsCancel="True" Height="36" MinWidth="88" Style="{StaticResource OrderToolbarButton}" />
+                </StackPanel>
+            </Border>
+        </Grid>
+    </Border>
+</Window>
