@@ -260,12 +260,13 @@ internal sealed class OrderDetailDialog : Window
             ItemsSource = detail.Lines, AutoGenerateColumns = false, IsReadOnly = true, CanUserAddRows = false,
             CanUserDeleteRows = false, CanUserSortColumns = false, CanUserReorderColumns = false, CanUserResizeRows = false,
             EnableRowVirtualization = true, HeadersVisibility = DataGridHeadersVisibility.Column,
-            GridLinesVisibility = DataGridGridLinesVisibility.Horizontal, RowHeight = 38, ColumnHeaderHeight = 32, MinHeight = 100,
-            Height = Math.Clamp(detail.Lines.Count * 38 + 34, 104, 258),
+            GridLinesVisibility = DataGridGridLinesVisibility.Horizontal, RowHeight = double.NaN, MinRowHeight = 38, ColumnHeaderHeight = 32,
+            MinHeight = 104, MaxHeight = 258,
             Background = AppTheme.Surface, BorderBrush = AppTheme.Border, BorderThickness = new Thickness(1),
             HorizontalGridLinesBrush = AppTheme.Border
         };
         lines.SetValue(ScrollViewer.CanContentScrollProperty, true);
+        VirtualizingPanel.SetScrollUnit(lines, ScrollUnit.Pixel);
         lines.SetValue(ScrollViewer.HorizontalScrollBarVisibilityProperty, ScrollBarVisibility.Auto);
         lines.SetValue(ScrollViewer.VerticalScrollBarVisibilityProperty, ScrollBarVisibility.Auto);
         lines.Columns.Add(new DataGridTextColumn { Header = "No.", Binding = new System.Windows.Data.Binding(nameof(OrderLineView.Number)), Width = new DataGridLength(46), MinWidth = 46, ElementStyle = NumericCellStyle() });
