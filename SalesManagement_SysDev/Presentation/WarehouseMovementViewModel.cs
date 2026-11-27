@@ -16,7 +16,10 @@ public sealed class WarehouseMovementRow : ViewModelBase
     public string ProductSummary => Data.ProductSearchText.Length == 0
         ? $"{Data.LineCount:N0} 行"
         : $"{Data.ProductSearchText}（{Data.LineCount:N0}行）";
-    public string QuantityText => Data.Quantity.ToString("N0");
+    public string ReceiptProductNames => Data.ReceiptProducts.Count == 0 ? "—"
+        : string.Join("、", Data.ReceiptProducts.Select(product => product.Name).Distinct());
+    public string OrderedQuantityText => Data.OrderedQuantity?.ToString("N0") ?? "—";
+    public string QuantityText => Data.IsAwaitingReceipt ? "未入力" : Data.Quantity.ToString("N0");
     public string BusinessStatusLabel => Data.BusinessStatusLabel;
     public string ManagementLabel => Data.ManagementLabel;
     public bool CanSelectInbound => Data.Kind == WarehouseMovementKind.Inbound && WarehousingService.CanConfirm
@@ -164,6 +167,7 @@ public sealed class WarehouseMovementViewModel : ViewModelBase, IDisposable
     public WarehouseMovementRow? SelectedReceipt => selectedReceipt;
     public bool CanConfirmReceipt => !IsLoading && !ShowingInboundHistory && selectedReceipt is { CanSelectInbound: true };
     public string ReceiptSelectionText => selectedReceipt == null ? "選択 0 件" : "選択 1 件";
+    public string ReceiptSelectionAction => selectedReceipt?.Data.IsAwaitingReceipt == true ? "入庫確認" : "選択を確定";
     public IReadOnlyList<int> PageSizes { get; }
     public int PageSize { get => pageSize; set { if (PageSizes.Contains(value) && Set(ref pageSize, value)) SetPage(1); } }
     public int Page => page;
@@ -274,7 +278,7 @@ public sealed class WarehouseMovementViewModel : ViewModelBase, IDisposable
         selectedReceipt = ReferenceEquals(previous, row) ? null : row;
         if (previous != null) previous.SelectedForConfirmation = false;
         if (selectedReceipt != null) selectedReceipt.SelectedForConfirmation = true;
-        Notify(nameof(SelectedReceipt)); Notify(nameof(CanConfirmReceipt)); Notify(nameof(ReceiptSelectionText));
+        Notify(nameof(SelectedReceipt)); Notify(nameof(CanConfirmReceipt)); Notify(nameof(ReceiptSelectionText)); Notify(nameof(ReceiptSelectionAction));
     }
 
     public void ClearConditions()
@@ -408,13 +412,17 @@ public sealed class WarehouseMovementDetailViewModel
     public IReadOnlyList<WarehouseMovementLine> Lines { get; }
     public PurchaseOrderDetail? RelatedPurchase { get; }
     public bool HasRelatedPurchase => RelatedPurchase != null;
+    public bool ShowReceiptDifferences => HasRelatedPurchase && !Record.IsAwaitingReceipt;
+    public bool ShowStockTab => IsInbound && !Record.IsAwaitingReceipt;
     public IReadOnlyList<WarehouseReceiptDetailLine> ReceiptLines { get; }
     public IReadOnlyList<WarehouseMovementLine> StockLines { get; }
     public IReadOnlyList<WarehouseDetailField> LeftFields { get; }
     public IReadOnlyList<WarehouseDetailField> RightFields { get; }
     public IReadOnlyList<WarehouseDetailField> PurchaseFields { get; }
-    public string ReceiptTotals => $"入庫合計 {Record.Quantity:N0}　／　明細 {Record.LineCount:N0} 件"
-        + (RelatedPurchase is { } purchase ? $"　／　関連発注合計 {purchase.Order.OrderedQuantity:N0}" : "");
+    public string ReceiptTotals => Record.IsAwaitingReceipt
+        ? $"発注合計 {Record.OrderedQuantity:N0}　／　実入庫数量は確認画面で入力"
+        : $"入庫合計 {Record.Quantity:N0}　／　明細 {Record.LineCount:N0} 件"
+            + (RelatedPurchase is { } purchase ? $"　／　関連発注合計 {purchase.Order.OrderedQuantity:N0}" : "");
     public bool CanRestore => !readOnly && IsInbound && WarehousingService.CanRestore && WarehousingService.IsRestorable(Record);
     public bool ShowRestoreRestriction => !readOnly && IsInbound && WarehousingService.CanRestore
         && Record.ManagementFlag == WarehousingService.HiddenFlag && !WarehousingService.IsRestorable(Record);
@@ -442,12 +450,12 @@ public sealed class WarehouseMovementDetailViewModel
     public bool CanConfirm => !readOnly && (IsInbound
         ? WarehousingService.CanConfirm && Record.IsUnconfirmed && Record.ManagementFlag == WarehousingService.ActiveFlag
         : OutboundService.CanConfirm && Record.IsUnconfirmed && Record.ManagementFlag == OutboundService.ActiveFlag);
-    public string ConfirmActionLabel => IsInbound ? "入庫確定" : "出庫を確定";
+    public string ConfirmActionLabel => Record.IsAwaitingReceipt ? "入庫確認" : IsInbound ? "入庫確定" : "出庫を確定";
     public bool CanHide => !readOnly && (IsInbound
         ? WarehousingService.CanHide && Record.IsConfirmed && Record.ManagementFlag == WarehousingService.ActiveFlag
         : OutboundService.CanHide && Record.IsConfirmed && Record.ManagementFlag == OutboundService.ActiveFlag);
     public bool CanShowHideRestriction => !readOnly && (IsInbound ? WarehousingService.CanHide : OutboundService.CanHide)
-        && Record.ManagementFlag == WarehousingService.ActiveFlag && !Record.IsConfirmed;
+        && Record.ManagementFlag == WarehousingService.ActiveFlag && !Record.IsConfirmed && !Record.IsAwaitingReceipt;
     public string SourceSalesOrderCode => $"ORD-{Record.ReferenceId:000000}";
     public bool CanOpenRelatedOrder => !IsInbound && AppSession.CanManageOrders && Record.RelatedOrderId.HasValue;
     public bool CanOpenRelatedArrival => !IsInbound && ArrivalService.CanView && Record.RelatedArrival != null;
@@ -503,26 +511,63 @@ public sealed record WarehouseReceiptDetailLine(int Number, WarehouseMovementLin
 
 public sealed record OutboundDetailLine(int Number, WarehouseMovementLine Line);
 
+public sealed class WarehouseReceiptQuantityEntry(PurchaseOrderLineRecord line) : ViewModelBase
+{
+    private string quantityText = "";
+    public int ProductId => line.ProductId;
+    public string ProductCode => line.ProductCode;
+    public string ProductName => line.ProductName;
+    public int OrderedQuantity => line.OrderedQuantity;
+    public string QuantityText { get => quantityText; set => Set(ref quantityText, value); }
+    public int ActualQuantity => int.TryParse(QuantityText, out var value) ? value : 0;
+}
+
 public sealed class WarehouseMovementConfirmViewModel : ViewModelBase
 {
     private bool isProcessing;
+    private DateTime? receiptDate = DateTime.Today;
     public WarehouseMovementRecord Record { get; }
     public IReadOnlyList<WarehouseMovementLine> Lines { get; }
+    public IReadOnlyList<WarehouseReceiptQuantityEntry> ReceiptEntries { get; }
     public bool IsInbound => Record.Kind == WarehouseMovementKind.Inbound;
-    public string Title => IsInbound ? "入庫を確定しますか？" : "出庫確定の確認";
+    public bool IsAwaitingReceipt => Record.IsAwaitingReceipt;
+    public bool HasStoredLines => !IsAwaitingReceipt;
+    public bool CanEditReceipt => !IsProcessing;
+    public DateTime? ReceiptDate
+    {
+        get => receiptDate;
+        set { if (Set(ref receiptDate, value)) NotifyReceiptValidation(); }
+    }
+    public string Title => IsAwaitingReceipt ? "入庫確認" : IsInbound ? "入庫を確定しますか？" : "出庫確定の確認";
     public string ActionLabel => IsInbound ? "入庫を確定" : "出庫を確定";
-    public string ConfirmationPrompt => IsInbound
-        ? "以下の入庫内容を確認し、確定します。よろしいですか？"
-        : "以下の出庫データを確定します。よろしいですか？";
+    public string ConfirmationPrompt => IsAwaitingReceipt
+        ? "現品を確認し、入庫日と商品ごとの実入庫数量を入力してください。"
+        : IsInbound ? "以下の入庫内容を確認し、確定します。よろしいですか？"
+            : "以下の出庫データを確定します。よろしいですか？";
     public string ImpactText => IsInbound
         ? "入庫確定後、在庫数量が更新されます。確定した入庫は再度確定できません。"
         : "出庫確定後、未確定の入荷データを作成します。\n在庫数量は注文確定時に減算済みです。この操作で再度減算することはありません。";
-    public string TargetText => IsInbound
-        ? $"入庫番号：{Record.Code}\n関連発注番号：{Record.ReferenceCode}\n仕入先名：{Record.PartnerName}\n入庫数量合計：{Record.Quantity:N0}（{Record.LineCount:N0} 明細）"
-        : $"{Record.Code}　{Record.ReferenceCode}\n{Record.PartnerName}　{Record.OfficeName}　数量 {Record.Quantity:N0}　明細 {Record.LineCount:N0} 行";
+    public string TargetText => IsAwaitingReceipt
+        ? $"発注番号：{Record.ReferenceCode}\n仕入先名：{Record.PartnerName}"
+        : IsInbound ? $"入庫番号：{Record.Code}\n関連発注番号：{Record.ReferenceCode}\n仕入先名：{Record.PartnerName}\n入庫数量合計：{Record.Quantity:N0}（{Record.LineCount:N0} 明細）"
+            : $"{Record.Code}　{Record.ReferenceCode}\n{Record.PartnerName}　{Record.OfficeName}　数量 {Record.Quantity:N0}　明細 {Record.LineCount:N0} 行";
     public IReadOnlyList<WarehouseMovementLineInput> ExpectedLines { get; }
-    public string LineError => IsInbound ? WarehouseMovementRules.ValidateLines(ExpectedLines) ?? "" : "";
-    public bool IsProcessing { get => isProcessing; set { if (Set(ref isProcessing, value)) { Notify(nameof(CanConfirm)); Notify(nameof(ProgressText)); } } }
+    public IReadOnlyList<WarehouseMovementLineInput> ActualReceiptLines =>
+        ReceiptEntries.Select(entry => new WarehouseMovementLineInput(entry.ProductId, entry.ActualQuantity)).ToArray();
+    public string LineError => (IsAwaitingReceipt
+        ? WarehouseMovementRules.ValidateFullReceipt(ReceiptDate, ExpectedLines, ActualReceiptLines)
+        : IsInbound ? WarehouseMovementRules.ValidateLines(ExpectedLines) : null) ?? "";
+    public bool IsProcessing
+    {
+        get => isProcessing;
+        set
+        {
+            if (!Set(ref isProcessing, value)) return;
+            Notify(nameof(CanConfirm));
+            Notify(nameof(CanEditReceipt));
+            Notify(nameof(ProgressText));
+        }
+    }
     public bool CanConfirm => !IsProcessing && (IsInbound ? WarehousingService.CanConfirm : OutboundService.CanConfirm)
         && WarehouseMovementRules.ValidateConfirmation(Record.ManagementFlag, Record.BusinessState) == null && LineError.Length == 0;
     public string ProgressText => IsProcessing ? "データを確認して保存しています…" : "";
@@ -531,7 +576,19 @@ public sealed class WarehouseMovementConfirmViewModel : ViewModelBase
     {
         Record = detail.Record;
         Lines = detail.Lines;
-        ExpectedLines = Lines.Select(line => new WarehouseMovementLineInput(line.ProductId, line.Quantity)).ToArray();
+        ReceiptEntries = IsAwaitingReceipt && detail.RelatedPurchase is { } purchase
+            ? purchase.Lines.Select(line => new WarehouseReceiptQuantityEntry(line)).ToArray() : [];
+        ExpectedLines = IsAwaitingReceipt
+            ? ReceiptEntries.Select(entry => new WarehouseMovementLineInput(entry.ProductId, entry.OrderedQuantity)).ToArray()
+            : Lines.Select(line => new WarehouseMovementLineInput(line.ProductId, line.Quantity)).ToArray();
+        foreach (var entry in ReceiptEntries)
+            entry.PropertyChanged += (_, _) => NotifyReceiptValidation();
+    }
+
+    private void NotifyReceiptValidation()
+    {
+        Notify(nameof(LineError));
+        Notify(nameof(CanConfirm));
     }
 }
 

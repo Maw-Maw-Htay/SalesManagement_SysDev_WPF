@@ -1,6 +1,8 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
+using System.Windows.Media;
 
 namespace SalesManagement_SysDev;
 
@@ -177,19 +179,22 @@ internal sealed class OrderDetailDialog : Window
     private readonly OrderDetailView detail;
     private readonly ChumonManagementViewModel viewModel;
     private readonly OrderManagementRow row;
+    private readonly bool canOperate;
 
     public OrderDetailDialog(OrderDetailView detail, ChumonManagementViewModel viewModel, OrderManagementRow row, Window? owner, bool readOnly = false)
     {
         this.detail = detail; this.viewModel = viewModel; this.row = row;
+        canOperate = !readOnly && AppSession.CanManageOrders;
         Owner = owner;
-        Title = "注文詳細"; WindowStyle = WindowStyle.None; ResizeMode = ResizeMode.NoResize;
+        Title = "注文詳細"; WindowStyle = WindowStyle.None; ResizeMode = ResizeMode.CanResize;
         AllowsTransparency = true; Background = System.Windows.Media.Brushes.Transparent; ShowInTaskbar = false;
         WindowStartupLocation = owner == null ? WindowStartupLocation.CenterScreen : WindowStartupLocation.CenterOwner;
         var availableWidth = owner?.ActualWidth > 0 ? owner.ActualWidth : SystemParameters.WorkArea.Width;
         var availableHeight = owner?.ActualHeight > 0 ? owner.ActualHeight : SystemParameters.WorkArea.Height;
-        MaxWidth = Math.Max(560, availableWidth * .94); MaxHeight = Math.Max(420, availableHeight * .88);
-        Width = Math.Min(920, MaxWidth); MinWidth = Math.Min(640, MaxWidth);
-        Height = Math.Min(760, MaxHeight); MinHeight = Math.Min(440, MaxHeight);
+        MaxWidth = Math.Min(SystemParameters.WorkArea.Width * .96, Math.Max(760, availableWidth * .94));
+        MaxHeight = Math.Min(SystemParameters.WorkArea.Height * .94, Math.Max(460, availableHeight * .88));
+        Width = Math.Min(900, MaxWidth); MinWidth = Math.Min(760, MaxWidth);
+        Height = Math.Min(640, MaxHeight); MinHeight = Math.Min(460, MaxHeight);
         FontFamily = AppTypography.FontFamily; FontSize = 14;
 
         var frame = new Border { Background = AppTheme.Surface, BorderBrush = AppTheme.Border, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(10), ClipToBounds = true };
@@ -209,21 +214,39 @@ internal sealed class OrderDetailDialog : Window
 
         var body = new StackPanel { Margin = new Thickness(22, 18, 22, 16) };
         var infoGrid = new Grid { Margin = new Thickness(0, 0, 0, 18) };
-        var singleColumn = Width < 780;
-        if (singleColumn) { infoGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); infoGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); }
-        else { infoGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); infoGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); }
         var customerCard = CreateInfoCard("顧客情報", [
             ("顧客名", detail.CustomerName), ("電話番号", Display(detail.CustomerPhone)), ("住所", Display(detail.CustomerAddress))]);
         var orderCard = CreateInfoCard("注文情報", [
             ("注文番号", $"CH-{detail.OrderId:000000}"), ("関連受注番号", $"ORD-{detail.RelatedOrderId:000000}"),
             ("注文日", FormatDate(detail.OrderDate)), ("納期", FormatDate(detail.DeliveryDate)),
             ("受付営業所", detail.OfficeName), ("注文状態", detail.State), ("管理状態", detail.ManagementState)]);
-        if (singleColumn)
+        bool? cardsStacked = null;
+        void ArrangeInfoCards(double width)
         {
-            Grid.SetRow(orderCard, 1); customerCard.Margin = new Thickness(0, 0, 0, 10); orderCard.Margin = new Thickness(0);
+            var stackCards = width < 780;
+            if (cardsStacked == stackCards) return;
+            cardsStacked = stackCards;
+            infoGrid.Children.Clear(); infoGrid.RowDefinitions.Clear(); infoGrid.ColumnDefinitions.Clear();
+            if (stackCards)
+            {
+                infoGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                infoGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                Grid.SetRow(customerCard, 0); Grid.SetRow(orderCard, 1);
+                Grid.SetColumn(customerCard, 0); Grid.SetColumn(orderCard, 0);
+                customerCard.Margin = new Thickness(0, 0, 0, 10); orderCard.Margin = new Thickness(0);
+            }
+            else
+            {
+                infoGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                infoGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                Grid.SetRow(customerCard, 0); Grid.SetRow(orderCard, 0); Grid.SetColumn(customerCard, 0); Grid.SetColumn(orderCard, 1);
+                customerCard.Margin = new Thickness(0, 0, 8, 0); orderCard.Margin = new Thickness(8, 0, 0, 0);
+            }
+            infoGrid.Children.Add(customerCard); infoGrid.Children.Add(orderCard);
         }
-        else { Grid.SetColumn(orderCard, 1); customerCard.Margin = new Thickness(0, 0, 10, 0); orderCard.Margin = new Thickness(10, 0, 0, 0); }
-        infoGrid.Children.Add(customerCard); infoGrid.Children.Add(orderCard); body.Children.Add(infoGrid);
+        ArrangeInfoCards(Width);
+        SizeChanged += (_, e) => ArrangeInfoCards(e.NewSize.Width);
+        body.Children.Add(infoGrid);
 
         var detailHeading = new Grid { Margin = new Thickness(0, 0, 0, 8) };
         detailHeading.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -235,38 +258,52 @@ internal sealed class OrderDetailDialog : Window
         var lines = new DataGrid
         {
             ItemsSource = detail.Lines, AutoGenerateColumns = false, IsReadOnly = true, CanUserAddRows = false,
-            CanUserDeleteRows = false, EnableRowVirtualization = true, HeadersVisibility = DataGridHeadersVisibility.Column,
-            GridLinesVisibility = DataGridGridLinesVisibility.Horizontal, RowHeight = 42, MinHeight = 100,
-            Height = Math.Max(100, detail.Lines.Count * 42 + 42)
+            CanUserDeleteRows = false, CanUserSortColumns = false, CanUserReorderColumns = false, CanUserResizeRows = false,
+            EnableRowVirtualization = true, HeadersVisibility = DataGridHeadersVisibility.Column,
+            GridLinesVisibility = DataGridGridLinesVisibility.Horizontal, RowHeight = 38, ColumnHeaderHeight = 32, MinHeight = 100,
+            Height = Math.Clamp(detail.Lines.Count * 38 + 34, 104, 258),
+            Background = AppTheme.Surface, BorderBrush = AppTheme.Border, BorderThickness = new Thickness(1),
+            HorizontalGridLinesBrush = AppTheme.Border
         };
         lines.SetValue(ScrollViewer.CanContentScrollProperty, true);
-        lines.Columns.Add(new DataGridTextColumn { Header = "商品コード / 商品名", Binding = new System.Windows.Data.Binding(nameof(OrderLineView.ProductLabel)), Width = new DataGridLength(1, DataGridLengthUnitType.Star), MinWidth = 180 });
-        lines.Columns.Add(new DataGridTextColumn { Header = "単価", Binding = new System.Windows.Data.Binding(nameof(OrderLineView.UnitPrice)) { StringFormat = "¥#,##0.##" }, Width = new DataGridLength(120), ElementStyle = NumericCellStyle() });
-        lines.Columns.Add(new DataGridTextColumn { Header = "数量", Binding = new System.Windows.Data.Binding(nameof(OrderLineView.Quantity)) { StringFormat = "N0" }, Width = new DataGridLength(76), ElementStyle = NumericCellStyle() });
-        lines.Columns.Add(new DataGridTextColumn { Header = "行合計", Binding = new System.Windows.Data.Binding(nameof(OrderLineView.LineTotal)) { StringFormat = "¥#,##0" }, Width = new DataGridLength(116), ElementStyle = NumericCellStyle() });
-        lines.Columns.Add(new DataGridTextColumn { Header = "現在庫", Binding = new System.Windows.Data.Binding(nameof(OrderLineView.CurrentStock)) { StringFormat = "N0" }, Width = new DataGridLength(82), ElementStyle = NumericCellStyle() });
-        lines.Columns.Add(new DataGridTextColumn { Header = "在庫確認", Binding = new System.Windows.Data.Binding(nameof(OrderLineView.Availability)), Width = new DataGridLength(100) });
+        lines.SetValue(ScrollViewer.HorizontalScrollBarVisibilityProperty, ScrollBarVisibility.Disabled);
+        lines.SetValue(ScrollViewer.VerticalScrollBarVisibilityProperty, ScrollBarVisibility.Auto);
+        lines.Columns.Add(new DataGridTextColumn { Header = "No.", Binding = new System.Windows.Data.Binding(nameof(OrderLineView.Number)), Width = new DataGridLength(46), ElementStyle = NumericCellStyle() });
+        lines.Columns.Add(new DataGridTextColumn { Header = "商品コード / 商品名", Binding = new System.Windows.Data.Binding(nameof(OrderLineView.ProductLabel)), Width = new DataGridLength(1, DataGridLengthUnitType.Star), MinWidth = 170, ElementStyle = ProductCellStyle() });
+        lines.Columns.Add(new DataGridTextColumn { Header = "単価", Binding = new System.Windows.Data.Binding(nameof(OrderLineView.UnitPrice)) { StringFormat = "¥#,##0.##", TargetNullValue = "未記録" }, Width = new DataGridLength(104), ElementStyle = NumericCellStyle() });
+        lines.Columns.Add(new DataGridTextColumn { Header = "数量", Binding = new System.Windows.Data.Binding(nameof(OrderLineView.Quantity)) { StringFormat = "N0" }, Width = new DataGridLength(64), ElementStyle = NumericCellStyle() });
+        lines.Columns.Add(new DataGridTextColumn { Header = "行合計", Binding = new System.Windows.Data.Binding(nameof(OrderLineView.LineTotal)) { StringFormat = "¥#,##0", TargetNullValue = "未記録" }, Width = new DataGridLength(106), ElementStyle = NumericCellStyle() });
+        lines.Columns.Add(new DataGridTextColumn { Header = "現在庫", Binding = new System.Windows.Data.Binding(nameof(OrderLineView.CurrentStockText)), Width = new DataGridLength(86), ElementStyle = NumericCellStyle() });
+        lines.Columns.Add(new DataGridTextColumn { Header = "在庫確認", Binding = new System.Windows.Data.Binding(nameof(OrderLineView.Availability)), Width = new DataGridLength(94) });
         body.Children.Add(lines);
-        body.Children.Add(new TextBlock { Text = $"注文合計　{detail.Total?.ToString("¥#,##0") ?? "関連受注に金額記録なし"}", HorizontalAlignment = HorizontalAlignment.Right, FontSize = 16, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 12, 0, 0) });
+        var total = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 12, 0, 0) };
+        total.Children.Add(new TextBlock { Text = "注文合計", Foreground = AppTheme.Secondary, FontSize = 13, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 14, 0) });
+        total.Children.Add(new TextBlock { Text = detail.Total?.ToString("¥#,##0") ?? "関連受注に金額記録なし", HorizontalAlignment = HorizontalAlignment.Right, FontSize = 17, FontWeight = FontWeights.Bold, Foreground = AppTheme.Primary });
+        body.Children.Add(total);
         var scroll = new ScrollViewer { Content = body, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
         Grid.SetRow(scroll, 1); root.Children.Add(scroll);
 
-        var footer = new DockPanel { LastChildFill = false, Margin = new Thickness(20, 10, 20, 12) };
-        if (!readOnly)
-            footer.Children.Add(new TextBlock { Text = "確定時に在庫を減算し、出庫情報を作成します。", Foreground = AppTheme.Secondary, FontSize = 11, VerticalAlignment = VerticalAlignment.Center });
+        var footer = new Grid { Margin = new Thickness(20, 10, 20, 12) };
+        footer.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        footer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var footerMessage = detail.ManagementState == "非表示" ? "非表示の注文は参照のみです。"
+            : !canOperate ? "この注文の操作権限がありません。"
+            : detail.State == "確定済み" ? "この注文は確定済みです。"
+            : "確定時に在庫を再確認し、在庫を減算して出庫情報を作成します。";
+        footer.Children.Add(new TextBlock { Text = footerMessage, Foreground = AppTheme.Secondary, FontSize = 11, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 14, 0) });
         var actions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
-        if (!readOnly && row.ManagementFlag == 0)
+        if (canOperate && detail.ManagementState == "通常表示")
         {
-            var hide = new Button { Content = "非表示にする", Padding = new Thickness(16, 8, 16, 8), Margin = new Thickness(0, 0, 8, 0), Background = AppTheme.Surface, Foreground = AppTheme.Danger, BorderBrush = AppTheme.Danger };
+            var hide = new Button { Content = "非表示にする", Padding = new Thickness(14, 8, 14, 8), Margin = new Thickness(0, 0, 8, 0), Background = AppTheme.Surface, Foreground = AppTheme.Danger, BorderBrush = AppTheme.Danger, BorderThickness = new Thickness(1) };
             hide.Click += Hide; actions.Children.Add(hide);
         }
-        if (!readOnly && row.IsEligible)
+        if (canOperate && detail.ManagementState == "通常表示" && detail.State == "未確定")
         {
-            var confirm = new Button { Content = "注文を確定", Padding = new Thickness(18, 8, 18, 8), Margin = new Thickness(0, 0, 8, 0), Background = AppTheme.Primary, Foreground = System.Windows.Media.Brushes.White, BorderBrush = AppTheme.Primary };
+            var confirm = new Button { Content = "注文を確定", Padding = new Thickness(16, 8, 16, 8), Margin = new Thickness(0, 0, 8, 0), Background = AppTheme.Primary, Foreground = System.Windows.Media.Brushes.White, BorderBrush = AppTheme.Primary };
             confirm.Click += Confirm; actions.Children.Add(confirm);
         }
-        var close = new Button { Content = "閉じる", Padding = new Thickness(18, 8, 18, 8), IsCancel = true, Background = AppTheme.Surface, BorderBrush = AppTheme.Border };
-        actions.Children.Add(close); DockPanel.SetDock(actions, Dock.Right); footer.Children.Add(actions);
+        var close = new Button { Content = "閉じる", Padding = new Thickness(18, 8, 18, 8), IsCancel = true, Background = AppTheme.Surface, Foreground = AppTheme.Text, BorderBrush = AppTheme.Border };
+        actions.Children.Add(close); Grid.SetColumn(actions, 1); footer.Children.Add(actions);
         var footerBorder = new Border { BorderBrush = AppTheme.Border, BorderThickness = new Thickness(0, 1, 0, 0), Child = footer };
         Grid.SetRow(footerBorder, 2); root.Children.Add(footerBorder);
         frame.Child = root; Content = frame;
@@ -274,16 +311,56 @@ internal sealed class OrderDetailDialog : Window
 
     private UIElement CreateHeader()
     {
-        var header = new Border { Background = AppTheme.Primary, Padding = new Thickness(22, 0, 14, 0) };
-        var grid = new Grid(); grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var header = new Border { Background = AppTheme.Primary, Padding = new Thickness(20, 0, 12, 0) };
+        var grid = new Grid { VerticalAlignment = VerticalAlignment.Center };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         var stack = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-        stack.Children.Add(new TextBlock { Text = $"注文詳細　CH-{detail.OrderId:000000}", Foreground = System.Windows.Media.Brushes.White, FontSize = 19, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 14, 0) });
+        stack.Children.Add(new LucideIcon
+        {
+            Data = Application.Current.TryFindResource("IconOrder") as Geometry,
+            Width = 20, Height = 20, Stroke = System.Windows.Media.Brushes.White,
+            Margin = new Thickness(0, 0, 11, 0), VerticalAlignment = VerticalAlignment.Center
+        });
+        var title = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 18, 0) };
+        title.Children.Add(new TextBlock { Text = "注文詳細", Foreground = System.Windows.Media.Brushes.White, FontSize = 18, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
+        title.Children.Add(new TextBlock { Text = $"CH-{detail.OrderId:000000}", Foreground = System.Windows.Media.Brushes.White, Opacity = .82, FontSize = 12, VerticalAlignment = VerticalAlignment.Center });
+        stack.Children.Add(title);
         stack.Children.Add(StatusBadge(detail.State, detail.State == "確定済み" ? AppTheme.SuccessSurface : AppTheme.WarningSurface, detail.State == "確定済み" ? AppTheme.SuccessText : AppTheme.WarningText));
         stack.Children.Add(StatusBadge(detail.ManagementState, detail.ManagementState == "非表示" ? AppTheme.Subtle : AppTheme.PaleBlue, detail.ManagementState == "非表示" ? AppTheme.Secondary : AppTheme.Primary));
         grid.Children.Add(stack);
-        var close = new Button { Content = "×", Width = 36, Height = 36, FontSize = 23, Background = System.Windows.Media.Brushes.Transparent, Foreground = System.Windows.Media.Brushes.White, BorderThickness = new Thickness(0), ToolTip = "閉じる" };
+        var close = new Button
+        {
+            Content = new LucideIcon { Data = Application.Current.TryFindResource("IconX") as Geometry, Width = 18, Height = 18, Stroke = System.Windows.Media.Brushes.White, StrokeThickness = 2 },
+            Width = 36, Height = 36, MinWidth = 36, MinHeight = 36, Padding = new Thickness(0),
+            Background = System.Windows.Media.Brushes.Transparent, Foreground = System.Windows.Media.Brushes.White,
+            BorderThickness = new Thickness(0), ToolTip = "閉じる", Cursor = Cursors.Hand,
+            Template = CloseIconButtonTemplate()
+        };
+        System.Windows.Automation.AutomationProperties.SetName(close, "注文詳細を閉じる");
         close.Click += (_, _) => Close(); Grid.SetColumn(close, 1); grid.Children.Add(close);
         header.Child = grid; return header;
+    }
+
+    private static ControlTemplate CloseIconButtonTemplate()
+    {
+        var template = new ControlTemplate(typeof(Button));
+        var border = new FrameworkElementFactory(typeof(Border));
+        border.Name = "CloseButtonBorder";
+        border.SetValue(Border.CornerRadiusProperty, new CornerRadius(8));
+        border.SetValue(Border.BackgroundProperty, System.Windows.Media.Brushes.Transparent);
+        var presenter = new FrameworkElementFactory(typeof(ContentPresenter));
+        presenter.SetValue(HorizontalAlignmentProperty, HorizontalAlignment.Center);
+        presenter.SetValue(VerticalAlignmentProperty, VerticalAlignment.Center);
+        border.AppendChild(presenter);
+        template.VisualTree = border;
+        var hover = new Trigger { Property = UIElement.IsMouseOverProperty, Value = true };
+        hover.Setters.Add(new Setter(Border.BackgroundProperty, new SolidColorBrush(Color.FromArgb(48, 255, 255, 255)), "CloseButtonBorder"));
+        template.Triggers.Add(hover);
+        var pressed = new Trigger { Property = ButtonBase.IsPressedProperty, Value = true };
+        pressed.Setters.Add(new Setter(Border.BackgroundProperty, new SolidColorBrush(Color.FromArgb(72, 255, 255, 255)), "CloseButtonBorder"));
+        template.Triggers.Add(pressed);
+        return template;
     }
 
     private static Border StatusBadge(string text, System.Windows.Media.Brush background, System.Windows.Media.Brush foreground) => new()
@@ -296,17 +373,27 @@ internal sealed class OrderDetailDialog : Window
     {
         var panel = new StackPanel();
         panel.Children.Add(new TextBlock { Text = title, FontSize = 15, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 8) });
-        var grid = new Grid(); grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(110) }); grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var grid = new Grid(); grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(104) }); grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         for (var i = 0; i < fields.Count; i++)
         {
             grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            var label = new TextBlock { Text = fields[i].Label, Foreground = AppTheme.Secondary, Margin = new Thickness(0, 5, 8, 5), VerticalAlignment = VerticalAlignment.Top };
-            var value = new TextBlock { Text = fields[i].Value, Foreground = AppTheme.Text, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 5, 0, 5), VerticalAlignment = VerticalAlignment.Top };
+            var label = new Border
+            {
+                Background = AppTheme.PaleBlue, CornerRadius = new CornerRadius(4),
+                Padding = new Thickness(7, 5, 7, 5), Margin = new Thickness(0, 2, 8, 2),
+                Child = new TextBlock { Text = fields[i].Label, Foreground = AppTheme.Secondary, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Top }
+            };
+            var value = new TextBlock { Text = fields[i].Value, Foreground = AppTheme.Text, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 6), VerticalAlignment = VerticalAlignment.Top };
             Grid.SetRow(label, i); Grid.SetRow(value, i); Grid.SetColumn(value, 1); grid.Children.Add(label); grid.Children.Add(value);
         }
         panel.Children.Add(grid);
         return new Border { Background = AppTheme.Surface, BorderBrush = AppTheme.Border, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(8), Padding = new Thickness(14), Child = panel };
     }
+
+    private static Style ProductCellStyle() => new(typeof(TextBlock))
+    {
+        Setters = { new Setter(TextBlock.TextAlignmentProperty, TextAlignment.Left), new Setter(TextBlock.TextWrappingProperty, TextWrapping.Wrap), new Setter(TextBlock.TextTrimmingProperty, TextTrimming.None), new Setter(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center), new Setter(FrameworkElement.MarginProperty, new Thickness(7, 2, 5, 2)) }
+    };
 
     private static Style NumericCellStyle() => new(typeof(TextBlock))
     {
@@ -317,6 +404,7 @@ internal sealed class OrderDetailDialog : Window
 
     private async void Confirm(object sender, RoutedEventArgs e)
     {
+        if (!canOperate || viewModel.IsBusy || detail.ManagementState != "通常表示" || detail.State != "未確定") return;
         var confirmation = F_OrderNotice.Confirm(this, "注文確定の確認", $"注文 CH-{detail.OrderId:000000} を確定しますか？\n確定後、在庫数が減少し、出庫情報が作成されます。", "注文を確定");
         if (!confirmation) return;
         var result = await viewModel.ConfirmSingleAsync(row);
@@ -327,6 +415,7 @@ internal sealed class OrderDetailDialog : Window
 
     private async void Hide(object sender, RoutedEventArgs e)
     {
+        if (!canOperate || viewModel.IsBusy || detail.ManagementState != "通常表示") return;
         var selected = new[] { row };
         var dialog = new OrderHideConfirmationDialog(selected, this);
         if (dialog.ShowDialog() != true) return;

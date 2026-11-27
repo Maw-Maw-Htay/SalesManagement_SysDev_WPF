@@ -27,17 +27,21 @@
                         </StackPanel>
                         <StackPanel Grid.Column="1">
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                                <Button x:Name="ConfirmOrderButton" Command="{Binding ConfirmCommand}" Margin="0,0,6,0" ToolTip="{Binding ConfirmHint}" ToolTipService.ShowOnDisabled="True" AutomationProperties.Name="受注確定">
-                                    <Button.Style><Style TargetType="Button" BasedOn="{StaticResource DetailCompactPrimary}"><Style.Triggers><DataTrigger Binding="{Binding IsConfirmed}" Value="True"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger></Style.Triggers></Style></Button.Style>
+                                <Button x:Name="ConfirmOrderButton" Command="{Binding ConfirmCommand}" Style="{StaticResource DetailCompactPrimary}" Margin="6,0,0,0"
+                                        Visibility="{Binding CanConfirm, Converter={StaticResource DetailBooleanVisibility}}" ToolTip="{Binding ConfirmHint}" AutomationProperties.Name="受注確定">
                                     <StackPanel Orientation="Horizontal"><local:LucideIcon Data="{StaticResource IconCheck}" Width="14" Height="14" Stroke="White" Margin="0,0,5,0" /><TextBlock Text="受注確定" /></StackPanel>
                                 </Button>
-                                <Button x:Name="EditOrderButton" Command="{Binding EditCommand}" Style="{StaticResource DetailCompactSecondary}" Margin="0,0,6,0" ToolTip="{Binding EditHint}" ToolTipService.ShowOnDisabled="True" AutomationProperties.Name="受注内容を更新">
+                                <Button x:Name="EditOrderButton" Command="{Binding EditCommand}" Style="{StaticResource DetailCompactSecondary}" Margin="6,0,0,0"
+                                        Visibility="{Binding CanEdit, Converter={StaticResource DetailBooleanVisibility}}" ToolTip="{Binding EditHint}" AutomationProperties.Name="受注内容を更新">
                                     <StackPanel Orientation="Horizontal"><local:LucideIcon Data="{StaticResource IconEdit}" Width="14" Height="14" Stroke="{StaticResource ThemePrimary}" Margin="0,0,5,0" /><TextBlock Text="受注内容を更新" /></StackPanel>
                                 </Button>
-                                <Button x:Name="PrintOrderButton" Command="{Binding PrintCommand}" Style="{StaticResource DetailCompactSecondary}" ToolTip="{Binding PrintHint}" ToolTipService.ShowOnDisabled="True" AutomationProperties.Name="伝票印刷">
+                                <Button x:Name="PrintOrderButton" Command="{Binding PrintCommand}" Style="{StaticResource DetailCompactSecondary}" Margin="6,0,0,0"
+                                        Visibility="{Binding CanPrint, Converter={StaticResource DetailBooleanVisibility}}" ToolTip="{Binding PrintHint}" AutomationProperties.Name="伝票印刷">
                                     <StackPanel Orientation="Horizontal"><local:LucideIcon Data="{StaticResource DetailPrintIcon}" Width="14" Height="14" Stroke="{StaticResource ThemePrimary}" Margin="0,0,5,0" /><TextBlock Text="伝票印刷" /></StackPanel>
                                 </Button>
-                                <Button x:Name="HideOrderButton" Command="{Binding HideCommand}" Style="{StaticResource DetailCompactAction}" Margin="12,0,0,0" Background="{StaticResource ThemeSurface}" BorderBrush="{StaticResource ThemeDanger}" Foreground="{StaticResource ThemeDangerText}" AutomationProperties.Name="非表示">
+                                <Button x:Name="HideOrderButton" Command="{Binding HideCommand}" Style="{StaticResource DetailCompactAction}" Margin="6,0,0,0"
+                                        Visibility="{Binding CanHide, Converter={StaticResource DetailBooleanVisibility}}" Background="{StaticResource ThemeSurface}"
+                                        BorderBrush="{StaticResource ThemeDanger}" Foreground="{StaticResource ThemeDangerText}" AutomationProperties.Name="非表示">
                                     <StackPanel Orientation="Horizontal"><local:LucideIcon Data="{StaticResource IconEyeOff}" Width="14" Height="14" Stroke="{StaticResource ThemeDangerText}" Margin="0,0,5,0" /><TextBlock Text="非表示" /></StackPanel>
                                 </Button>
                             </StackPanel>

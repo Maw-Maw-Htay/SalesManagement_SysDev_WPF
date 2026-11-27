@@ -16,7 +16,8 @@ public partial class F_HattyuDetail : Window
     {
         InitializeComponent();
         this.detail = detail;
-        viewModel = new PurchaseOrderDetailViewModel(detail, !readOnly && PurchaseOrderService.CanHide);
+        viewModel = new PurchaseOrderDetailViewModel(detail, !readOnly && PurchaseOrderService.CanHide,
+            !readOnly && PurchaseOrderService.CanRegister);
         DataContext = viewModel;
         _ = new RegistrationWindowPlacement(this, 880, 680, 670, 440);
         Closing += (_, e) => e.Cancel = processing;
@@ -44,6 +45,28 @@ public partial class F_HattyuDetail : Window
         processing = true;
         try { await PurchaseReceiptHistoryWindow.OpenReceiptAsync(this, row); }
         finally { processing = false; }
+    }
+
+    private async void Confirm_Click(object sender, RoutedEventArgs e)
+    {
+        if (processing || !viewModel.CanConfirm || AppSession.Employee is not { } employee) return;
+        if (!F_OrderNotice.Confirm(this, "発注を確定しますか？",
+            $"{viewModel.Order.Code} を入庫管理の入庫待ちに登録します。在庫は実際の入庫を確定した時に更新されます。", "発注確定"))
+            return;
+
+        processing = true;
+        PurchaseOperationResult result;
+        try { result = await Task.Run(() => PurchaseOrderService.Confirm(employee.EmId, viewModel.Order.Id)); }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Purchase confirmation failed: {ex}");
+            result = new(false, null, "発注を確定できませんでした。再読込してからお試しください。");
+        }
+        finally { processing = false; }
+
+        F_OrderNotice.Show(this, result.Succeeded ? "発注を確定しました" : "発注を確定できませんでした",
+            result.Message, result.Succeeded ? OrderNoticeKind.Success : OrderNoticeKind.Warning);
+        if (result.Succeeded) DialogResult = true;
     }
 
     private async void Hide_Click(object sender, RoutedEventArgs e)

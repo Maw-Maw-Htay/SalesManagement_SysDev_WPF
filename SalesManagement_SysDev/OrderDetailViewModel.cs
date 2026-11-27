@@ -16,7 +16,7 @@ public sealed class OrderDetailItemRow(OrderDetailLine line, int number)
     public decimal? DisplayUnitPrice => line.HasKnownUnitPrice ? UnitPrice : null;
     public int Quantity => line.Quantity;
     public decimal Subtotal => line.Subtotal;
-    public decimal Tax => Math.Round(Subtotal * 0.1m, 0, MidpointRounding.AwayFromZero);
+    public decimal Tax => OrderTax.Calculate(Subtotal);
     public decimal Total => Subtotal + Tax;
 }
 
@@ -113,7 +113,7 @@ public sealed class OrderDetailViewModel : INotifyPropertyChanged
     public string QuantitySummary => $"総数量 {TotalQuantity:N0} 個";
     public decimal Subtotal => data.Lines.Sum(line => line.Subtotal);
     // Preserve the existing detail screen's tax rate and document-level rounding.
-    public decimal Tax => Math.Round(Subtotal * 0.1m, 0, MidpointRounding.AwayFromZero);
+    public decimal Tax => OrderTax.Calculate(Subtotal);
     public decimal Total => Subtotal + Tax;
     public string RoundingNotice => Items.Sum(line => line.Tax) == Tax ? "" : "消費税合計は税抜合計に対して計算するため、行ごとの税額の合計と端数差が生じる場合があります。";
     public bool CanManage => !readOnly && AppSession.CanManageOrders && AppSession.Employee != null

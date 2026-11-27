@@ -21,14 +21,23 @@ public sealed partial class F_OrderManagement
         isHistoryView = showHistory;
         NavigationOwner = navigationOwner;
         InitializeComponent();
-        Closed += (_, _) => { keywordRefreshTimer.Stop(); activeOrderQuery?.Cancel(); };
+        Closed += (_, _) => { keywordRefreshTimer.Stop(); activeOrderQuery?.Cancel(); orderExportCancellation?.Cancel(); };
         viewModel = new OrderManagementViewModel(
             () => ClearFilters(null, new RoutedEventArgs()),
             () => ConfirmSelected(null, new RoutedEventArgs()),
-            () => HideSelected(null, new RoutedEventArgs()), showHistory, ImportCsv, PrintFilteredOrders);
+            () => HideSelected(null, new RoutedEventArgs()),
+            ids => _ = ChangeOrderVisibilityAsync(ids, restore: true),
+            tokens => _ = DeleteDraftsAsync(tokens), showHistory, ImportCsv, PrintFilteredOrders,
+            page => _ = LoadRowsAsync(page), SaveOrders, () => appliedOrderRequest != null && !isHistoryView);
         orderRoot.DataContext = viewModel;
+        orderRoot.Unloaded += (_, _) =>
+        {
+            orderExportCancellation?.Cancel();
+            viewModel.SetExportNotice();
+        };
         viewModel.PropertyChanged += (_, e) =>
         {
+            if (e.PropertyName == nameof(OrderManagementViewModel.SortDirection)) UpdateSortHeaders();
             if (e.PropertyName != nameof(OrderManagementViewModel.IsFiltersExpanded) || viewModel.IsFiltersExpanded) return;
             customerSuggestionPopup.IsOpen = false;
             employeeSuggestionPopup.IsOpen = false;
@@ -95,11 +104,11 @@ public sealed partial class F_OrderManagement
         return shell;
     }
 
-    public void NavigateToAllOrders() => ShowOrdersByFlags(stateFlag: -1, managementFlagValue: -1);
-    public void NavigateToPendingOrders() => ShowOrdersByFlags(stateFlag: 0, managementFlagValue: 0);
-    public void NavigateToConfirmedOrders() => ShowOrdersByFlags(stateFlag: 1, managementFlagValue: 0);
-    public void NavigateToHiddenOrders() => ShowOrdersByFlags(stateFlag: -1, managementFlagValue: 2);
-    public void NavigateToHistory() => ShowOrdersByFlags(stateFlag: -1, managementFlagValue: -1, historyView: true);
+    public void NavigateToAllOrders() => ShowTab(OrderStatusTab.All);
+    public void NavigateToPendingOrders() => ShowTab(OrderStatusTab.Pending);
+    public void NavigateToConfirmedOrders() => ShowTab(OrderStatusTab.Confirmed);
+    public void NavigateToHiddenOrders() => ShowTab(OrderStatusTab.Hidden);
+    public void NavigateToHistory() => ShowTab(OrderStatusTab.History);
 
     private void SearchKeyDown(object? sender, System.Windows.Input.KeyEventArgs e)
     {
@@ -155,45 +164,26 @@ public sealed partial class F_OrderManagement
 
     private void AllDateRange(object? sender, RoutedEventArgs e) => SetDateRange(null, null);
 
-    private void ShowAllOrders(object? sender, RoutedEventArgs e)
+    private void StatusTabClick(object sender, RoutedEventArgs e)
     {
-        ShowOrdersByFlags(stateFlag: -1, managementFlagValue: -1);
+        if (sender is not MenuItem { Tag: OrderStatusTab tab }) return;
+        ShowTab(tab);
         e.Handled = true;
     }
 
-    private void ShowPendingOrders(object? sender, RoutedEventArgs e)
-    {
-        ShowOrdersByFlags(stateFlag: 0, managementFlagValue: 0);
-        e.Handled = true;
-    }
-
-    private void ShowConfirmedOrders(object? sender, RoutedEventArgs e)
-    {
-        ShowOrdersByFlags(stateFlag: 1, managementFlagValue: 0);
-        e.Handled = true;
-    }
-
-    private void ShowHiddenOrders(object? sender, RoutedEventArgs e)
-    {
-        ShowOrdersByFlags(stateFlag: -1, managementFlagValue: 2);
-        e.Handled = true;
-    }
-
-    private void ShowOrderHistory(object? sender, RoutedEventArgs e)
-    {
-        ShowOrdersByFlags(stateFlag: -1, managementFlagValue: -1, historyView: true);
-        e.Handled = true;
-    }
-
-    private void ShowOrdersByFlags(int stateFlag, int managementFlagValue, bool historyView = false)
+    private void ShowTab(OrderStatusTab tab)
     {
         keywordRefreshTimer.Stop();
-        isHistoryView = historyView;
-        viewModel.SelectTab(historyView ? OrderStatusTab.History
-            : managementFlagValue == 2 ? OrderStatusTab.Hidden
-            : stateFlag == 0 ? OrderStatusTab.Pending
-            : stateFlag == 1 ? OrderStatusTab.Confirmed
-            : OrderStatusTab.All);
+        if (viewModel.SelectedTab != tab)
+        {
+            appliedOrderRequest = null;
+            viewModel.ClearSelection();
+            viewModel.ShowPage([], [], 0, 1);
+            resultCount.Text = "読込中…";
+            orderEmptyState.Text = "読込中…";
+        }
+        isHistoryView = tab == OrderStatusTab.History;
+        viewModel.SelectTab(tab);
 
         UpdateClearFiltersButton();
         LoadRows();
@@ -204,24 +194,38 @@ public sealed partial class F_OrderManagement
         allOrdersMenuItem.IsChecked = viewModel.SelectedTab == OrderStatusTab.All;
         pendingMenuItem.IsChecked = viewModel.SelectedTab == OrderStatusTab.Pending;
         confirmedMenuItem.IsChecked = viewModel.SelectedTab == OrderStatusTab.Confirmed;
+        draftsMenuItem.IsChecked = viewModel.IsDraftTab;
         hiddenMenuItem.IsChecked = viewModel.SelectedTab == OrderStatusTab.Hidden;
         historyMenuItem.IsChecked = viewModel.SelectedTab == OrderStatusTab.History;
-        pageTitle.Text = isHistoryView ? "受注履歴" : "受注一覧";
+        pageTitle.Text = isHistoryView ? "受注履歴" : viewModel.IsDraftTab ? "下書き一覧" : "受注一覧";
         UpdateHistoryViewState();
     }
 
     private void OrderRootSizeChanged(object sender, SizeChangedEventArgs e)
     {
-        var wrapQuickSearch = e.NewSize.Width < 720;
+        CloseRowMenu();
+        var wrapQuickSearch = e.NewSize.Width < 560;
         Grid.SetRow(searchActions, wrapQuickSearch ? 1 : 0);
+        Grid.SetColumn(searchActions, wrapQuickSearch ? 0 : 1);
+        Grid.SetColumnSpan(searchActions, wrapQuickSearch ? 2 : 1);
         Grid.SetColumnSpan(quickSearchField, wrapQuickSearch ? 2 : 1);
-        searchActions.Margin = new Thickness(0, wrapQuickSearch ? 6 : 0, 0, 0);
-        var wrapActions = e.NewSize.Width < 440;
-        Grid.SetRow(orderActions, wrapActions ? 1 : 0);
-        Grid.SetColumn(orderActions, wrapActions ? 0 : 1);
-        Grid.SetColumnSpan(orderActions, wrapActions ? 2 : 1);
-        orderActions.Margin = new Thickness(0, wrapActions ? 8 : 0, 0, 0);
-        listInteractionHint.Visibility = e.NewSize.Width >= 1000 ? Visibility.Visible : Visibility.Collapsed;
+        searchActions.Margin = wrapQuickSearch ? new Thickness(0, 6, 0, 0) : new Thickness(8, 0, 0, 0);
+        var wrapStatusActions = e.NewSize.Width < 925;
+        Grid.SetColumnSpan(statusMenu, wrapStatusActions ? 2 : 1);
+        Grid.SetRow(statusActions, wrapStatusActions ? 1 : 0);
+        statusActions.Margin = new Thickness(wrapStatusActions ? 0 : 8, 0, 0, 4);
+        var wrapActions = e.NewSize.Width < 760;
+        Grid.SetRow(listActions, wrapActions ? 1 : 0);
+        Grid.SetColumn(listActions, wrapActions ? 0 : 1);
+        Grid.SetColumnSpan(listActions, wrapActions ? 2 : 1);
+        listActions.Margin = new Thickness(0, wrapActions ? 6 : 0, 0, 0);
+        var wrapPagination = e.NewSize.Width < 710;
+        Grid.SetRow(pageControls, wrapPagination ? 1 : 0);
+        Grid.SetColumn(pageControls, wrapPagination ? 0 : 1);
+        Grid.SetColumnSpan(pageControls, wrapPagination ? 3 : 1);
+        Grid.SetColumnSpan(pageRangeText, wrapPagination ? 2 : 1);
+        pageControls.Margin = new Thickness(0, wrapPagination ? 5 : 0, 0, 0);
+        filterScroller.MaxHeight = Math.Clamp(e.NewSize.Height * 0.42, 100, 285);
     }
 
     private void FilterDetailsSizeChanged(object sender, SizeChangedEventArgs e) => ReflowFilterFields(e.NewSize.Width);

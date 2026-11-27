@@ -64,7 +64,7 @@ public static class OrderSlipPrintService
             .ToArray();
 
         var subtotal = lines.Sum(line => line.Subtotal);
-        var tax = Math.Round(subtotal * 0.1m, 0, MidpointRounding.AwayFromZero);
+        var tax = OrderTax.Calculate(subtotal);
         slip = new OrderSlipPrintData
         {
             OrderId = order.OrId,

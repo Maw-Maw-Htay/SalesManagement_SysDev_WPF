@@ -1,18 +1,20 @@
-using System.Collections.Specialized;
 using System.ComponentModel;
 using System.IO;
 using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
 using Microsoft.Win32;
 
 namespace SalesManagement_SysDev;
 
 public partial class InventoryManagementView : UserControl
 {
+    private CancellationTokenSource? saveCancellation;
     private InventoryManagementViewModel ViewModel => (InventoryManagementViewModel)DataContext;
     public InventoryManagementView() : this(new InventoryManagementViewModel()) { }
 
@@ -20,16 +22,28 @@ public partial class InventoryManagementView : UserControl
     {
         InitializeComponent();
         DataContext = viewModel;
-        viewModel.Rows.CollectionChanged += (_, e) =>
-        {
-            if (e.Action == NotifyCollectionChangedAction.Add && e.NewStartingIndex == 0)
-                InventoryGrid.ScrollIntoView(e.NewItems![0]);
-        };
         UpdateTabs(null);
     }
 
+    private void InventoryGrid_RowsUpdated(object sender, DataTransferEventArgs e)
+    {
+        if (e.Property != ItemsControl.ItemsSourceProperty
+            || InventoryGrid.ItemsSource is not IReadOnlyList<InventoryRowData> { Count: > 0 } page) return;
+
+        // Row containers can still belong to the previous page while the binding is being applied.
+        _ = Dispatcher.InvokeAsync(() =>
+        {
+            if (InventoryGrid.IsLoaded && ReferenceEquals(InventoryGrid.ItemsSource, page))
+                InventoryGrid.ScrollIntoView(page[0]);
+        }, DispatcherPriority.Loaded);
+    }
+
     private async void InventoryView_Loaded(object sender, RoutedEventArgs e) => await ViewModel.LoadAsync();
-    private void InventoryView_Unloaded(object sender, RoutedEventArgs e) => ViewModel.StopRequests();
+    private void InventoryView_Unloaded(object sender, RoutedEventArgs e)
+    {
+        saveCancellation?.Cancel();
+        ViewModel.StopRequests();
+    }
     private async void AllTab_Click(object sender, RoutedEventArgs e) => await SetTabAsync(null);
     private async void NormalTab_Click(object sender, RoutedEventArgs e) => await SetTabAsync(InventoryCondition.Normal);
     private async void LowTab_Click(object sender, RoutedEventArgs e) => await SetTabAsync(InventoryCondition.Low);
@@ -72,36 +86,85 @@ public partial class InventoryManagementView : UserControl
         await ViewModel.SortAsync(sort, descending);
     }
 
-    private async void Export_Click(object sender, RoutedEventArgs e)
+    private async void Export_Click(object sender, RoutedEventArgs e) => await SaveCsvAsync(InventorySaveScope.Filtered, "CSV出力");
+
+    private void Save_Click(object sender, RoutedEventArgs e)
     {
-        if (!ViewModel.CanExport) return;
+        if (sender is not Button { ContextMenu: { } menu } button || !ViewModel.CanSave || saveCancellation is not null) return;
+        menu.PlacementTarget = button;
+        menu.IsOpen = true;
+    }
+
+    private void SaveMenu_Opened(object sender, RoutedEventArgs e)
+    {
+        var idle = saveCancellation is null;
+        SaveFiltered.IsEnabled = idle && ViewModel.CanSaveScope(InventorySaveScope.Filtered);
+        SaveMarked.IsEnabled = idle && ViewModel.CanSaveScope(InventorySaveScope.Marked);
+        SaveAll.IsEnabled = idle && ViewModel.CanSaveScope(InventorySaveScope.All);
+    }
+
+    private async void SaveScope_Click(object sender, RoutedEventArgs e)
+    {
+        var scope = ReferenceEquals(sender, SaveAll) ? InventorySaveScope.All
+            : ReferenceEquals(sender, SaveMarked) ? InventorySaveScope.Marked : InventorySaveScope.Filtered;
+        await SaveCsvAsync(scope, "在庫一覧の保存");
+    }
+
+    private void CancelSave_Click(object sender, RoutedEventArgs e)
+    {
+        CancelSave.IsEnabled = false;
+        saveCancellation?.Cancel();
+    }
+
+    private async Task SaveCsvAsync(InventorySaveScope scope, string title)
+    {
+        if (saveCancellation is not null || !ViewModel.CanSaveScope(scope)) return;
         var dialog = new SaveFileDialog
         {
             Filter = "CSV ファイル (*.csv)|*.csv", DefaultExt = ".csv", AddExtension = true,
             FileName = $"在庫一覧_{DateTime.Today:yyyyMMdd}.csv"
         };
         var owner = Window.GetWindow(this);
-        if (dialog.ShowDialog(owner) != true || !ViewModel.CanExport) return;
+        if (dialog.ShowDialog(owner) != true || !ViewModel.CanSaveScope(scope)) return;
         var destination = dialog.FileName;
         var temporary = Path.Combine(Path.GetDirectoryName(destination)!, $".{Guid.NewGuid():N}.tmp");
+        using var cancellation = new CancellationTokenSource();
+        saveCancellation = cancellation;
+        CancelSave.IsEnabled = true;
+        CancelSave.Visibility = Visibility.Visible;
+        string? message = null;
+        var kind = OrderNoticeKind.Success;
         try
         {
-            await using (var writer = new StreamWriter(temporary, false, new UTF8Encoding(encoderShouldEmitUTF8Identifier: true)))
-                await ViewModel.ExportAsync(writer);
-            File.Move(temporary, destination, overwrite: true);
-            F_OrderNotice.Show(owner, "CSV出力", "絞り込み結果をCSVファイルに出力しました。", OrderNoticeKind.Success);
+            await using (var stream = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None, 4096, FileOptions.Asynchronous))
+            await using (var writer = new StreamWriter(stream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: true)))
+            {
+                if (!await ViewModel.SaveAsync(scope, writer, cancellation.Token)) return;
+                await writer.FlushAsync(cancellation.Token);
+            }
+            await Task.Run(() =>
+            {
+                cancellation.Token.ThrowIfCancellationRequested();
+                File.Move(temporary, destination, overwrite: true);
+            }, cancellation.Token);
+            message = $"CSVファイルを保存しました。\n{destination}";
         }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"Inventory CSV failed: {ex}");
-            F_OrderNotice.Show(owner, "CSV出力", "CSVを保存できませんでした。保存先やデータベースの接続を確認してください。", OrderNoticeKind.Error);
+            message = "CSVを保存できませんでした。保存先やデータベースの接続を確認してください。";
+            kind = OrderNoticeKind.Error;
         }
         finally
         {
             try { File.Delete(temporary); }
             catch (IOException) { }
             catch (UnauthorizedAccessException) { }
+            saveCancellation = null;
+            CancelSave.Visibility = Visibility.Collapsed;
         }
+        if (message is not null && IsLoaded) F_OrderNotice.Show(owner, title, message, kind);
     }
 
     private void InventoryView_SizeChanged(object sender, SizeChangedEventArgs e)
@@ -120,7 +183,7 @@ public partial class InventoryManagementView : UserControl
     }
     private void StatusFiltersRow_SizeChanged(object sender, SizeChangedEventArgs e)
     {
-        var wrapActions = e.NewSize.Width < 710;
+        var wrapActions = e.NewSize.Width < 850;
         Grid.SetRow(StatusActions, wrapActions ? 1 : 0);
         Grid.SetColumn(StatusActions, wrapActions ? 0 : 1);
         Grid.SetColumnSpan(StatusActions, wrapActions ? 2 : 1);

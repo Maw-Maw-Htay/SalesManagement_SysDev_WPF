@@ -56,6 +56,13 @@ internal sealed class RegistrationWindowPlacement
         return new Placement(bounds, minWidth, minHeight, maxWidth, maxHeight);
     }
 
+    internal static Rect ReadWorkAreaAt(Point screenPoint)
+    {
+        var monitor = MonitorFromPoint(new NativePoint((int)screenPoint.X, (int)screenPoint.Y), 2);
+        var info = new MonitorInfo { Size = Marshal.SizeOf<MonitorInfo>() };
+        return GetMonitorInfo(monitor, ref info) ? info.Work.ToRect() : Rect.Empty;
+    }
+
     private void Apply(bool center)
     {
         if (closed || window.WindowState == WindowState.Minimized) return;
@@ -102,6 +109,11 @@ internal sealed class RegistrationWindowPlacement
     }
 
     [StructLayout(LayoutKind.Sequential)]
+    private readonly struct NativePoint(int x, int y)
+    {
+        public readonly int X = x, Y = y;
+    }
+    [StructLayout(LayoutKind.Sequential)]
     private struct NativeRect
     {
         public int Left, Top, Right, Bottom;
@@ -115,6 +127,7 @@ internal sealed class RegistrationWindowPlacement
         public uint Flags;
     }
     [DllImport("user32.dll")] private static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint flags);
+    [DllImport("user32.dll")] private static extern IntPtr MonitorFromPoint(NativePoint point, uint flags);
     [DllImport("user32.dll", CharSet = CharSet.Auto)]
     [return: MarshalAs(UnmanagedType.Bool)] private static extern bool GetMonitorInfo(IntPtr monitor, ref MonitorInfo info);
     [DllImport("user32.dll")]

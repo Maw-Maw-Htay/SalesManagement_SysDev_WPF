@@ -151,15 +151,23 @@ public static class SalesService
         var offices = officesQuery.OrderBy(x => x.SoName)
             .Select(x => new SalesOfficeOption(x.SoId, x.SoName)).ToList();
 
-        var monthStart = new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1);
-        var monthEnd = monthStart.AddMonths(1);
-        var monthlyVisible = scopedSales.Where(x => x.SaFlag == ActiveFlag
-            && x.SaDate >= monthStart && x.SaDate < monthEnd);
-        var count = monthlyVisible.Count();
-        var amount = monthlyVisible.SelectMany(x => x.TSaleDetails)
-            .Select(x => (decimal?)x.SaPrTotalPrice).Sum() ?? 0m;
+        // Reuse the authorized list's stored totals so the summary describes the same snapshot.
+        return new(sales, employees, offices, SummarizeVisibleMonth(sales, DateTime.Today));
+    }
 
-        return new(sales, employees, offices, new SalesSummary(count, amount));
+    internal static SalesSummary SummarizeVisibleMonth(IReadOnlyList<SalesRecord> sales, DateTime today)
+    {
+        var monthStart = new DateTime(today.Year, today.Month, 1);
+        var monthEnd = monthStart.AddMonths(1);
+        var count = 0;
+        var amount = 0m;
+        foreach (var sale in sales)
+        {
+            if (sale.ManagementFlag != ActiveFlag || sale.SaleDate < monthStart || sale.SaleDate >= monthEnd) continue;
+            count++;
+            amount += sale.Amount;
+        }
+        return new(count, amount);
     }
 
     public static SalesDetail? GetDetail(int salesId)

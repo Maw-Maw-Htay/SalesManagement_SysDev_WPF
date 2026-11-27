@@ -18,14 +18,26 @@ public partial class F_Main : Window
     private SidebarEntry? activeNavigationItem;
     private SidebarEntry? historyNavigationItem;
     private readonly Dictionary<string, SidebarEntry> navigationItems = [];
+    private readonly string standardSessionText;
+    private bool allowWindowClose;
 
     public F_Main()
     {
         InitializeComponent();
         activeNavigationButton = homeButton;
-        Closing += (_, e) =>
+        Closing += async (_, e) =>
         {
-            if (!TryApprovePageLeave()) e.Cancel = true;
+            if (allowWindowClose) return;
+            var approval = TryApprovePageLeaveAsync();
+            if (approval.IsCompletedSuccessfully)
+            {
+                e.Cancel = !approval.Result;
+                return;
+            }
+            e.Cancel = true;
+            if (!await approval) return;
+            allowWindowClose = true;
+            Close();
         };
         Closed += (_, _) =>
         {
@@ -39,12 +51,12 @@ public partial class F_Main : Window
         homeView = (UIElement)pageHost.Content;
         ((FrameworkElement)homeView).DataContext = new HomeViewModel(NavigateFromHome);
         var employee = AppSession.Employee!;
-        status.Text = $"社員: {employee.EmName}　役職: {employee.Po.PoName}　営業所: {employee.So.SoName}";
-        if (SalesManagementContext.IsDemoMode)
-        {
-            Title += "［デモ］";
-            status.Text = "［デモ］ " + status.Text;
-        }
+        var isDemoMode = SalesManagementContext.IsDemoMode;
+        var demoPrefix = isDemoMode ? "［デモ］ " : "";
+        var officeName = employee.So?.SoName ?? "未設定";
+        standardSessionText = $"{demoPrefix}社員: {employee.EmName}　役職: {employee.Po.PoName}　営業所: {officeName}";
+        status.Text = standardSessionText;
+        if (isDemoMode) Title += "［デモ］";
         loginName.Text = employee.EmName;
         loginId.Text = employee.EmId.ToString();
         loginPhone.Text = string.IsNullOrWhiteSpace(employee.EmPhone) ? "未登録" : employee.EmPhone;
@@ -82,9 +94,9 @@ public partial class F_Main : Window
         if (!allowed) return;
         var sidebar = (SidebarViewModel)mainSidebar.DataContext;
         SidebarEntry entry = null!;
-        entry = new SidebarEntry(sidebar, text, icon, () =>
+        entry = new SidebarEntry(sidebar, text, icon, async () =>
         {
-            if (!TryApprovePageLeave()) return;
+            if (!await TryApprovePageLeaveAsync()) return;
             navigate();
             SetActiveNavigation(entry);
         }, supportsUnreadBadge: supportsUnreadBadge);
@@ -241,7 +253,7 @@ public partial class F_Main : Window
         DisposeOrderRegistrationIfLeaving(view);
         Title = title;
         var isOrderPage = title is "受注管理" or "受注履歴";
-        var isRegistrationPage = title is "受注登録" or "受注更新";
+        var isOrderEntryPage = title is "受注登録" or "受注更新";
         mainHeaderTitle.Text = isOrderPage ? "受注管理" : title;
         ApplyStandardHeaderStyle();
         if (view is F_Product { Content: ProductManagementView product } && ProductService.CanEdit)
@@ -271,13 +283,18 @@ public partial class F_Main : Window
                 ? Visibility.Visible
                 : Visibility.Collapsed;
         }
-        else if (isRegistrationPage)
+        else if (isOrderEntryPage)
         {
-            mainHeaderTitle.Foreground = (Brush)FindResource("ThemePrimary");
-            mainHeaderTitle.FontSize = 20;
-            orderHeaderIcon.Stroke = (Brush)FindResource("ThemePrimary");
+            mainHeaderTitle.SetResourceReference(TextBlock.ForegroundProperty, "ThemeOrderEntryNavy");
+            mainHeaderTitle.FontSize = 24;
+            orderHeaderIcon.Width = orderHeaderIcon.Height = 25;
+            orderHeaderIcon.SetResourceReference(LucideIcon.DataProperty, title == "受注登録" ? "IconOrder" : "IconClipboardPlus");
+            orderHeaderIcon.SetResourceReference(LucideIcon.StrokeProperty, "ThemeOrderEntryAccent");
             orderHeaderIcon.Visibility = Visibility.Visible;
-            status.Foreground = (Brush)FindResource("ThemeSecondaryText");
+            status.Visibility = Visibility.Collapsed;
+            orderEntrySession.Content = view is FrameworkElement { DataContext: OrderUpdateViewModel update }
+                ? update.HeaderSession : OrderEntrySession.Create();
+            orderEntrySession.Visibility = Visibility.Visible;
         }
         HideLoginManagement();
         pageHost.Content = view;
@@ -301,13 +318,18 @@ public partial class F_Main : Window
         customerHeaderRegisterButton.DataContext = null;
         productHeaderRegisterButton.Visibility = Visibility.Collapsed;
         productHeaderRegisterButton.DataContext = null;
+        status.Text = standardSessionText;
         status.Visibility = Visibility.Visible;
+        orderEntrySession.Visibility = Visibility.Collapsed;
+        orderEntrySession.Content = null;
     }
 
     private void OpenOrderRegistration_Click(object sender, RoutedEventArgs e)
     {
         if (Title == "受注管理" && AppSession.CanManageOrders) ShowOrderRegistration();
     }
+
+    internal bool IsOrderWorkspaceActive => ordersView != null && ReferenceEquals(pageHost.Content, ordersView);
 
     private void OpenEmployeeRegistration_Click(object sender, RoutedEventArgs e)
     {
@@ -335,7 +357,7 @@ public partial class F_Main : Window
         finally { purchaseHeaderRegisterButton.IsEnabled = true; }
     }
 
-    private void ShowOrderRegistration()
+    internal void ShowOrderRegistration(OrderDraftSnapshot? draft = null)
     {
         if (!AppSession.CanManageOrders)
         {
@@ -347,9 +369,10 @@ public partial class F_Main : Window
         activeOrderRegistration?.Dispose();
         activeOrderRegistration = new F_OrderRegistration(
             () => ShowOrders(false),
-            () => F_OrderNotice.Confirm(this, "受注登録をキャンセル", "入力中の内容が保存されていません。\n画面を閉じてもよろしいですか？", "破棄して戻る", "入力を続ける", destructive: true),
+            () => F_OrderNotice.ConfirmDraftNavigation(this),
             ShowRegisteredOrderDetails,
-            StartNextOrderRegistration);
+            StartNextOrderRegistration,
+            draft);
         ShowBusinessView("受注登録", activeOrderRegistration);
     }
 
@@ -364,7 +387,7 @@ public partial class F_Main : Window
         new F_OrderDetail(snapshot, this).ShowDialog();
     }
 
-    internal bool ShowOrderUpdate(OrderDetailSnapshot snapshot)
+    internal async Task<bool> ShowOrderUpdateAsync(OrderDetailSnapshot snapshot)
     {
         if (!AppSession.CanManageOrders || snapshot.StateFlag != 0 || snapshot.ManagementFlag != 0
             || AppSession.Employee == null || !AppSession.IsAdmin && snapshot.OfficeId != AppSession.Employee.SoId)
@@ -372,7 +395,7 @@ public partial class F_Main : Window
             F_OrderNotice.Show(this, "受注更新", "未確定・表示中で、更新権限のある受注だけを編集できます。", OrderNoticeKind.Warning);
             return false;
         }
-        if (!TryApprovePageLeave()) return false;
+        if (!await TryApprovePageLeaveAsync()) return false;
         var editor = new F_OrderUpdate(snapshot, () => ShowOrders(false), ShowRegisteredOrderDetails);
         var view = editor.DetachView();
         ShowBusinessView("受注更新", view);
@@ -381,9 +404,11 @@ public partial class F_Main : Window
         return true;
     }
 
-    private bool TryApprovePageLeave() =>
-        (pageHost.Content is not F_OrderRegistration registration || registration.TryApproveNavigation())
-        && (activeOrderUpdate == null || !ReferenceEquals(pageHost.Content, orderUpdateView) || activeOrderUpdate.TryApproveNavigation());
+    private async Task<bool> TryApprovePageLeaveAsync()
+    {
+        if (pageHost.Content is F_OrderRegistration registration) return await registration.TryApproveNavigationAsync();
+        return activeOrderUpdate == null || !ReferenceEquals(pageHost.Content, orderUpdateView) || activeOrderUpdate.TryApproveNavigation();
+    }
 
     private void DisposeOrderRegistrationIfLeaving(UIElement nextView)
     {
@@ -401,19 +426,20 @@ public partial class F_Main : Window
         activeOrderRegistration = null;
     }
 
-    private void Logout_Click(object sender, RoutedEventArgs e)
+    private async void Logout_Click(object sender, RoutedEventArgs e)
     {
         if (MessageBox.Show(this, "ログアウトしますか？", "確認", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
-        if (!TryApprovePageLeave()) return;
+        if (!await TryApprovePageLeaveAsync()) return;
         HistoryNotificationService.MarkAllRead();
         AppSession.Employee = null;
         new F_login().Show();
+        allowWindowClose = true;
         Close();
     }
 
-    private void LoginManagement_Click(object sender, RoutedEventArgs e)
+    private async void LoginManagement_Click(object sender, RoutedEventArgs e)
     {
-        if (!TryApprovePageLeave()) return;
+        if (!await TryApprovePageLeaveAsync()) return;
         DisposeOrderRegistrationIfLeaving(homeView);
         SetActiveNavigation(accountButton);
         ResetPasswordForm();
@@ -504,9 +530,9 @@ public partial class F_Main : Window
         changePasswordButton.IsEnabled = false;
     }
 
-    private void BackToMainMenu()
+    private async void Home_Click(object sender, RoutedEventArgs e)
     {
-        if (!TryApprovePageLeave()) return;
+        if (!await TryApprovePageLeaveAsync()) return;
         DisposeOrderRegistrationIfLeaving(homeView);
         SetActiveNavigation(homeButton);
         Title = "販売管理システム";
@@ -520,5 +546,4 @@ public partial class F_Main : Window
         activeListPage = null;
     }
 
-    private void Home_Click(object sender, RoutedEventArgs e) => BackToMainMenu();
 }

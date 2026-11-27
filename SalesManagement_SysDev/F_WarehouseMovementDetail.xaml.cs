@@ -15,10 +15,8 @@ public partial class F_WarehouseMovementDetail : Window
         viewModel = new WarehouseMovementDetailViewModel(detail, readOnly);
         DataContext = viewModel;
         QuantityColumn.Header = viewModel.QuantityLabel;
-        if (!viewModel.HasRelatedPurchase)
-        {
-            OrderedColumn.Visibility = DifferenceColumn.Visibility = Visibility.Collapsed;
-        }
+        if (!viewModel.HasRelatedPurchase) OrderedColumn.Visibility = Visibility.Collapsed;
+        if (!viewModel.ShowReceiptDifferences) DifferenceColumn.Visibility = Visibility.Collapsed;
         Closing += (_, e) => { if (processing) e.Cancel = true; };
     }
 

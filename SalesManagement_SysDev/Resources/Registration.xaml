@@ -1,7 +1,16 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:sys="clr-namespace:System;assembly=mscorlib"
                     xmlns:local="clr-namespace:SalesManagement_SysDev">
     <local:RegistrationBelowBreakpointConverter x:Key="RegistrationBelowBreakpoint" />
+    <sys:Double x:Key="RegistrationFooterFeedbackWidth">800</sys:Double>
+    <sys:Double x:Key="RegistrationFooterCompactWidth">620</sys:Double>
+    <sys:Double x:Key="RegistrationFooterStackedWidth">480</sys:Double>
+    <SolidColorBrush x:Key="RegistrationMissingStockText" Color="#B45309" />
+    <GeometryGroup x:Key="RegistrationStockWarningIcon">
+        <PathGeometry Figures="M12 3L22 20H2Z M12 9V13" />
+        <EllipseGeometry Center="12,16.5" RadiusX="0.5" RadiusY="0.5" />
+    </GeometryGroup>
     <Style x:Key="RegistrationCard" TargetType="Border" BasedOn="{StaticResource ThemeCard}">
         <Setter Property="Padding" Value="16" /><Setter Property="Margin" Value="0,0,0,12" />
         <Style.Triggers>
@@ -13,6 +22,179 @@
     <Style x:Key="RegistrationLabel" TargetType="TextBlock" BasedOn="{StaticResource FormLabel}">
         <Setter Property="Margin" Value="0,0,0,4" />
     </Style>
+    <Style x:Key="RegistrationRequiredLabel" TargetType="ContentControl">
+        <Setter Property="Focusable" Value="False" />
+        <Setter Property="IsTabStop" Value="False" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ContentControl">
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                        <TextBlock x:Name="RequiredFieldCaption" Style="{StaticResource RegistrationLabel}" Margin="0"
+                                   Text="{Binding Content, RelativeSource={RelativeSource TemplatedParent}}" />
+                        <TextBlock x:Name="RequiredFieldMarker" Text="*" Style="{StaticResource RegistrationLabel}"
+                                   Foreground="{DynamicResource ThemeDanger}" Margin="4,0,0,0" />
+                    </StackPanel>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+    <DataTemplate x:Key="OrderEntrySessionHeader">
+        <Grid MaxWidth="420" VerticalAlignment="Center">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <Border Width="34" Height="34" CornerRadius="17" Margin="0,0,10,0" Background="{DynamicResource ThemeOrderEntryHighlight}">
+                <local:LucideIcon Data="{StaticResource IconCustomer}" Width="20" Height="20" Stroke="{DynamicResource ThemeOrderEntryAccent}" />
+            </Border>
+            <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                <TextBlock x:Name="SessionEmployeeName" Text="{Binding EmployeeName}" FontSize="14" FontWeight="{StaticResource TypographyBold}"
+                           TextTrimming="CharacterEllipsis" ToolTip="{Binding EmployeeName}" />
+                <TextBlock x:Name="SessionRole" Text="{Binding Role}" FontSize="12" Foreground="{DynamicResource ThemeSecondaryText}"
+                           TextTrimming="CharacterEllipsis" ToolTip="{Binding Role}" />
+            </StackPanel>
+            <Border Grid.Column="2" Width="1" Height="32" Margin="14,0" Background="{DynamicResource ThemeOrderEntryBorder}" />
+            <local:LucideIcon Grid.Column="3" Data="{StaticResource IconMapPin}" Width="19" Height="19"
+                              Margin="0,0,6,0" Stroke="{DynamicResource ThemeOrderEntryNavy}" />
+            <TextBlock x:Name="SessionOffice" Grid.Column="4" Text="{Binding OfficeName}" FontSize="14" FontWeight="{StaticResource TypographySemiBold}"
+                       VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip="{Binding OfficeName, StringFormat='受付営業所 {0}'}"
+                       AutomationProperties.Name="{Binding OfficeName, StringFormat='受付営業所 {0}'}" />
+        </Grid>
+    </DataTemplate>
+    <Style x:Key="OrderEntryDatePicker" TargetType="DatePicker" BasedOn="{StaticResource {x:Type DatePicker}}">
+        <Style.Resources>
+            <Style x:Key="ThemeDatePickerTextEntry" TargetType="DatePickerTextBox" BasedOn="{StaticResource {x:Type DatePickerTextBox}}">
+                <Setter Property="Padding" Value="8,4" />
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding ActualWidth, RelativeSource={RelativeSource AncestorType=DatePicker}, Converter={StaticResource RegistrationBelowBreakpoint}, ConverterParameter=152}" Value="True">
+                        <Setter Property="Padding" Value="1,4" />
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
+            <Style x:Key="ThemeDatePickerCalendarButton" TargetType="Button" BasedOn="{StaticResource ThemeIconButton}">
+                <Setter Property="Margin" Value="2,0" />
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding ActualWidth, RelativeSource={RelativeSource AncestorType=DatePicker}, Converter={StaticResource RegistrationBelowBreakpoint}, ConverterParameter=152}" Value="True">
+                        <Setter Property="Width" Value="24" />
+                        <Setter Property="MinWidth" Value="24" />
+                        <Setter Property="Margin" Value="0" />
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
+        </Style.Resources>
+    </Style>
+    <DataTemplate x:Key="RegistrationFooterIconLabel">
+        <StackPanel Orientation="Horizontal">
+            <local:LucideIcon Width="16" Height="16" Margin="0,0,6,0" VerticalAlignment="Center"
+                              Data="{Binding Tag, RelativeSource={RelativeSource AncestorType=Button}}"
+                              Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
+            <TextBlock Text="{Binding}" VerticalAlignment="Center" />
+        </StackPanel>
+    </DataTemplate>
+    <Style x:Key="RegistrationFooterAction" TargetType="Button" BasedOn="{StaticResource ThemeButton}">
+        <Setter Property="Height" Value="42" />
+        <Setter Property="Padding" Value="8,0" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="Background" Value="{DynamicResource ThemeSurface}" />
+        <Setter Property="Foreground" Value="{DynamicResource ThemeOrderEntryNavy}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource ThemeOrderEntryNavy}" />
+        <Setter Property="ContentTemplate" Value="{StaticResource RegistrationFooterIconLabel}" />
+    </Style>
+    <Style x:Key="RegistrationFooterBack" TargetType="Button" BasedOn="{StaticResource RegistrationFooterAction}">
+        <Setter Property="HorizontalAlignment" Value="Left" />
+        <Setter Property="Width" Value="148" />
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding ActualWidth, ElementName=RegistrationPanels, Converter={StaticResource RegistrationBelowBreakpoint}, ConverterParameter={StaticResource RegistrationFooterCompactWidth}}" Value="True">
+                <Setter Property="Width" Value="132" />
+            </DataTrigger>
+            <DataTrigger Binding="{Binding ActualWidth, ElementName=RegistrationPanels, Converter={StaticResource RegistrationBelowBreakpoint}, ConverterParameter={StaticResource RegistrationFooterStackedWidth}}" Value="True">
+                <Setter Property="Grid.ColumnSpan" Value="3" />
+            </DataTrigger>
+        </Style.Triggers>
+    </Style>
+    <Style x:Key="RegistrationFooterCancel" TargetType="Button" BasedOn="{StaticResource RegistrationFooterAction}">
+        <Setter Property="ContentTemplate" Value="{x:Null}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource ThemeInputBorder}" />
+        <Setter Property="Width" Value="132" />
+        <Setter Property="Margin" Value="0,0,12,0" />
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding ActualWidth, ElementName=RegistrationPanels, Converter={StaticResource RegistrationBelowBreakpoint}, ConverterParameter={StaticResource RegistrationFooterCompactWidth}}" Value="True">
+                <Setter Property="Width" Value="112" />
+            </DataTrigger>
+            <DataTrigger Binding="{Binding ActualWidth, ElementName=RegistrationPanels, Converter={StaticResource RegistrationBelowBreakpoint}, ConverterParameter={StaticResource RegistrationFooterStackedWidth}}" Value="True">
+                <Setter Property="Width" Value="96" />
+                <Setter Property="Margin" Value="0,0,10,0" />
+            </DataTrigger>
+        </Style.Triggers>
+    </Style>
+    <Style x:Key="RegistrationFooterSave" TargetType="Button" BasedOn="{StaticResource RegistrationFooterAction}">
+        <Setter Property="Width" Value="150" />
+        <Setter Property="Margin" Value="0,0,12,0" />
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding ActualWidth, ElementName=RegistrationPanels, Converter={StaticResource RegistrationBelowBreakpoint}, ConverterParameter={StaticResource RegistrationFooterCompactWidth}}" Value="True">
+                <Setter Property="Width" Value="140" />
+            </DataTrigger>
+            <DataTrigger Binding="{Binding ActualWidth, ElementName=RegistrationPanels, Converter={StaticResource RegistrationBelowBreakpoint}, ConverterParameter={StaticResource RegistrationFooterStackedWidth}}" Value="True">
+                <Setter Property="Width" Value="116" />
+                <Setter Property="Margin" Value="0,0,10,0" />
+            </DataTrigger>
+        </Style.Triggers>
+    </Style>
+    <Style x:Key="RegistrationFooterSubmit" TargetType="Button" BasedOn="{StaticResource RegistrationFooterAction}">
+        <Setter Property="Width" Value="174" />
+        <Setter Property="Background" Value="{DynamicResource ThemeOrderEntryNavy}" />
+        <Setter Property="Foreground" Value="{DynamicResource ThemeSurface}" />
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding ActualWidth, ElementName=RegistrationPanels, Converter={StaticResource RegistrationBelowBreakpoint}, ConverterParameter={StaticResource RegistrationFooterCompactWidth}}" Value="True">
+                <Setter Property="Width" Value="158" />
+            </DataTrigger>
+        </Style.Triggers>
+    </Style>
+    <Style x:Key="RegistrationFooterRightActions" TargetType="StackPanel">
+        <Setter Property="Grid.Column" Value="2" />
+        <Setter Property="Orientation" Value="Horizontal" />
+        <Setter Property="HorizontalAlignment" Value="Right" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding ActualWidth, ElementName=RegistrationPanels, Converter={StaticResource RegistrationBelowBreakpoint}, ConverterParameter={StaticResource RegistrationFooterStackedWidth}}" Value="True">
+                <Setter Property="Grid.Row" Value="1" />
+                <Setter Property="Margin" Value="0,8,0,0" />
+            </DataTrigger>
+        </Style.Triggers>
+    </Style>
+    <Style x:Key="RegistrationFooterRegister" TargetType="Button" BasedOn="{StaticResource RegistrationFooterSubmit}">
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding ActualWidth, ElementName=RegistrationPanels, Converter={StaticResource RegistrationBelowBreakpoint}, ConverterParameter={StaticResource RegistrationFooterStackedWidth}}" Value="True">
+                <Setter Property="Width" Value="132" />
+            </DataTrigger>
+        </Style.Triggers>
+    </Style>
+    <Style x:Key="OrderEntryFooterFeedback" TargetType="DockPanel">
+        <Setter Property="Grid.Column" Value="1" />
+        <Setter Property="Margin" Value="12,0,16,0" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding ActualWidth, ElementName=RegistrationPanels, Converter={StaticResource RegistrationBelowBreakpoint}, ConverterParameter={StaticResource RegistrationFooterFeedbackWidth}}" Value="True">
+                <Setter Property="Grid.Row" Value="2" />
+                <Setter Property="Grid.Column" Value="0" />
+                <Setter Property="Grid.ColumnSpan" Value="3" />
+                <Setter Property="Margin" Value="0,6,0,0" />
+            </DataTrigger>
+        </Style.Triggers>
+    </Style>
+    <Style x:Key="RegistrationFooterFeedback" TargetType="DockPanel" BasedOn="{StaticResource OrderEntryFooterFeedback}">
+        <Setter Property="Margin" Value="0,0,16,0" />
+        <Style.Triggers>
+            <MultiDataTrigger>
+                <MultiDataTrigger.Conditions>
+                    <Condition Binding="{Binding ActualWidth, ElementName=RegistrationPanels, Converter={StaticResource RegistrationBelowBreakpoint}, ConverterParameter={StaticResource RegistrationFooterFeedbackWidth}}" Value="True" />
+                    <Condition Binding="{Binding CanRegister}" Value="True" />
+                    <Condition Binding="{Binding Feedback}" Value="" />
+                </MultiDataTrigger.Conditions>
+                <Setter Property="Visibility" Value="Collapsed" />
+            </MultiDataTrigger>
+        </Style.Triggers>
+    </Style>
     <Style x:Key="RegistrationHeading" TargetType="TextBlock" BasedOn="{StaticResource CardHeading}">
         <Setter Property="Margin" Value="0,0,0,8" />
         <Style.Triggers><DataTrigger Binding="{Binding ActualHeight, ElementName=RegistrationPanels, Converter={StaticResource RegistrationBelowBreakpoint}, ConverterParameter=640}" Value="True"><Setter Property="Margin" Value="0,0,0,8" /></DataTrigger></Style.Triggers>
@@ -20,15 +202,27 @@
     <Style x:Key="RegistrationField" TargetType="StackPanel"><Setter Property="Margin" Value="0,0,0,8" /></Style>
     <Style x:Key="RegistrationFieldPair" TargetType="UniformGrid">
         <Setter Property="Columns" Value="2" />
-        <Style.Triggers><DataTrigger Binding="{Binding ActualWidth, ElementName=RegistrationPanels, Converter={StaticResource RegistrationBelowBreakpoint}, ConverterParameter=720}" Value="True"><Setter Property="Columns" Value="1" /></DataTrigger></Style.Triggers>
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding ActualWidth, RelativeSource={RelativeSource Self}, Converter={StaticResource RegistrationBelowBreakpoint}, ConverterParameter=280}" Value="True">
+                <Setter Property="Columns" Value="1" />
+            </DataTrigger>
+        </Style.Triggers>
     </Style>
     <Style x:Key="RegistrationPairFirst" TargetType="StackPanel">
         <Setter Property="Margin" Value="0,0,6,0" />
-        <Style.Triggers><DataTrigger Binding="{Binding ActualWidth, ElementName=RegistrationPanels, Converter={StaticResource RegistrationBelowBreakpoint}, ConverterParameter=720}" Value="True"><Setter Property="Margin" Value="0" /></DataTrigger></Style.Triggers>
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding Columns, RelativeSource={RelativeSource AncestorType=UniformGrid}}" Value="1">
+                <Setter Property="Margin" Value="0" />
+            </DataTrigger>
+        </Style.Triggers>
     </Style>
     <Style x:Key="RegistrationPairSecond" TargetType="StackPanel">
         <Setter Property="Margin" Value="6,0,0,0" />
-        <Style.Triggers><DataTrigger Binding="{Binding ActualWidth, ElementName=RegistrationPanels, Converter={StaticResource RegistrationBelowBreakpoint}, ConverterParameter=720}" Value="True"><Setter Property="Margin" Value="0,8,0,0" /></DataTrigger></Style.Triggers>
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding Columns, RelativeSource={RelativeSource AncestorType=UniformGrid}}" Value="1">
+                <Setter Property="Margin" Value="0,8,0,0" />
+            </DataTrigger>
+        </Style.Triggers>
     </Style>
     <Style x:Key="RegistrationEmptyState" TargetType="StackPanel">
         <Setter Property="Margin" Value="0,20" /><Setter Property="VerticalAlignment" Value="Center" />
@@ -58,12 +252,269 @@
             <DataTrigger Binding="{Binding Tone}" Value="Danger"><Setter Property="Foreground" Value="{StaticResource ThemeDangerText}" /></DataTrigger>
         </Style.Triggers>
     </Style>
+    <Style x:Key="RegistrationRowStockHint" TargetType="TextBlock" BasedOn="{StaticResource OrderStockHint}">
+        <Setter Property="Margin" Value="0" />
+        <Setter Property="TextWrapping" Value="Wrap" />
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding IsMissingRecord}" Value="True">
+                <Setter Property="Foreground" Value="{StaticResource RegistrationMissingStockText}" />
+                <Setter Property="FontSize" Value="12" />
+                <Setter Property="FontWeight" Value="{StaticResource TypographySemiBold}" />
+                <Setter Property="LineHeight" Value="17" />
+                <Setter Property="TextTrimming" Value="None" />
+            </DataTrigger>
+        </Style.Triggers>
+    </Style>
     <Style x:Key="RegistrationSummaryRow" TargetType="RowDefinition">
         <Setter Property="Height" Value="24" />
-        <Style.Triggers><DataTrigger Binding="{Binding ActualHeight, ElementName=RegistrationPanels, Converter={StaticResource RegistrationBelowBreakpoint}, ConverterParameter=320}" Value="True"><Setter Property="Height" Value="22" /></DataTrigger></Style.Triggers>
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding Tag, RelativeSource={RelativeSource TemplatedParent}, Converter={StaticResource RegistrationBelowBreakpoint}, ConverterParameter=320}" Value="True">
+                <Setter Property="Height" Value="22" />
+            </DataTrigger>
+        </Style.Triggers>
     </Style>
     <Style x:Key="RegistrationSummaryTotalRow" TargetType="RowDefinition">
         <Setter Property="Height" Value="36" />
-        <Style.Triggers><DataTrigger Binding="{Binding ActualHeight, ElementName=RegistrationPanels, Converter={StaticResource RegistrationBelowBreakpoint}, ConverterParameter=320}" Value="True"><Setter Property="Height" Value="32" /></DataTrigger></Style.Triggers>
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding Tag, RelativeSource={RelativeSource TemplatedParent}, Converter={StaticResource RegistrationBelowBreakpoint}, ConverterParameter=320}" Value="True">
+                <Setter Property="Height" Value="32" />
+            </DataTrigger>
+        </Style.Triggers>
     </Style>
+
+    <Style x:Key="RegistrationWorkspaceCard" TargetType="Border" BasedOn="{StaticResource RegistrationCard}">
+        <Setter Property="BorderBrush" Value="{DynamicResource ThemeOrderEntryBorder}" />
+        <Setter Property="CornerRadius" Value="10" />
+        <Setter Property="Margin" Value="0,0,0,8" />
+    </Style>
+    <Style x:Key="OrderEntryReviewPanel" TargetType="Grid">
+        <Setter Property="Margin" Value="6,10,12,10" />
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding ActualHeight, ElementName=RegistrationPanels, Converter={StaticResource RegistrationBelowBreakpoint}, ConverterParameter=320}" Value="True">
+                <Setter Property="Margin" Value="6,6,12,6" />
+            </DataTrigger>
+        </Style.Triggers>
+    </Style>
+    <Style x:Key="OrderEntryDetailsCard" TargetType="Border" BasedOn="{StaticResource RegistrationWorkspaceCard}">
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding ActualHeight, ElementName=RegistrationPanels, Converter={StaticResource RegistrationBelowBreakpoint}, ConverterParameter=320}" Value="True">
+                <Setter Property="Padding" Value="6" />
+                <Setter Property="Margin" Value="0,0,0,4" />
+            </DataTrigger>
+        </Style.Triggers>
+    </Style>
+    <Style x:Key="OrderEntryDetailActionButton" TargetType="Button" BasedOn="{StaticResource RegistrationFooterAction}">
+        <Setter Property="Height" Value="40" />
+        <Setter Property="Padding" Value="14,0" />
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding Tag.ActualWidth, RelativeSource={RelativeSource TemplatedParent}, Converter={StaticResource RegistrationBelowBreakpoint}, ConverterParameter=480}" Value="True">
+                <Setter Property="Padding" Value="5,0" />
+                <Setter Property="FontSize" Value="12" />
+            </DataTrigger>
+            <DataTrigger Binding="{Binding Tag.ActualHeight, RelativeSource={RelativeSource TemplatedParent}, Converter={StaticResource RegistrationBelowBreakpoint}, ConverterParameter=320}" Value="True">
+                <Setter Property="Height" Value="32" />
+            </DataTrigger>
+        </Style.Triggers>
+    </Style>
+    <Style x:Key="OrderEntryDetailActions" TargetType="ContentControl">
+        <Setter Property="Focusable" Value="False" />
+        <Setter Property="IsTabStop" Value="False" />
+        <Setter Property="Visibility" Value="Collapsed" />
+        <Setter Property="Tag" Value="{Binding ElementName=RegistrationPanels}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ContentControl">
+                    <Border x:Name="DetailActionBorder" BorderBrush="{DynamicResource ThemeOrderEntryBorder}"
+                            BorderThickness="0,1,0,0" Margin="0,4,0,0" Padding="0,8,0,0">
+                        <StackPanel Orientation="Horizontal">
+                            <Button Content="すべて削除" Command="{Binding RemoveAllLinesCommand}" Tag="{StaticResource IconTrash}"
+                                    Style="{StaticResource OrderEntryDetailActionButton}" Foreground="{DynamicResource ThemeDanger}"
+                                    BorderBrush="{DynamicResource ThemeDanger}" Margin="0,0,10,0"
+                                    Visibility="{Binding Content, RelativeSource={RelativeSource TemplatedParent}, Converter={StaticResource BooleanVisibility}}" />
+                            <Button Content="元に戻す" Command="{Binding UndoRemoveLineCommand}" Tag="{StaticResource IconUndo}"
+                                    Style="{StaticResource OrderEntryDetailActionButton}" />
+                        </StackPanel>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <DataTrigger Binding="{Binding Tag.ActualHeight, RelativeSource={RelativeSource Self}, Converter={StaticResource RegistrationBelowBreakpoint}, ConverterParameter=320}" Value="True">
+                            <Setter TargetName="DetailActionBorder" Property="Padding" Value="0,4,0,0" />
+                        </DataTrigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding Content, RelativeSource={RelativeSource Self}}" Value="True">
+                <Setter Property="Visibility" Value="Visible" />
+            </DataTrigger>
+            <DataTrigger Binding="{Binding HasUndo}" Value="True">
+                <Setter Property="Visibility" Value="Visible" />
+            </DataTrigger>
+        </Style.Triggers>
+    </Style>
+    <Style x:Key="RegistrationFormCard" TargetType="Border" BasedOn="{StaticResource RegistrationWorkspaceCard}">
+        <Setter Property="Padding" Value="12" />
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding ActualHeight, ElementName=RegistrationPanels, Converter={StaticResource RegistrationBelowBreakpoint}, ConverterParameter=740}" Value="True">
+                <Setter Property="Padding" Value="10,7" />
+            </DataTrigger>
+        </Style.Triggers>
+    </Style>
+    <Style x:Key="RegistrationSectionHeading" TargetType="TextBlock" BasedOn="{StaticResource RegistrationHeading}">
+        <Setter Property="Foreground" Value="{DynamicResource ThemeOrderEntryNavy}" />
+        <Setter Property="FontWeight" Value="{StaticResource TypographyBold}" />
+    </Style>
+    <Style x:Key="RegistrationPrimaryAction" TargetType="Button" BasedOn="{StaticResource ThemePrimaryButton}">
+        <Setter Property="Background" Value="{DynamicResource ThemeOrderEntryNavy}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource ThemeOrderEntryNavy}" />
+    </Style>
+    <Style x:Key="RegistrationDetailsButton" TargetType="Button" BasedOn="{StaticResource ThemeButton}">
+        <Style.Triggers>
+            <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Background" Value="{StaticResource ThemeBorder}" />
+                <Setter Property="Foreground" Value="{StaticResource ThemeSecondaryText}" />
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+    <Style x:Key="RegistrationDetailMoney" TargetType="TextBlock" BasedOn="{StaticResource RegistrationMoney}">
+        <Setter Property="Margin" Value="8,0" />
+    </Style>
+    <Style x:Key="RegistrationLineTotal" TargetType="TextBlock" BasedOn="{StaticResource RegistrationDetailMoney}">
+        <Setter Property="FontWeight" Value="{StaticResource TypographySemiBold}" />
+    </Style>
+    <Style x:Key="RegistrationDetailHeader" TargetType="DataGridColumnHeader" BasedOn="{StaticResource RegistrationNumberHeader}">
+        <Setter Property="Background" Value="{DynamicResource ThemeOrderEntryCanvas}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource ThemeOrderEntryBorder}" />
+        <Setter Property="Padding" Value="8,4" />
+    </Style>
+    <Style x:Key="RegistrationCenteredDetailHeader" TargetType="DataGridColumnHeader" BasedOn="{StaticResource RegistrationDetailHeader}">
+        <Setter Property="HorizontalContentAlignment" Value="Center" />
+    </Style>
+    <Style x:Key="RegistrationUnitPrice" TargetType="TextBlock" BasedOn="{StaticResource RegistrationDetailMoney}">
+        <Setter Property="AutomationProperties.Name" Value="単価" />
+    </Style>
+    <Style x:Key="RegistrationProductHeader" TargetType="DataGridColumnHeader" BasedOn="{StaticResource RegistrationDetailHeader}">
+        <Setter Property="HorizontalContentAlignment" Value="Left" />
+        <Setter Property="ContentTemplate">
+            <Setter.Value>
+                <DataTemplate><TextBlock Text="{Binding}" TextWrapping="Wrap" /></DataTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+    <Style x:Key="RegistrationItemsGrid" TargetType="DataGrid" BasedOn="{StaticResource {x:Type DataGrid}}">
+        <Setter Property="RowHeight" Value="{x:Static sys:Double.NaN}" />
+        <Setter Property="MinRowHeight" Value="48" />
+        <Setter Property="ColumnHeaderHeight" Value="40" />
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding ActualHeight, ElementName=RegistrationPanels, Converter={StaticResource RegistrationBelowBreakpoint}, ConverterParameter=320}" Value="True">
+                <Setter Property="MinRowHeight" Value="44" />
+                <Setter Property="ColumnHeaderHeight" Value="32" />
+            </DataTrigger>
+        </Style.Triggers>
+    </Style>
+    <Style x:Key="RegistrationRemarksPlaceholder" TargetType="TextBlock">
+        <Setter Property="Text" Value="受注に関する備考を入力（任意）" />
+        <Setter Property="Margin" Value="10,8" />
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="Foreground" Value="{DynamicResource ThemeSecondaryText}" />
+        <Setter Property="TextWrapping" Value="Wrap" />
+        <Setter Property="IsHitTestVisible" Value="False" />
+        <Setter Property="Visibility" Value="Collapsed" />
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding Remarks}" Value=""><Setter Property="Visibility" Value="Visible" /></DataTrigger>
+        </Style.Triggers>
+    </Style>
+    <DataTemplate x:Key="RegistrationCustomerSuggestion">
+        <StackPanel Margin="4">
+            <TextBlock Text="{Binding ClName}" TextWrapping="Wrap" FontSize="14" />
+            <TextBlock Text="{Binding ClId, StringFormat='C-{0:0000}'}" Foreground="{StaticResource ThemeSecondaryText}" FontSize="12" Margin="0,2,0,0" />
+        </StackPanel>
+    </DataTemplate>
+    <DataTemplate x:Key="RegistrationProductSuggestion">
+        <StackPanel Margin="4">
+            <TextBlock Text="{Binding ProductName}" FontWeight="SemiBold" TextWrapping="Wrap" />
+            <TextBlock Text="{Binding MakerAndStockLabel}" TextWrapping="Wrap" Foreground="{StaticResource ThemeSecondaryText}"
+                       FontSize="12" Margin="0,2,0,0" />
+            <DockPanel Margin="0,2,0,0">
+                <TextBlock Text="{Binding UnitPrice, StringFormat='¥{0:N0}'}" DockPanel.Dock="Right" Foreground="{StaticResource ThemePrimary}" FontWeight="SemiBold" Margin="12,0,0,0" />
+                <TextBlock Text="{Binding ProductCode}" TextTrimming="CharacterEllipsis" ToolTip="{Binding ProductCode}"
+                           Foreground="{StaticResource ThemeSecondaryText}" FontSize="12" />
+            </DockPanel>
+        </StackPanel>
+    </DataTemplate>
+    <DataTemplate x:Key="RegistrationDetailProduct">
+        <StackPanel Margin="8,5" VerticalAlignment="Center" ClipToBounds="True">
+            <TextBlock Text="{Binding ProductName}" FontSize="14" FontWeight="{StaticResource TypographyBold}"
+                       Foreground="{DynamicResource ThemeOrderEntryText}" TextTrimming="CharacterEllipsis" ToolTip="{Binding ProductName}" />
+            <TextBlock Text="{Binding ProductCode}" FontSize="12" Foreground="{StaticResource ThemeSecondaryText}"
+                       TextTrimming="CharacterEllipsis" ToolTip="{Binding ProductCode}" />
+            <DockPanel DataContext="{Binding StockStatus}" ToolTip="{Binding Tooltip}" Margin="0,3,0,0">
+                <local:LucideIcon DockPanel.Dock="Left" Width="14" Height="14" Margin="0,0,4,0" VerticalAlignment="Top"
+                                  Data="{StaticResource RegistrationStockWarningIcon}">
+                    <local:LucideIcon.Style>
+                        <Style TargetType="local:LucideIcon">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding Tone}" Value="Warning">
+                                    <Setter Property="Visibility" Value="Visible" /><Setter Property="Stroke" Value="{StaticResource ThemeWarning}" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding Tone}" Value="Danger">
+                                    <Setter Property="Visibility" Value="Visible" /><Setter Property="Stroke" Value="{StaticResource ThemeDanger}" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </local:LucideIcon.Style>
+                </local:LucideIcon>
+                <TextBlock Style="{StaticResource RegistrationRowStockHint}" AutomationProperties.LiveSetting="Polite" />
+            </DockPanel>
+            <TextBlock Text="{Binding QuantityError}" Style="{StaticResource RegistrationHint}" FontSize="11" Margin="0,2,0,0" />
+        </StackPanel>
+    </DataTemplate>
+    <ControlTemplate x:Key="RegistrationTotalsTemplate" TargetType="ContentControl">
+        <Border Margin="0" ToolTip="{Binding RoundingNotice}">
+            <Border.Style>
+                <Style TargetType="Border" BasedOn="{StaticResource RegistrationWorkspaceCard}">
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding Tag, RelativeSource={RelativeSource TemplatedParent}, Converter={StaticResource RegistrationBelowBreakpoint}, ConverterParameter=640}" Value="True">
+                            <Setter Property="Padding" Value="8" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </Border.Style>
+            <StackPanel>
+                <Grid>
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Style="{StaticResource RegistrationSummaryRow}" />
+                        <RowDefinition Style="{StaticResource RegistrationSummaryRow}" />
+                        <RowDefinition Height="8" />
+                        <RowDefinition Style="{StaticResource RegistrationSummaryTotalRow}" />
+                    </Grid.RowDefinitions>
+                    <TextBlock Text="税抜合計" Foreground="{DynamicResource ThemeSecondaryText}" VerticalAlignment="Center" Margin="8,0,0,0" />
+                    <TextBlock Grid.Column="1" Text="{Binding Subtotal, StringFormat='¥{0:N0}'}" TextAlignment="Right" VerticalAlignment="Center" Margin="0,0,8,0" />
+                    <TextBlock Grid.Row="1" Text="{Binding TaxLabel}" Foreground="{DynamicResource ThemeSecondaryText}" VerticalAlignment="Center" Margin="8,0,0,0" />
+                    <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding Tax, StringFormat='¥{0:N0}'}" TextAlignment="Right" VerticalAlignment="Center" Margin="0,0,8,0" />
+                    <Border Grid.Row="2" Grid.ColumnSpan="2" Height="1" VerticalAlignment="Center" Background="{DynamicResource ThemeOrderEntryBorder}" />
+                    <Border Grid.Row="3" Grid.ColumnSpan="2" Background="{DynamicResource ThemeOrderEntryHighlight}" CornerRadius="6" />
+                    <TextBlock Grid.Row="3" Text="税込合計" Foreground="{DynamicResource ThemeOrderEntryNavy}" FontSize="16"
+                               FontWeight="{StaticResource TypographyBold}" VerticalAlignment="Center" Margin="8,0,0,0" />
+                    <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding Total, StringFormat='¥{0:N0}'}" Foreground="{DynamicResource ThemeOrderEntryNavy}"
+                               FontSize="26" FontWeight="{StaticResource TypographyBold}" TextAlignment="Right" VerticalAlignment="Center" Margin="0,0,8,0" />
+                </Grid>
+                <TextBlock Text="{Binding RoundingNotice}" FontSize="12" TextWrapping="Wrap" Foreground="{StaticResource ThemeSecondaryText}">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="Margin" Value="0,8,0,0" />
+                            <Style.Triggers>
+                                <Trigger Property="Text" Value=""><Setter Property="Visibility" Value="Collapsed" /></Trigger>
+                                <DataTrigger Binding="{Binding Tag, RelativeSource={RelativeSource TemplatedParent}, Converter={StaticResource RegistrationBelowBreakpoint}, ConverterParameter=420}" Value="True">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
+            </StackPanel>
+        </Border>
+    </ControlTemplate>
 </ResourceDictionary>

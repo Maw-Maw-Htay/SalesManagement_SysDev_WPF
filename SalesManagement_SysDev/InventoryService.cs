@@ -23,12 +23,7 @@ public sealed record InventoryRowData(
         _ => InventoryStockState.Available
     });
     public string DisplayCode => $"P-{ProductId:0000}";
-    public InventoryCondition Condition => Quantity switch
-    {
-        0 => InventoryCondition.Empty,
-        > 0 when SafetyStock is >= 0 => Quantity < SafetyStock ? InventoryCondition.Low : InventoryCondition.Normal,
-        _ => InventoryCondition.Unavailable
-    };
+    public InventoryCondition Condition => InventoryService.ClassifyStock(Quantity, SafetyStock);
     public string ConditionLabel => Condition switch
     {
         InventoryCondition.Empty => "在庫切れ",
@@ -60,6 +55,13 @@ public static class InventoryService
 {
     public static bool CanView => AppSession.Employee is { EmFlag: 0 }
         && (AppSession.IsAdmin || AppSession.IsLogistics);
+
+    internal static InventoryCondition ClassifyStock(long? quantity, int? safetyStock) => quantity switch
+    {
+        0 => InventoryCondition.Empty,
+        > 0 when safetyStock is >= 0 => quantity < safetyStock ? InventoryCondition.Low : InventoryCondition.Normal,
+        _ => InventoryCondition.Unavailable
+    };
 
     internal static IReadOnlyDictionary<int, InventoryStockLookup> ReadCurrentStock(
         SalesManagementContext db, IReadOnlyCollection<int> productIds)
@@ -122,32 +124,31 @@ public static class InventoryService
     }
 
     public static async Task ExportAsync(InventoryFilters filters, TextWriter output, CancellationToken cancellationToken = default)
+        => await ExportAsync(filters, null, output, cancellationToken).ConfigureAwait(false);
+
+    internal static async Task ExportAsync(InventoryFilters filters, int[]? productIds, TextWriter output,
+        CancellationToken cancellationToken)
     {
         EnsureCanView();
         using var db = new SalesManagementContext();
-        await WriteCsvAsync(ProjectRows(SortRows(ApplyFilters(QueryBalances(db), filters), filters)).AsAsyncEnumerable(),
-            output, cancellationToken);
+        var balances = QueryBalances(db);
+        if (productIds is not null) balances = balances.Where(x => productIds.Contains(x.ProductId));
+        var rows = ProjectRows(SortRows(ApplyFilters(balances, filters), filters));
+        await WriteCsvAsync(rows.AsAsyncEnumerable(), output, cancellationToken).ConfigureAwait(false);
     }
 
     internal static async Task WriteCsvAsync(IAsyncEnumerable<InventoryRowData> rows, TextWriter output,
         CancellationToken cancellationToken)
     {
-        await output.WriteLineAsync("商品コード,商品名,カテゴリ,現在庫数,安全在庫数,在庫状態,最終更新日時");
-        await foreach (var row in rows.WithCancellation(cancellationToken))
+        await output.WriteLineAsync("商品コード,商品名,カテゴリ,現在庫数,安全在庫数,在庫状態,最終更新日時".AsMemory(), cancellationToken).ConfigureAwait(false);
+        await foreach (var row in rows.WithCancellation(cancellationToken).ConfigureAwait(false))
         {
-            await output.WriteLineAsync(string.Join(",", CsvText(row.DisplayCode), CsvText(row.ProductName),
-                CsvText(row.Classification), row.Quantity?.ToString(CultureInfo.InvariantCulture) ?? "",
+            var line = string.Join(",", SpreadsheetCsv.EscapeText(row.DisplayCode), SpreadsheetCsv.EscapeText(row.ProductName),
+                SpreadsheetCsv.EscapeText(row.Classification), row.Quantity?.ToString(CultureInfo.InvariantCulture) ?? "",
                 row.SafetyStock is >= 0 ? row.SafetyStock.Value.ToString(CultureInfo.InvariantCulture) : "",
-                CsvText(row.ConditionLabel), CsvText(row.LastUpdatedAt?.ToString("yyyy/MM/dd HH:mm", CultureInfo.InvariantCulture) ?? "")));
+                SpreadsheetCsv.EscapeText(row.ConditionLabel), SpreadsheetCsv.EscapeText(row.LastUpdatedAt?.ToString("yyyy/MM/dd HH:mm", CultureInfo.InvariantCulture) ?? ""));
+            await output.WriteLineAsync(line.AsMemory(), cancellationToken).ConfigureAwait(false);
         }
-    }
-
-    private static string CsvText(string value)
-    {
-        // Product names and categories may contain spreadsheet formula prefixes or CSV delimiters.
-        var trimmed = value.TrimStart();
-        if (trimmed.Length > 0 && trimmed[0] is '=' or '+' or '-' or '@' or '＝' or '＋' or '－' or '＠') value = "'" + value;
-        return "\"" + value.Replace("\"", "\"\"") + "\"";
     }
 
     private static void EnsureCanView()

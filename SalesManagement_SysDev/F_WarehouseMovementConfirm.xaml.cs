@@ -1,5 +1,5 @@
-using System.ComponentModel;
 using System.Windows;
+using System.Windows.Controls;
 
 namespace SalesManagement_SysDev;
 
@@ -20,16 +20,27 @@ public partial class F_WarehouseMovementConfirm : Window
         if (!viewModel.IsProcessing) DialogResult = false;
     }
 
+    private void ReceiptDate_ValidationError(object sender, DatePickerDateValidationErrorEventArgs e)
+    {
+        e.ThrowException = false;
+        viewModel.ReceiptDate = null;
+    }
+
     private async void Confirm_Click(object sender, RoutedEventArgs e)
     {
         if (!viewModel.CanConfirm || AppSession.Employee is not { } employee) return;
+        var record = viewModel.Record;
+        var receiptDate = viewModel.ReceiptDate;
+        var lines = record.IsAwaitingReceipt ? viewModel.ActualReceiptLines : viewModel.ExpectedLines;
         viewModel.IsProcessing = true;
         WarehouseMovementOperationResult result;
         try
         {
-            result = await Task.Run(() => viewModel.IsInbound
-                ? WarehousingService.ConfirmShelf(employee.EmId, viewModel.Record.Id, viewModel.ExpectedLines)
-                : OutboundService.Confirm(employee.EmId, viewModel.Record.Id));
+            result = await Task.Run(() => record.IsAwaitingReceipt
+                ? WarehousingService.ConfirmPurchaseReceipt(employee.EmId, record.ReferenceId, receiptDate, lines)
+                : record.Kind == WarehouseMovementKind.Inbound
+                    ? WarehousingService.ConfirmShelf(employee.EmId, record.Id, lines)
+                    : OutboundService.Confirm(employee.EmId, record.Id));
         }
         catch (Exception ex)
         {

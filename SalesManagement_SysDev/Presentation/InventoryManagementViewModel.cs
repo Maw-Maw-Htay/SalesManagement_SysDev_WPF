@@ -1,8 +1,9 @@
-using System.Collections.ObjectModel;
 using System.IO;
 using System.Windows.Threading;
 
 namespace SalesManagement_SysDev;
+
+internal enum InventorySaveScope { Filtered, Marked, All }
 
 public sealed class InventoryManagementViewModel : ViewModelBase
 {
@@ -16,8 +17,9 @@ public sealed class InventoryManagementViewModel : ViewModelBase
     private InventorySort sort;
     private bool descending, isFiltersExpanded, isLoading, isExporting, queryPending, summaryNeeded = true;
     private int currentPage = 1, pageSize = 20, matchCount;
+    private IReadOnlyList<InventoryRowData> rows = [];
 
-    public ObservableCollection<InventoryRowData> Rows { get; } = [];
+    public IReadOnlyList<InventoryRowData> Rows { get => rows; private set => Set(ref rows, value); }
     public string QuickSearch { get => quickSearch; set { if (Set(ref quickSearch, value ?? "")) ScheduleSearch(); } }
     public string CodeFilter { get => codeFilter; set { if (Set(ref codeFilter, value)) ScheduleSearch(); } }
     public string NameFilter { get => nameFilter; set { if (Set(ref nameFilter, value)) ScheduleSearch(); } }
@@ -29,7 +31,9 @@ public sealed class InventoryManagementViewModel : ViewModelBase
     public bool IsFiltersExpanded { get => isFiltersExpanded; set { if (Set(ref isFiltersExpanded, value)) Notify(nameof(FiltersToggleLabel)); } }
     public string FiltersToggleLabel => IsFiltersExpanded ? "詳細条件を折りたたむ" : "詳細条件を展開";
     public bool CanReload => !isExporting;
-    public bool CanExport => !isLoading && !queryPending && !isExporting && displayedFilters != null && matchCount > 0;
+    private bool CanUseDisplayedFilters => !isLoading && !queryPending && !isExporting && displayedFilters != null;
+    public bool CanExport => CanUseDisplayedFilters && matchCount > 0;
+    public bool CanSave => CanUseDisplayedFilters && TotalCount > 0;
     public bool ShowEmpty => !isLoading && !queryPending && Rows.Count == 0 && Feedback.Length == 0;
     public bool HasConditions => !string.IsNullOrWhiteSpace(QuickSearch) || !string.IsNullOrWhiteSpace(CodeFilter) || !string.IsNullOrWhiteSpace(NameFilter)
         || !string.IsNullOrWhiteSpace(MakerFilter) || !string.IsNullOrWhiteSpace(ClassificationFilter)
@@ -67,12 +71,29 @@ public sealed class InventoryManagementViewModel : ViewModelBase
         return RefreshAsync(queryPending ? 1 : currentPage);
     }
 
-    public async Task ExportAsync(TextWriter output)
+    public async Task ExportAsync(TextWriter output) => await SaveAsync(InventorySaveScope.Filtered, output, default);
+
+    internal bool CanSaveScope(InventorySaveScope scope) => scope switch
     {
-        if (!CanExport || displayedFilters is not { } filters) return;
+        InventorySaveScope.Filtered => CanExport,
+        InventorySaveScope.Marked => CanExport && Rows.Any(row => row.IsMarked),
+        InventorySaveScope.All => CanSave,
+        _ => false
+    };
+
+    internal async Task<bool> SaveAsync(InventorySaveScope scope, TextWriter output, CancellationToken cancellationToken)
+    {
+        if (!CanSaveScope(scope) || displayedFilters is not { } filters) return false;
+        var productIds = scope == InventorySaveScope.Marked ? Rows.Where(row => row.IsMarked).Select(row => row.ProductId).ToArray() : null;
+        if (scope == InventorySaveScope.All)
+            filters = new InventoryFilters("", "", "", "", "", null, null, null, filters.Sort, filters.Descending);
         isExporting = true;
         NotifyPage();
-        try { await InventoryService.ExportAsync(filters, output); }
+        try
+        {
+            await InventoryService.ExportAsync(filters, productIds, output, cancellationToken);
+            return true;
+        }
         finally { isExporting = false; NotifyPage(); }
     }
 
@@ -156,8 +177,7 @@ public sealed class InventoryManagementViewModel : ViewModelBase
             displayedFilters = filters;
             matchCount = result.MatchCount;
             currentPage = result.Number;
-            Rows.Clear();
-            foreach (var row in result.Rows) Rows.Add(row);
+            Rows = result.Rows;
         }
         catch (OperationCanceledException) when (next.IsCancellationRequested) { }
         catch (UnauthorizedAccessException ex) when (ReferenceEquals(request, next) && !next.IsCancellationRequested)
@@ -191,7 +211,7 @@ public sealed class InventoryManagementViewModel : ViewModelBase
 
     private void ClearPage(string message)
     {
-        Rows.Clear();
+        Rows = [];
         displayedFilters = null;
         matchCount = 0;
         currentPage = 1;
@@ -202,7 +222,7 @@ public sealed class InventoryManagementViewModel : ViewModelBase
     {
         foreach (var name in new[] { nameof(TotalCount), nameof(NormalCount), nameof(LowCount), nameof(EmptyCount),
                      nameof(TotalQuantity), nameof(CountText), nameof(CurrentPage), nameof(PageCount), nameof(PageRangeText),
-                     nameof(CanPrevious), nameof(CanNext), nameof(CanExport), nameof(CanReload), nameof(ShowEmpty), nameof(HasConditions) })
+                     nameof(CanPrevious), nameof(CanNext), nameof(CanExport), nameof(CanSave), nameof(CanReload), nameof(ShowEmpty), nameof(HasConditions) })
             Notify(name);
     }
 }

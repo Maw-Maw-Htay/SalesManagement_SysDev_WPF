@@ -1,0 +1,141 @@
+<UserControl x:Class="SalesManagement_SysDev.OrderProductInput"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:SalesManagement_SysDev" Focusable="False" IsTabStop="False"
+             Foreground="{DynamicResource ThemeOrderEntryText}">
+    <UserControl.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="Resources/Registration.xaml" />
+                <ResourceDictionary Source="Resources/QuantityInput.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+            <SolidColorBrush x:Key="RegistrationStockSurface" Color="#ECFDF3" />
+        </ResourceDictionary>
+    </UserControl.Resources>
+    <StackPanel>
+        <StackPanel x:Name="ProductSearchFields">
+            <StackPanel Margin="0,0,0,6">
+                <TextBlock Text="メーカーで絞り込み（任意）" Style="{StaticResource RegistrationLabel}" TextWrapping="Wrap" />
+                <local:RegistrationLookup x:Name="ManufacturerFilter" Text="{Binding MakerSearch, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                    ItemsSource="{Binding MakerSuggestions}" SelectCommand="{Binding SelectMakerCommand}" CommittedText="{Binding SelectedMakerText}"
+                    Placeholder="すべてのメーカー" AccessibleName="メーカー名" SelectSingleMatchOnEnter="True" IsEnabled="{Binding IsEditing}">
+                    <local:RegistrationLookup.SuggestionTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding Name}" Padding="6,4" TextTrimming="CharacterEllipsis" ToolTip="{Binding Name}" />
+                        </DataTemplate>
+                    </local:RegistrationLookup.SuggestionTemplate>
+                </local:RegistrationLookup>
+            </StackPanel>
+            <StackPanel>
+                <ContentControl Content="商品コード・商品名" Style="{StaticResource RegistrationRequiredLabel}" />
+                <Grid>
+                    <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                    <local:RegistrationLookup x:Name="ProductLookup" Text="{Binding ProductSearch, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                        ItemsSource="{Binding Products}" SelectCommand="{Binding SelectProductCommand}" SuggestionTemplate="{StaticResource RegistrationProductSuggestion}"
+                        Placeholder="コード・商品名・JAN" AccessibleName="商品コード・商品名・バーコード"
+                        Invalid="{Binding ProductInputInvalid}" IsEnabled="{Binding IsEditing}" />
+                    <Button x:Name="ProductDetailsButton" Grid.Column="1" Content="商品詳細" Command="{Binding ShowProductDetailsCommand}"
+                            Style="{StaticResource RegistrationDetailsButton}" Width="80" Height="40" Padding="8,6" Margin="8,0,0,0"
+                            AutomationProperties.Name="選択商品の詳細" IsEnabled="{Binding HasSelectedProduct}" />
+                </Grid>
+            </StackPanel>
+        </StackPanel>
+        <Grid x:Name="ProductMetrics" Margin="0,6,0,0">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+            <StackPanel>
+                <ContentControl Content="{Binding QuantityLabel}" Style="{StaticResource RegistrationRequiredLabel}" />
+                <local:QuantityUpDown x:Name="QuantityInput" Text="{Binding Quantity, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                    Maximum="{Binding MaximumQuantity}" Style="{StaticResource HorizontalQuantityUpDown}" Width="112" Height="40" PreserveInvalidInput="True"
+                    AutomationProperties.Name="追加数量" IsEnabled="{Binding IsEditing}" />
+            </StackPanel>
+            <StackPanel Grid.Column="1" Margin="12,0,4,0">
+                <TextBlock Text="単価" Style="{StaticResource RegistrationLabel}" />
+                <TextBlock Text="{Binding UnitPriceDisplay}" ToolTip="{Binding UnitPriceDisplay}"
+                           Height="40" Padding="0,10,0,0" TextTrimming="CharacterEllipsis"
+                           FontWeight="{StaticResource TypographyBold}" AutomationProperties.Name="単価（参照専用）">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="Foreground" Value="{StaticResource ThemeSecondaryText}" />
+                            <Setter Property="FontSize" Value="12" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding HasSelectedProduct}" Value="True">
+                                    <Setter Property="Foreground" Value="{DynamicResource ThemeOrderNavy}" />
+                                    <Setter Property="FontSize" Value="14" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
+            </StackPanel>
+            <StackPanel>
+                <StackPanel.Style>
+                    <Style TargetType="StackPanel">
+                        <Setter Property="Grid.Column" Value="2" />
+                        <Setter Property="Margin" Value="8,0,0,0" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding ActualWidth, ElementName=ProductMetrics, Converter={StaticResource RegistrationBelowBreakpoint}, ConverterParameter=264}" Value="True">
+                                <Setter Property="Grid.Row" Value="1" />
+                                <Setter Property="Grid.Column" Value="0" />
+                                <Setter Property="Grid.ColumnSpan" Value="3" />
+                                <Setter Property="Margin" Value="0,6,0,0" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </StackPanel.Style>
+                <TextBlock Text="現在庫数" Style="{StaticResource RegistrationLabel}" />
+                <Border HorizontalAlignment="Left" Margin="0,5,0,0" Padding="9,4" CornerRadius="12" ToolTip="{Binding StockStatus.Tooltip}">
+                    <Border.Style>
+                        <Style TargetType="Border">
+                            <Setter Property="Background" Value="{StaticResource ThemeSubtle}" />
+                            <Setter Property="TextElement.Foreground" Value="{StaticResource ThemeSecondaryText}" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding HasSufficientStock}" Value="True">
+                                    <Setter Property="Background" Value="{StaticResource RegistrationStockSurface}" />
+                                    <Setter Property="TextElement.Foreground" Value="{StaticResource ThemeSuccessText}" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding StockStatus.Tone}" Value="Warning">
+                                    <Setter Property="Background" Value="{StaticResource ThemeWarningSurface}" />
+                                    <Setter Property="TextElement.Foreground" Value="{StaticResource ThemeWarningText}" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding StockStatus.Tone}" Value="Danger">
+                                    <Setter Property="Background" Value="{StaticResource ThemeDangerSurface}" />
+                                    <Setter Property="TextElement.Foreground" Value="{StaticResource ThemeDangerText}" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Border.Style>
+                    <TextBlock Text="{Binding CurrentStockDisplay}" FontSize="13" FontWeight="{StaticResource TypographySemiBold}" />
+                </Border>
+            </StackPanel>
+        </Grid>
+        <Border x:Name="ProductInputStockPanel" ToolTip="{Binding StockStatus.Tooltip}"
+                CornerRadius="8" Padding="10,4" Margin="0,6,0,0">
+            <Border.Style>
+                <Style TargetType="Border">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding StockStatus.Tone}" Value="Warning">
+                            <Setter Property="Visibility" Value="Visible" />
+                            <Setter Property="Background" Value="{StaticResource ThemeWarningSurface}" />
+                            <Setter Property="TextElement.Foreground" Value="{StaticResource ThemeWarningText}" />
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding StockStatus.Tone}" Value="Danger">
+                            <Setter Property="Visibility" Value="Visible" />
+                            <Setter Property="Background" Value="{StaticResource ThemeDangerSurface}" />
+                            <Setter Property="TextElement.Foreground" Value="{StaticResource ThemeDangerText}" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </Border.Style>
+            <DockPanel>
+                <local:LucideIcon DockPanel.Dock="Left" Width="17" Height="17" Margin="0,1,8,0" VerticalAlignment="Top"
+                                  Data="{StaticResource RegistrationStockWarningIcon}"
+                                  Stroke="{Binding (TextElement.Foreground), RelativeSource={RelativeSource Self}}" />
+                <TextBlock x:Name="ProductInputStockHint" Text="{Binding StockStatus.Text}" TextWrapping="Wrap" FontSize="13"
+                           FontWeight="{StaticResource TypographySemiBold}" AutomationProperties.LiveSetting="Polite" />
+            </DockPanel>
+        </Border>
+        <TextBlock Text="{Binding QuantityError}" Style="{StaticResource RegistrationHint}" />
+    </StackPanel>
+</UserControl>

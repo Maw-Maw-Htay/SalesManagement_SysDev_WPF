@@ -1,0 +1,191 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:sys="clr-namespace:System;assembly=mscorlib"
+                    xmlns:local="clr-namespace:SalesManagement_SysDev">
+    <SolidColorBrush x:Key="DraftNavigationNavy" Color="#081C3D" />
+    <local:RegistrationBelowBreakpointConverter x:Key="DraftNavigationBelowWidth" />
+    <!-- Window widths include the shadow margin and footer padding. -->
+    <sys:Double x:Key="DraftNavigationCompactWidth">601</sys:Double>
+    <sys:Double x:Key="DraftNavigationStackedWidth">511</sys:Double>
+    <GeometryGroup x:Key="DraftNavigationAlertIcon">
+        <EllipseGeometry Center="12,12" RadiusX="10" RadiusY="10" />
+        <PathGeometry Figures="M12 8v4 M12 16h.01" />
+    </GeometryGroup>
+    <DataTemplate x:Key="DraftNavigationIconLabel">
+        <StackPanel Orientation="Horizontal">
+            <local:LucideIcon Width="16" Height="16" Margin="0,0,6,0"
+                              Data="{Binding Tag, RelativeSource={RelativeSource AncestorType=Button}}"
+                              Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
+            <TextBlock Text="{Binding}" VerticalAlignment="Center" />
+        </StackPanel>
+    </DataTemplate>
+
+    <Style x:Key="DraftNavigationButton" TargetType="Button" BasedOn="{StaticResource ThemeButton}">
+        <Setter Property="Height" Value="42" />
+        <Setter Property="Padding" Value="7,0" />
+        <Setter Property="Background" Value="{DynamicResource ThemeSurface}" />
+        <Setter Property="Foreground" Value="{DynamicResource ThemeText}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource ThemeBorder}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Grid>
+                        <Border x:Name="Surface" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="8" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" RecognizesAccessKey="True" />
+                        </Border>
+                        <Border x:Name="FocusRing" BorderBrush="{DynamicResource ThemeAccent}" BorderThickness="2" CornerRadius="10"
+                                Margin="-3" IsHitTestVisible="False" Visibility="Collapsed" />
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="FocusRing" Property="Visibility" Value="Visible" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="Surface" Property="Opacity" Value="0.42" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="DraftNavigationDiscardButton" TargetType="Button" BasedOn="{StaticResource DraftNavigationButton}">
+        <Setter Property="Width" Value="145" />
+        <Setter Property="Foreground" Value="{DynamicResource ThemeDanger}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource ThemeDanger}" />
+        <Style.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter Property="Background" Value="{DynamicResource ThemeDangerSurface}" />
+            </Trigger>
+            <DataTrigger Binding="{Binding ActualWidth, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource DraftNavigationBelowWidth}, ConverterParameter={StaticResource DraftNavigationCompactWidth}}" Value="True">
+                <Setter Property="Width" Value="128" />
+            </DataTrigger>
+            <DataTrigger Binding="{Binding ActualWidth, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource DraftNavigationBelowWidth}, ConverterParameter={StaticResource DraftNavigationStackedWidth}}" Value="True">
+                <Setter Property="Grid.ColumnSpan" Value="4" />
+                <Setter Property="HorizontalAlignment" Value="Left" />
+                <Setter Property="Margin" Value="0,0,0,10" />
+            </DataTrigger>
+        </Style.Triggers>
+    </Style>
+
+    <Style x:Key="DraftNavigationContinueButton" TargetType="Button" BasedOn="{StaticResource DraftNavigationButton}">
+        <Setter Property="Width" Value="145" />
+        <Style.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter Property="Background" Value="{DynamicResource ThemeSubtle}" />
+                <Setter Property="BorderBrush" Value="{DynamicResource ThemeInputBorder}" />
+            </Trigger>
+            <DataTrigger Binding="{Binding ActualWidth, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource DraftNavigationBelowWidth}, ConverterParameter={StaticResource DraftNavigationCompactWidth}}" Value="True">
+                <Setter Property="Width" Value="106" />
+            </DataTrigger>
+            <DataTrigger Binding="{Binding ActualWidth, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource DraftNavigationBelowWidth}, ConverterParameter={StaticResource DraftNavigationStackedWidth}}" Value="True">
+                <Setter Property="Grid.Row" Value="1" />
+            </DataTrigger>
+        </Style.Triggers>
+    </Style>
+
+    <Style x:Key="DraftNavigationSaveButton" TargetType="Button" BasedOn="{StaticResource DraftNavigationButton}">
+        <Setter Property="Width" Value="185" />
+        <Setter Property="Margin" Value="14,0,0,0" />
+        <Setter Property="Background" Value="{DynamicResource DraftNavigationNavy}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource DraftNavigationNavy}" />
+        <Setter Property="Foreground" Value="{DynamicResource ThemeSidebarForeground}" />
+        <Style.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter Property="Background" Value="{DynamicResource ThemeSidebarHover}" />
+            </Trigger>
+            <Trigger Property="IsPressed" Value="True">
+                <Setter Property="Background" Value="#06142D" />
+            </Trigger>
+            <DataTrigger Binding="{Binding ActualWidth, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource DraftNavigationBelowWidth}, ConverterParameter={StaticResource DraftNavigationCompactWidth}}" Value="True">
+                <Setter Property="Width" Value="154" />
+                <Setter Property="Margin" Value="12,0,0,0" />
+            </DataTrigger>
+            <DataTrigger Binding="{Binding ActualWidth, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource DraftNavigationBelowWidth}, ConverterParameter={StaticResource DraftNavigationStackedWidth}}" Value="True">
+                <Setter Property="Grid.Row" Value="1" />
+            </DataTrigger>
+        </Style.Triggers>
+    </Style>
+
+    <Style x:Key="DraftNavigationHeaderClose" TargetType="Button" BasedOn="{StaticResource ThemeIconButton}">
+        <Style.Triggers>
+            <Trigger Property="IsMouseOver" Value="True"><Setter Property="Background" Value="#24FFFFFF" /></Trigger>
+        </Style.Triggers>
+    </Style>
+
+    <DataTemplate x:Key="DraftNavigationNoticeTemplate">
+        <Grid Margin="12" KeyboardNavigation.TabNavigation="Cycle" FocusManager.IsFocusScope="True"
+              FocusManager.FocusedElement="{Binding ElementName=ContinueEditingButton}">
+            <Border Background="{DynamicResource ThemeSurface}" CornerRadius="11" IsHitTestVisible="False">
+                <Border.Effect><DropShadowEffect Color="#081C3D" BlurRadius="18" ShadowDepth="4" Opacity="0.22" /></Border.Effect>
+            </Border>
+            <Border Background="{DynamicResource ThemeSurface}" CornerRadius="11"
+                    BorderBrush="{DynamicResource ThemeBorder}" BorderThickness="1">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="52" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <Border Style="{StaticResource DialogHeader}" Background="{DynamicResource DraftNavigationNavy}"
+                            CornerRadius="10,10,0,0" MinHeight="52" Padding="18,0,8,0">
+                        <DockPanel>
+                            <Button x:Name="CloseDraftNavigationButton" DockPanel.Dock="Right" Style="{StaticResource DraftNavigationHeaderClose}"
+                                    VerticalAlignment="Center" Command="{Binding CloseCommand}" ToolTip="閉じる" AutomationProperties.Name="閉じる">
+                                <local:LucideIcon Data="{StaticResource IconX}" Width="17" Height="17" Stroke="{DynamicResource ThemeSidebarForeground}" />
+                            </Button>
+                            <local:LucideIcon DockPanel.Dock="Left" Data="{StaticResource DraftNavigationAlertIcon}" Width="19" Height="19"
+                                              Stroke="{DynamicResource ThemeSidebarForeground}" Margin="0,0,10,0" />
+                            <TextBlock Text="{Binding Title}" FontSize="17" FontWeight="{StaticResource TypographySemiBold}"
+                                       VerticalAlignment="Center" Foreground="{DynamicResource ThemeSidebarForeground}" />
+                        </DockPanel>
+                    </Border>
+
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Focusable="False">
+                        <Grid Margin="22,20">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="54" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <Grid Width="52" Height="52" VerticalAlignment="Top" HorizontalAlignment="Left">
+                                <Border CornerRadius="10" Background="{DynamicResource ThemeSubtle}" />
+                                <local:LucideIcon Data="{StaticResource IconOrder}" Width="28" Height="28" Stroke="{DynamicResource DraftNavigationNavy}" />
+                                <Border Width="19" Height="19" CornerRadius="9" Background="{DynamicResource ThemeSurface}"
+                                        VerticalAlignment="Bottom" HorizontalAlignment="Right" Margin="0,0,3,3">
+                                    <local:LucideIcon Data="{StaticResource DraftNavigationAlertIcon}" Width="15" Height="15"
+                                                      Stroke="{DynamicResource ThemeWarningText}" />
+                                </Border>
+                            </Grid>
+                            <StackPanel Grid.Column="1" Margin="14,0,0,0">
+                                <TextBlock Text="{Binding Message}" FontSize="16" FontWeight="{StaticResource TypographySemiBold}"
+                                           Foreground="{DynamicResource DraftNavigationNavy}" TextWrapping="Wrap" />
+                                <TextBlock Text="移動すると、入力内容が失われる可能性があります。" FontSize="14" Margin="0,5,0,0"
+                                           Foreground="{DynamicResource ThemeText}" TextWrapping="Wrap" />
+                                <TextBlock Text="どのようにしますか？" FontSize="14" Margin="0,6,0,0"
+                                           Foreground="{DynamicResource ThemeText}" TextWrapping="Wrap" />
+                            </StackPanel>
+                        </Grid>
+                    </ScrollViewer>
+
+                    <Border Grid.Row="2" Style="{StaticResource DialogFooter}" BorderBrush="{DynamicResource ThemeBorder}"
+                            Padding="18,12" CornerRadius="0,0,10,10">
+                        <Grid>
+                            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <Button Content="破棄して移動" Command="{Binding DiscardCommand}" Tag="{StaticResource IconTrash}"
+                                    Style="{StaticResource DraftNavigationDiscardButton}" ContentTemplate="{StaticResource DraftNavigationIconLabel}" />
+                            <Button x:Name="ContinueEditingButton" Grid.Column="2" Content="{Binding CancelLabel}" Command="{Binding CancelCommand}"
+                                    Style="{StaticResource DraftNavigationContinueButton}" IsDefault="True" IsCancel="True" />
+                            <Button Grid.Column="3" Content="{Binding ConfirmLabel}" Command="{Binding ConfirmCommand}" Tag="{StaticResource IconSave}"
+                                    Style="{StaticResource DraftNavigationSaveButton}" ContentTemplate="{StaticResource DraftNavigationIconLabel}"
+                                    Visibility="{Binding HasConfirmAction, Converter={StaticResource BooleanVisibility}}" />
+                        </Grid>
+                    </Border>
+                </Grid>
+            </Border>
+        </Grid>
+    </DataTemplate>
+</ResourceDictionary>

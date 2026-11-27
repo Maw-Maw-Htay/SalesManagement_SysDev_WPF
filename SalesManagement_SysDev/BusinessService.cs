@@ -5,13 +5,16 @@ namespace SalesManagement_SysDev;
 
 public sealed partial class BusinessService
 {
-    public static MEmployee? Login(int id, string password)
+    public static async Task<MEmployee?> LoginAsync(int id, string password, CancellationToken cancellationToken = default)
     {
         using var db = new SalesManagementContext();
-        var employee = db.MEmployees.Include(x => x.Po).Include(x => x.So)
-            .FirstOrDefault(x => x.EmId == id && x.EmFlag == 0 && x.Po.PoFlag == 0);
-        if (employee == null || !VerifyEmployeePassword(employee, password)) return null;
-        db.SaveChanges();
+        var employee = await db.MEmployees.Include(x => x.Po).Include(x => x.So)
+            .FirstOrDefaultAsync(x => x.EmId == id && x.EmFlag == 0 && x.Po.PoFlag == 0, cancellationToken)
+            .ConfigureAwait(false);
+        if (employee == null) return null;
+        // Password verification and legacy conversion are CPU work and never use the context.
+        if (!await Task.Run(() => VerifyEmployeePassword(employee, password), cancellationToken).ConfigureAwait(false)) return null;
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         // The session never needs credential material.
         employee.EmPassword = EmployeePasswordHasher.CreateLegacyPlaceholder();
         employee.EmPasswordHash = null;

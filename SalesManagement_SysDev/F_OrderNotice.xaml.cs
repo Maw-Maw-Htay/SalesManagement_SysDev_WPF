@@ -1,4 +1,6 @@
 using System.Windows;
+using System.Windows.Documents;
+using System.Windows.Input;
 using System.Windows.Media;
 
 namespace SalesManagement_SysDev;
@@ -7,15 +9,25 @@ public enum OrderNoticeKind { Information, Success, Warning, Error, Confirmation
 
 public sealed partial class F_OrderNotice : Window
 {
+    private bool discardSelected;
+
     public F_OrderNotice(string title, string message, OrderNoticeKind kind, string confirmLabel = "閉じる",
         string cancelLabel = "キャンセル", bool showCancel = false)
+        : this(title, message, kind, confirmLabel, cancelLabel, showCancel, false)
+    {
+    }
+
+    private F_OrderNotice(string title, string message, OrderNoticeKind kind, string confirmLabel,
+        string cancelLabel, bool showCancel, bool allowDiscard, bool showConfirm = true, bool isDeleteAllPrompt = false)
     {
         InitializeComponent();
         DataContext = new OrderNoticeViewModel(title, message, kind, confirmLabel, cancelLabel, showCancel,
-            result => { if (result.HasValue) DialogResult = result; else Close(); });
+            result => { if (result.HasValue) DialogResult = result; else Close(); },
+            allowDiscard ? () => { discardSelected = true; DialogResult = false; } : null, showConfirm, isDeleteAllPrompt);
         MaxWidth = Math.Max(320, SystemParameters.WorkArea.Width * .9);
         MaxHeight = Math.Max(220, SystemParameters.WorkArea.Height * .85);
-        Width = Math.Min(460, MaxWidth);
+        Width = Math.Min(allowDiscard ? 628 : 460, MaxWidth);
+        if (allowDiscard) Title = title;
     }
 
     public static void Show(Window? owner, string title, string message, OrderNoticeKind kind = OrderNoticeKind.Information)
@@ -32,6 +44,76 @@ public sealed partial class F_OrderNotice : Window
             confirmLabel, cancelLabel, showCancel: true);
         AttachOwner(dialog, owner);
         return dialog.ShowDialog() == true;
+    }
+
+    internal static bool ConfirmDraftDeletion(Window owner, string message)
+    {
+        var dialog = new F_OrderNotice("下書きの削除", message, OrderNoticeKind.Danger, "削除する", showCancel: true);
+        dialog.noticeActions.Children.Remove(dialog.cancelAction);
+        dialog.noticeActions.Children.Add(dialog.cancelAction);
+        var margin = dialog.cancelAction.Margin;
+        dialog.cancelAction.Margin = new Thickness(margin.Right, margin.Top, margin.Left, margin.Bottom);
+        AttachOwner(dialog, owner);
+        return dialog.ShowDialog() == true;
+    }
+
+    public static OrderDraftNavigationChoice ConfirmDraftNavigation(Window? owner) => ConfirmOrderNavigation(owner, canSaveDraft: true);
+
+    public static bool ConfirmDeleteAll(Window? owner)
+    {
+        var dialog = new F_OrderNotice("すべての商品を削除しますか？",
+            "受注明細のすべての商品を削除します。受注情報や備考は削除されません。",
+            OrderNoticeKind.Danger, "すべて削除", "キャンセル", showCancel: true, allowDiscard: false, isDeleteAllPrompt: true);
+        AttachOwner(dialog, owner);
+        if (owner == null) dialog.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+        return dialog.ShowDialog() == true;
+    }
+
+    public static bool ConfirmUpdateNavigation(Window? owner) =>
+        ConfirmOrderNavigation(owner, canSaveDraft: false) == OrderDraftNavigationChoice.DiscardAndLeave;
+
+    private static OrderDraftNavigationChoice ConfirmOrderNavigation(Window? owner, bool canSaveDraft)
+    {
+        var dialog = new F_OrderNotice("未保存の変更があります", "受注の入力内容がまだ保存されていません。",
+            OrderNoticeKind.Confirmation, "一時保存して移動", "入力を続ける", showCancel: true, allowDiscard: true, showConfirm: canSaveDraft);
+        AttachOwner(dialog, owner);
+        if (owner == null) dialog.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+
+        var previousFocus = owner == null ? null : FocusManager.GetFocusedElement(owner);
+        AdornerLayer? layer = null;
+        DraftNavigationShade? shade = null;
+        if (owner?.Content is UIElement content && AdornerLayer.GetAdornerLayer(content) is { } ownerLayer)
+        {
+            layer = ownerLayer;
+            shade = new DraftNavigationShade(content);
+            layer.Add(shade);
+        }
+
+        var choice = OrderDraftNavigationChoice.ContinueEditing;
+        try
+        {
+            if (dialog.ShowDialog() == true) choice = OrderDraftNavigationChoice.SaveAndLeave;
+            else if (dialog.discardSelected) choice = OrderDraftNavigationChoice.DiscardAndLeave;
+            return choice;
+        }
+        finally
+        {
+            if (shade != null) layer!.Remove(shade);
+            if (choice == OrderDraftNavigationChoice.ContinueEditing
+                && previousFocus is UIElement { IsVisible: true, IsEnabled: true } editor
+                && Window.GetWindow(editor) == owner)
+                Keyboard.Focus(editor);
+        }
+    }
+
+    private sealed class DraftNavigationShade : Adorner
+    {
+        private readonly Brush tint = new SolidColorBrush(Color.FromArgb(0x59, 0x08, 0x1C, 0x3D));
+
+        public DraftNavigationShade(UIElement content) : base(content) => IsHitTestVisible = false;
+
+        protected override void OnRender(DrawingContext drawingContext) =>
+            drawingContext.DrawRectangle(tint, null, new Rect(AdornedElement.RenderSize));
     }
 
     private static void AttachOwner(F_OrderNotice dialog, Window? owner)
@@ -53,13 +135,17 @@ public sealed partial class F_OrderNotice : Window
 public sealed class OrderNoticeViewModel
 {
     public OrderNoticeViewModel(string title, string message, OrderNoticeKind kind, string confirmLabel,
-        string cancelLabel, bool showCancel, Action<bool?> complete)
+        string cancelLabel, bool showCancel, Action<bool?> complete, Action? discard = null, bool showConfirm = true,
+        bool isDeleteAllPrompt = false)
     {
         Title = title;
         Message = message;
         ConfirmLabel = confirmLabel;
         CancelLabel = cancelLabel;
         CancelVisibility = showCancel ? Visibility.Visible : Visibility.Collapsed;
+        HasDiscardAction = discard != null;
+        HasConfirmAction = showConfirm;
+        IsDeleteAllPrompt = isDeleteAllPrompt;
         Glyph = kind switch
         {
             OrderNoticeKind.Success => "✓",
@@ -77,8 +163,9 @@ public sealed class OrderNoticeViewModel
             _ => AppTheme.Secondary
         };
         ConfirmBackground = kind == OrderNoticeKind.Danger ? AppTheme.Danger : AppTheme.Primary;
-        ConfirmCommand = new RelayCommand(() => complete(true));
+        ConfirmCommand = new RelayCommand(() => complete(true), () => HasConfirmAction);
         CancelCommand = new RelayCommand(() => { CancelWasClicked = true; complete(false); });
+        DiscardCommand = new RelayCommand(() => discard?.Invoke(), () => HasDiscardAction);
         CloseCommand = new RelayCommand(() => complete(null));
     }
 
@@ -88,10 +175,15 @@ public sealed class OrderNoticeViewModel
     public string ConfirmLabel { get; }
     public string CancelLabel { get; }
     public Visibility CancelVisibility { get; }
+    public bool HasDiscardAction { get; }
+    public bool HasConfirmAction { get; }
+    public bool IsDeleteAllPrompt { get; }
+    public bool ConfirmIsDefault => !HasDiscardAction && !IsDeleteAllPrompt;
     public Brush AccentBrush { get; }
     public Brush ConfirmBackground { get; }
     public RelayCommand ConfirmCommand { get; }
     public RelayCommand CancelCommand { get; }
+    public RelayCommand DiscardCommand { get; }
     public RelayCommand CloseCommand { get; }
     public bool CancelWasClicked { get; private set; }
 }

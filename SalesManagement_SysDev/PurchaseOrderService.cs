@@ -5,16 +5,20 @@ namespace SalesManagement_SysDev;
 
 public enum PurchaseManagementTab { All, Visible, Hidden }
 public enum PurchaseProgressFilter { All, Waiting, Partial, Received }
-public enum PurchaseReceiptStatus { Unknown, Waiting, Partial, Received, Excess }
+public enum PurchaseReceiptStatus { Unknown, Waiting, Partial, Received, Excess, PurchaseUnconfirmed, ReceivingNeedsReview }
 
 public sealed record PurchaseMakerOption(int Id, string Name);
 public sealed record PurchaseEmployeeOption(int Id, string Name);
 public sealed record PurchaseProductOption(
-    int Id, int MakerId, string Code, string Name, string MakerName, int StockQuantity, int SafetyStock,
+    int Id, int MakerId, string Code, string Name, string MakerName, int? StockQuantity, int SafetyStock,
     int OutstandingPurchaseQuantity)
 {
     public string DisplayCode => string.IsNullOrWhiteSpace(Code) ? $"P-{Id:0000}" : Code;
     public string SearchLabel => $"{DisplayCode}　{Name}";
+    public InventoryStockState StockState { get; init; } = StockQuantity.HasValue
+        ? InventoryStockState.Available : InventoryStockState.MissingRecord;
+    public string StockQuantityText => StockQuantity?.ToString("N0")
+        ?? (StockState == InventoryStockState.MissingRecord ? "未登録" : "要確認");
 }
 
 public sealed record PurchaseOrderRecord(
@@ -22,10 +26,26 @@ public sealed record PurchaseOrderRecord(
     int ManagementFlag, string? HiddenReason, int ProductLineCount, int OrderedQuantity, int ReceivedQuantity)
 {
     public string Code => $"PO-{Id:000000}";
+    public int? ConfirmationState { get; init; }
+    public bool HasRelatedReceipt { get; init; }
+    public bool HasPendingReceipt { get; init; }
+    public bool IsAwaitingConfirmation => !HasRelatedReceipt && PurchaseOrderService.IsUnconfirmedState(ConfirmationState);
+    public bool IsConfirmedForReceiving => ConfirmationState == PurchaseOrderService.ConfirmedState;
+    public string ConfirmationLabel => IsAwaitingConfirmation ? "発注未確定" : IsConfirmedForReceiving ? "発注確定済み" : "";
+    public bool ShowConfirmationLabel => ConfirmationLabel.Length > 0 && ConfirmationLabel != ProgressLabel;
     public PurchaseReceiptStatus? RecordedProgress { get; init; }
     public int? RecordedRemaining { get; init; }
-    public PurchaseReceiptStatus ReceiptStatus => RecordedProgress ??
-        PurchaseProgress.Classify([(OrderedQuantity, ReceivedQuantity)], ProductLineCount);
+    public PurchaseReceiptStatus ReceiptStatus
+    {
+        get
+        {
+            var progress = RecordedProgress ?? PurchaseProgress.Classify([(OrderedQuantity, ReceivedQuantity)], ProductLineCount);
+            if (progress != PurchaseReceiptStatus.Waiting) return progress;
+            if (IsAwaitingConfirmation) return PurchaseReceiptStatus.PurchaseUnconfirmed;
+            return HasPendingReceipt || (IsConfirmedForReceiving && !HasRelatedReceipt && ManagementFlag == PurchaseOrderService.ActiveFlag)
+                ? PurchaseReceiptStatus.Waiting : PurchaseReceiptStatus.ReceivingNeedsReview;
+        }
+    }
     public string ManagementLabel => ManagementFlag switch
     {
         PurchaseOrderService.ActiveFlag => "表示中",
@@ -35,10 +55,12 @@ public sealed record PurchaseOrderRecord(
     public int RemainingQuantity => RecordedRemaining ?? Math.Max(0, OrderedQuantity - ReceivedQuantity);
     public string ProgressLabel => ReceiptStatus switch
     {
+        PurchaseReceiptStatus.PurchaseUnconfirmed => "発注未確定",
         PurchaseReceiptStatus.Waiting => "入庫待ち",
         PurchaseReceiptStatus.Partial => "一部入庫",
         PurchaseReceiptStatus.Received => "入庫済",
         PurchaseReceiptStatus.Excess => "数量超過",
+        PurchaseReceiptStatus.ReceivingNeedsReview => "入庫要確認",
         _ => ProductLineCount == 0 ? "明細なし" : "数量要確認"
     };
     public bool IsOutstanding => ProductLineCount > 0 && RemainingQuantity > 0;
@@ -165,6 +187,10 @@ public static class PurchaseOrderService
 {
     public const int ActiveFlag = 0;
     public const int HiddenFlag = 2;
+    // The previous registration path saved 0. A linked receipt always blocks purchase confirmation.
+    private const int LegacyRegisteredState = 0;
+    public const int RegisteredState = 10;
+    public const int ConfirmedState = 11;
     public const int MaximumHideReasonLength = 500;
     private static int registrationInProgress;
 
@@ -185,7 +211,8 @@ public static class PurchaseOrderService
         if (!actor!.IsAdministrator) headerQuery = headerQuery.Where(x => x.HaFlag == ActiveFlag);
         var headers = headerQuery.Select(x => new HeaderRow(
             x.HaId, x.HaDate, x.MaId, x.Ma.MaName, x.EmId, x.Em.EmName, x.HaFlag, x.HaHidden,
-            x.THattyuDetails.Count())).ToList();
+            x.THattyuDetails.Count(), x.WaWarehouseFlag, x.TWarehousings.Any(),
+            x.TWarehousings.Any(receipt => receipt.WaFlag == ActiveFlag && receipt.WaShelfFlag == WarehousingService.UnconfirmedState))).ToList();
         var orderIds = headers.Select(x => x.Id).ToArray();
 
         var orderedLines = orderIds.Length == 0
@@ -214,6 +241,9 @@ public static class PurchaseOrderService
                 header.EmployeeId, header.EmployeeName, header.ManagementFlag, header.HiddenReason,
                 header.ProductLineCount, quantities.Sum(x => x.Ordered), quantities.Sum(x => x.Received))
             {
+                ConfirmationState = header.ConfirmationState,
+                HasRelatedReceipt = header.HasRelatedReceipt,
+                HasPendingReceipt = header.HasPendingReceipt,
                 RecordedProgress = hasUnexpectedProduct ? PurchaseReceiptStatus.Unknown : PurchaseProgress.Classify(quantities, header.ProductLineCount),
                 RecordedRemaining = quantities.Sum(x => Math.Max(0, x.Ordered - x.Received))
             };
@@ -263,7 +293,8 @@ public static class PurchaseOrderService
         var header = db.THattyus.AsNoTracking()
             .Where(x => x.HaId == orderId && (actor!.IsAdministrator || x.HaFlag == ActiveFlag))
             .Select(x => new HeaderRow(x.HaId, x.HaDate, x.MaId, x.Ma.MaName, x.EmId, x.Em.EmName,
-                x.HaFlag, x.HaHidden, x.THattyuDetails.Count()))
+                x.HaFlag, x.HaHidden, x.THattyuDetails.Count(), x.WaWarehouseFlag, x.TWarehousings.Any(),
+                x.TWarehousings.Any(receipt => receipt.WaFlag == ActiveFlag && receipt.WaShelfFlag == WarehousingService.UnconfirmedState)))
             .FirstOrDefault();
         if (header == null) return null;
 
@@ -290,6 +321,9 @@ public static class PurchaseOrderService
             header.EmployeeId, header.EmployeeName, header.ManagementFlag, header.HiddenReason,
             header.ProductLineCount, lines.Sum(x => x.OrderedQuantity), lines.Sum(x => x.ReceivedQuantity))
         {
+            ConfirmationState = header.ConfirmationState,
+            HasRelatedReceipt = header.HasRelatedReceipt,
+            HasPendingReceipt = header.HasPendingReceipt,
             RecordedProgress = receivedByProduct.Keys.Except(lines.Select(x => x.ProductId)).Any() ? PurchaseReceiptStatus.Unknown
                 : PurchaseProgress.Classify(lines.Select(x => (x.OrderedQuantity, x.ReceivedQuantity)).ToArray(), header.ProductLineCount),
             RecordedRemaining = lines.Sum(x => x.RemainingQuantity)
@@ -378,21 +412,14 @@ public static class PurchaseOrderService
             if (actor is not { IsAllowedPurchaser: true })
                 return Denied("発注を登録する権限がありません。管理者または物流担当としてログインしてください。");
 
-            var maker = db.MMakers.FirstOrDefault(x => x.MaId == makerId && x.MaFlag == ActiveFlag);
-            if (maker == null) return Denied("選択したメーカーは存在しないか、現在利用できません。");
-            var productIds = lines.Select(x => x.ProductId).ToArray();
-            var eligibleProductIds = db.MProducts.AsNoTracking()
-                .Where(x => productIds.Contains(x.PrId) && x.PrFlag == ActiveFlag && x.MaId == makerId && x.Ma.MaFlag == ActiveFlag)
-                .Select(x => x.PrId).ToHashSet();
-            if (eligibleProductIds.Count != productIds.Length)
-                return Denied("選択した商品とメーカーの組み合わせが無効です。商品を再選択してください。");
+            if (ValidateCatalogMatch(db, makerId, lines) is { } error) return Denied(error);
 
             var order = new THattyu
             {
                 MaId = makerId,
                 EmId = actor.EmployeeId,
                 HaDate = orderDate!.Value.Date,
-                WaWarehouseFlag = 0,
+                WaWarehouseFlag = RegisteredState,
                 HaFlag = ActiveFlag,
                 HaHidden = null,
                 THattyuDetails = lines.Select(x => new THattyuDetail
@@ -404,18 +431,64 @@ public static class PurchaseOrderService
             db.THattyus.Add(order);
             db.SaveChanges();
             transaction.Commit();
-            return new(true, order.HaId, $"発注 {FormatCode(order.HaId)} を登録しました。入庫・在庫数は変更していません。");
+            return new(true, order.HaId, $"発注 {FormatCode(order.HaId)} を登録しました。入庫管理に渡すには、発注詳細から発注を確定してください。");
         }
         finally { Volatile.Write(ref registrationInProgress, 0); }
     }
 
+    public static PurchaseOperationResult Confirm(int actorId, int orderId)
+    {
+        if (!CanRegister || AppSession.Employee?.EmId != actorId)
+            return Denied("発注を確定する権限がありません。");
+
+        using var db = new SalesManagementContext();
+        using var transaction = db.Database.BeginTransaction(IsolationLevel.Serializable);
+        if (WarehouseActorResolver.Resolve(db, actorId) == null)
+            return Denied("発注を確定する権限を確認できません。ログイン状態を確認してください。");
+
+        var order = FindForUpdate(db, orderId);
+        if (order is not { HaFlag: ActiveFlag } || !IsUnconfirmedState(order.WaWarehouseFlag)
+            || db.TWarehousings.Any(receipt => receipt.HaId == orderId))
+            return Denied("表示中の発注未確定データを確認してください。関連入庫がある発注は確定できません。");
+
+        var lines = db.THattyuDetails.AsNoTracking().Where(line => line.HaId == orderId)
+            .Select(line => new PurchaseLineInput(line.PrId, line.HaQuantity)).ToList();
+        if ((ValidateRegistration(order.MaId, order.HaDate, lines) ?? ValidateCatalogMatch(db, order.MaId, lines)) is { } error)
+            return Denied(error);
+
+        order.WaWarehouseFlag = ConfirmedState;
+        db.SaveChanges();
+        transaction.Commit();
+        return new(true, order.HaId, $"発注 {FormatCode(order.HaId)} を確定しました。入庫管理で実際の入庫数量を確認してください。");
+    }
+
+    internal static THattyu? FindForUpdate(SalesManagementContext db, int orderId) =>
+        db.THattyus.FromSqlInterpolated($"SELECT * FROM dbo.T_Hattyu WITH (UPDLOCK, HOLDLOCK) WHERE HaID = {orderId}")
+            .SingleOrDefault();
+
+    internal static bool IsUnconfirmedState(int? state) => state is LegacyRegisteredState or RegisteredState;
+
+    internal static IQueryable<THattyu> AwaitingReceipt(SalesManagementContext db) =>
+        db.THattyus.AsNoTracking().Where(order => order.HaFlag == ActiveFlag
+            && order.WaWarehouseFlag == ConfirmedState && !order.TWarehousings.Any());
+
     public static string FormatCode(int id) => $"PO-{id:000000}";
+
+    private static string? ValidateCatalogMatch(SalesManagementContext db, int makerId, IReadOnlyList<PurchaseLineInput> lines)
+    {
+        if (!db.MMakers.Any(x => x.MaId == makerId && x.MaFlag == ActiveFlag))
+            return "選択したメーカーは存在しないか、現在利用できません。";
+        var productIds = lines.Select(x => x.ProductId).ToArray();
+        var storedProducts = db.MProducts.AsNoTracking().Where(x => productIds.Contains(x.PrId))
+            .Select(x => new { x.MaId, x.PrFlag }).ToList();
+        if (storedProducts.Any(x => x.MaId != makerId))
+            return "選択した仕入先と商品のメーカーが一致しません。商品または仕入先を確認してください。";
+        return storedProducts.Count != productIds.Length || storedProducts.Any(x => x.PrFlag != ActiveFlag)
+            ? "選択した商品は存在しないか、現在利用できません。商品を再選択してください。" : null;
+    }
 
     private static IReadOnlyList<PurchaseProductOption> LoadProductOptions(SalesManagementContext db)
     {
-        var stocks = db.TStocks.AsNoTracking().Where(x => x.StFlag == ActiveFlag)
-            .GroupBy(x => x.PrId).Select(g => new { ProductId = g.Key, Quantity = g.Sum(x => x.StQuantity) })
-            .ToDictionary(x => x.ProductId, x => x.Quantity);
         var orderedByLine = db.THattyuDetails.AsNoTracking()
             .Where(x => x.Ha.HaFlag == ActiveFlag || x.Ha.HaFlag == HiddenFlag)
             .GroupBy(x => new { x.HaId, x.PrId })
@@ -430,12 +503,14 @@ public static class PurchaseOrderService
             .GroupBy(x => x.ProductId)
             .ToDictionary(g => g.Key, g => g.Sum(line => Math.Max(0,
                 line.Quantity - receivedByLine.GetValueOrDefault((line.OrderId, line.ProductId)))));
-        return db.MProducts.AsNoTracking().Where(x => x.PrFlag == ActiveFlag && x.Ma.MaFlag == ActiveFlag)
+        var eligibleProducts = db.MProducts.AsNoTracking().Where(x => x.PrFlag == ActiveFlag && x.Ma.MaFlag == ActiveFlag)
             .OrderBy(x => x.Ma.MaName).ThenBy(x => x.PrName)
             .Select(x => new { x.PrId, x.MaId, Code = x.PrJcode ?? "", x.PrName, MakerName = x.Ma.MaName, x.PrSafetyStock })
-            .ToList()
-            .Select(x => new PurchaseProductOption(x.PrId, x.MaId, x.Code, x.PrName, x.MakerName,
-                stocks.GetValueOrDefault(x.PrId), x.PrSafetyStock, outstandingByProduct.GetValueOrDefault(x.PrId))).ToArray();
+            .ToList();
+        var stocks = InventoryService.ReadCurrentStock(db, eligibleProducts.Select(x => x.PrId).ToArray());
+        return eligibleProducts.Select(x => new PurchaseProductOption(x.PrId, x.MaId, x.Code, x.PrName, x.MakerName,
+            stocks[x.PrId].Quantity, x.PrSafetyStock, outstandingByProduct.GetValueOrDefault(x.PrId))
+            { StockState = stocks[x.PrId].State }).ToArray();
     }
 
     private static PurchaseActor? ResolveActor(SalesManagementContext db, int actorId)
@@ -463,7 +538,8 @@ public static class PurchaseOrderService
     private static PurchaseOperationResult Denied(string message) => new(false, null, message);
 
     private sealed record HeaderRow(int Id, DateTime OrderDate, int MakerId, string MakerName,
-        int EmployeeId, string EmployeeName, int ManagementFlag, string? HiddenReason, int ProductLineCount);
+        int EmployeeId, string EmployeeName, int ManagementFlag, string? HiddenReason, int ProductLineCount,
+        int? ConfirmationState, bool HasRelatedReceipt, bool HasPendingReceipt);
     private sealed record LineAggregate(int OrderId, int ProductId, int Quantity);
     private sealed record DetailLineRow(int DetailId, int ProductId, string ProductCode, string ProductName,
         int OrderedQuantity, int CurrentStock, int SafetyStock);

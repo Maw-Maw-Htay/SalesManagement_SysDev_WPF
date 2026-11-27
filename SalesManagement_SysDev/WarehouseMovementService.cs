@@ -29,11 +29,12 @@ public sealed record WarehouseMovementLineInput(int ProductId, int Quantity);
 public sealed record WarehouseMovementLine(int ProductId, string ProductCode, string ProductName, int Quantity,
     int? CurrentStock)
 {
+    public bool IsAwaitingQuantity { get; init; }
     public int? SafetyStock { get; init; }
     public string SafetyStockText => SafetyStock is >= 0 ? SafetyStock.Value.ToString("N0") : "未記録";
     public string StockConditionText => new InventoryRowData(null, ProductId, ProductCode, ProductName, "", "", "", "",
         default, CurrentStock, SafetyStock, 0).ConditionLabel;
-    public string QuantityText => Quantity.ToString("N0");
+    public string QuantityText => IsAwaitingQuantity ? "未入力" : Quantity.ToString("N0");
     public string CurrentStockText => CurrentStock?.ToString("N0") ?? "要確認";
     public string InventoryImpactText => CurrentStock.HasValue
         ? $"{CurrentStock.Value:N0} → {(long)CurrentStock.Value + Quantity:N0}"
@@ -45,6 +46,8 @@ public sealed record WarehouseMovementRecord(WarehouseMovementKind Kind, int Id,
     int LineCount, int Quantity, string ProductSearchText)
 {
     public DateTime? PurchaseDate { get; init; }
+    public bool IsAwaitingReceipt { get; init; }
+    public long? OrderedQuantity { get; init; }
     public IReadOnlyList<ReceiptProductSearch> ReceiptProducts { get; init; } = [];
     public int? RelatedOrderId { get; init; }
     public int? CustomerId { get; init; }
@@ -58,7 +61,8 @@ public sealed record WarehouseMovementRecord(WarehouseMovementKind Kind, int Id,
         OutboundArrivalStatus.Review => "要確認",
         _ => "未連携"
     };
-    public string Code => Kind == WarehouseMovementKind.Inbound ? $"IN-{Id:000000}" : $"OUT-{Id:000000}";
+    public string Code => IsAwaitingReceipt ? "未採番"
+        : Kind == WarehouseMovementKind.Inbound ? $"IN-{Id:000000}" : $"OUT-{Id:000000}";
     public string ReferenceCode => Kind == WarehouseMovementKind.Inbound
         ? $"PO-{ReferenceId:000000}" : RelatedOrderId.HasValue ? RelatedOrderCode : $"ORD-{ReferenceId:000000}";
     public string PartnerColumnHeader => Kind == WarehouseMovementKind.Inbound ? "メーカー" : "出庫先営業所";
@@ -66,7 +70,7 @@ public sealed record WarehouseMovementRecord(WarehouseMovementKind Kind, int Id,
     public string MovementDateLabel => Kind == WarehouseMovementKind.Inbound ? "入庫日" : "出庫日";
     public string MovementDateText => MovementDate?.ToString("yyyy/MM/dd") ?? "未設定";
     public string QuantityLabel => Kind == WarehouseMovementKind.Inbound ? "入庫数量" : "出庫数量";
-    public string BusinessStatusLabel => (Kind, BusinessState) switch
+    public string BusinessStatusLabel => IsAwaitingReceipt ? "入庫待ち" : (Kind, BusinessState) switch
     {
         (WarehouseMovementKind.Inbound, WarehousingService.ConfirmedState) => "確定済み",
         (WarehouseMovementKind.Outbound, OutboundService.ConfirmedState) => "確定済み",
@@ -187,6 +191,19 @@ public static class WarehouseMovementRules
             && expectedByProduct.All(x => actualByProduct.TryGetValue(x.Key, out var quantity) && quantity == x.Value);
     }
 
+    public static string? ValidateFullReceipt(DateTime? receivedOn, IReadOnlyCollection<WarehouseMovementLineInput> ordered,
+        IReadOnlyCollection<WarehouseMovementLineInput> actual)
+    {
+        if (receivedOn is not { } date || date == default || date.Date > DateTime.Today)
+            return "実際の入庫日を入力してください。";
+        if (ValidateLines(ordered) != null) return "発注明細の数量を確認してください。";
+        if (ValidateLines(actual) != null) return "全明細の実入庫数量を入力してください。";
+        if (actual.Count != ordered.Count || actual.Select(line => line.ProductId).Distinct().Count() != actual.Count
+            || !LinesMatch(ordered, actual))
+            return "すべての商品の実入庫数量を発注数量と一致させてください。";
+        return null;
+    }
+
     public static string? ValidateUniqueSourceCount(int count) => count switch
     {
         1 => null,
@@ -230,6 +247,8 @@ public static class WarehousingService
                 EmployeeName = x.Em == null ? "未設定" : x.Em.EmName,
                 MakerName = x.Ha.Ma.MaName,
                 PurchaseDate = (DateTime?)(actor.IsAdministrator || x.Ha.HaFlag == ActiveFlag ? x.Ha.HaDate : null),
+                OrderedQuantity = actor.IsAdministrator || x.Ha.HaFlag == ActiveFlag
+                    ? x.Ha.THattyuDetails.Sum(d => (long?)d.HaQuantity) ?? 0L : (long?)null,
                 LineCount = x.TWarehousingDetails.Count(),
                 Quantity = x.TWarehousingDetails.Sum(d => (int?)d.WaQuantity) ?? 0
             }).ToList();
@@ -240,15 +259,26 @@ public static class WarehousingService
                 .Select(x => new { x.WaId, x.PrId, Code = x.Pr.PrJcode ?? "", x.Pr.PrName })
                 .ToList().GroupBy(x => x.WaId)
                 .ToDictionary(x => x.Key, x => x.Select(y => new ReceiptProductSearch(y.PrId, y.Code, y.PrName)).ToArray());
-        var records = headers.Select(x =>
+        var receipts = headers.Select(x =>
         {
             var products = productsByReceipt.GetValueOrDefault(x.WaId) ?? [];
             return new WarehouseMovementRecord(WarehouseMovementKind.Inbound,
                 x.WaId, x.HaId, x.MakerId, x.MakerName, "倉庫情報なし", null, x.EmId, x.EmployeeName,
                 x.WaDate, x.WaShelfFlag, x.WaFlag, x.WaHidden, x.LineCount, x.Quantity,
                 string.Join(" ", products.Select(p => $"P-{p.Id:0000} {p.Code} {p.Name}")))
-            { PurchaseDate = x.PurchaseDate, ReceiptProducts = products };
-        }).ToArray();
+            { PurchaseDate = x.PurchaseDate, OrderedQuantity = x.OrderedQuantity, ReceiptProducts = products };
+        });
+        var awaiting = PurchaseOrderService.AwaitingReceipt(db)
+            .OrderByDescending(order => order.HaDate).ThenByDescending(order => order.HaId)
+            .Select(order => new
+            {
+                order.HaId, order.HaDate, order.MaId, order.Ma.MaName,
+                OrderedQuantity = order.THattyuDetails.Sum(line => (long?)line.HaQuantity) ?? 0L,
+                Products = order.THattyuDetails.OrderBy(line => line.HaDetailId)
+                    .Select(line => new ReceiptProductSearch(line.PrId, line.Pr.PrJcode ?? "", line.Pr.PrName)).ToList()
+            }).ToList();
+        var records = awaiting.Select(order => AwaitingReceiptRecord(order.HaId, order.HaDate, order.MaId,
+            order.MaName, order.OrderedQuantity, order.Products)).Concat(receipts).ToArray();
         var makers = db.MMakers.AsNoTracking().Where(x => x.MaFlag == ActiveFlag).OrderBy(x => x.MaName)
             .Select(x => new WarehouseLookupOption(x.MaId, x.MaName)).ToList();
         var employees = db.MEmployees.AsNoTracking().Where(x => x.EmFlag == ActiveFlag && x.Po.PoFlag == ActiveFlag)
@@ -257,6 +287,35 @@ public static class WarehousingService
     }
 
     public static WarehouseMovementDetail? LoadDetail(int id) => LoadDetail(id, includePurchase: true);
+
+    internal static WarehouseMovementDetail? LoadAwaitingReceipt(int orderId)
+    {
+        WarehouseActorResolver.EnsureCanUse();
+        using var db = new SalesManagementContext();
+        WarehouseActorResolver.EnsureCanUse(WarehouseActorResolver.Resolve(db, AppSession.Employee!.EmId));
+        if (!PurchaseOrderService.AwaitingReceipt(db).Any(order => order.HaId == orderId)) return null;
+
+        var purchase = PurchaseOrderService.LoadDetail(orderId);
+        if (purchase is not { Order: { IsConfirmedForReceiving: true, ManagementFlag: ActiveFlag }, Receipts.Count: 0 })
+            return null;
+
+        var order = purchase.Order;
+        var products = purchase.Lines.Select(line =>
+            new ReceiptProductSearch(line.ProductId, line.ProductCode, line.ProductName)).ToArray();
+        var record = AwaitingReceiptRecord(order.Id, order.OrderDate, order.MakerId, order.MakerName, order.OrderedQuantity, products);
+        var lines = purchase.Lines.Select(line =>
+            new WarehouseMovementLine(line.ProductId, line.ProductCode, line.ProductName, 0, null) { IsAwaitingQuantity = true }).ToArray();
+        return new(record, lines) { RelatedPurchase = purchase };
+    }
+
+    private static WarehouseMovementRecord AwaitingReceiptRecord(int orderId, DateTime orderDate, int makerId,
+        string makerName, long orderedQuantity, IReadOnlyList<ReceiptProductSearch> products) =>
+        new(WarehouseMovementKind.Inbound, 0, orderId, makerId, makerName, "倉庫情報なし", null, null, "未設定",
+            null, UnconfirmedState, ActiveFlag, null, products.Count, 0,
+            string.Join(" ", products.Select(product => $"P-{product.Id:0000} {product.Code} {product.Name}")))
+        {
+            IsAwaitingReceipt = true, PurchaseDate = orderDate, OrderedQuantity = orderedQuantity, ReceiptProducts = products
+        };
 
     internal static WarehouseMovementDetail? LoadDetail(int id, bool includePurchase)
     {
@@ -311,6 +370,54 @@ public static class WarehousingService
         return ConfirmShelfInContext(db, actorId, warehousingId, expected);
     }
 
+    public static WarehouseMovementOperationResult ConfirmPurchaseReceipt(int actorId, int orderId, DateTime? receivedOn,
+        IReadOnlyCollection<WarehouseMovementLineInput> actual)
+    {
+        if (!CanConfirm || AppSession.Employee?.EmId != actorId)
+            return Denied("入庫を確定する権限がありません。");
+        if (orderId <= 0) return Denied("関連する発注を確認してください。");
+
+        try
+        {
+            using var db = new SalesManagementContext();
+            using var transaction = db.Database.BeginTransaction(IsolationLevel.Serializable);
+            var actor = WarehouseActorResolver.Resolve(db, actorId);
+            if (actor == null) return Denied("入庫を確定する権限を確認できません。");
+
+            var purchase = PurchaseOrderService.FindForUpdate(db, orderId);
+            if (purchase is not { HaFlag: ActiveFlag, WaWarehouseFlag: PurchaseOrderService.ConfirmedState })
+                return Denied("表示中の確定済み発注だけを入庫できます。");
+            if (db.TWarehousings.Any(receipt => receipt.HaId == orderId))
+                return Denied("この発注にはすでに関連入庫があります。入庫一覧を再読込してください。");
+
+            var ordered = db.THattyuDetails.AsNoTracking().Where(line => line.HaId == orderId)
+                .Select(line => new WarehouseMovementLineInput(line.PrId, line.HaQuantity)).ToList();
+            if (WarehouseMovementRules.ValidateFullReceipt(receivedOn, ordered, actual) is { } validation)
+                return Denied(validation);
+            if (IncreaseStock(db, purchase, actual) is { } stockError) return Denied(stockError);
+
+            var receipt = new TWarehousing
+            {
+                HaId = purchase.HaId,
+                EmId = actor.EmployeeId,
+                WaDate = receivedOn!.Value.Date,
+                WaShelfFlag = ConfirmedState,
+                WaFlag = ActiveFlag,
+                TWarehousingDetails = actual.Select(line =>
+                    new TWarehousingDetail { PrId = line.ProductId, WaQuantity = line.Quantity }).ToList()
+            };
+            db.TWarehousings.Add(receipt);
+            db.SaveChanges();
+            transaction.Commit();
+            return new(true, $"入庫 IN-{receipt.WaId:000000} を確定し、商品在庫を更新しました。", receipt.WaId, purchase.HaId);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Purchase receipt confirmation failed: {ex}");
+            return Denied("入庫と在庫更新を保存できませんでした。再読込してからお試しください。");
+        }
+    }
+
     internal static WarehouseMovementOperationResult ConfirmShelfInContext(SalesManagementContext db, int actorId, int warehousingId,
         IReadOnlyCollection<WarehouseMovementLineInput>? expected)
     {
@@ -342,35 +449,7 @@ public static class WarehousingService
             if (incoming.Any(x => !orderedProductIds.Contains(x.ProductId)))
                 return Denied("入庫明細に発注明細にない商品が含まれています。");
 
-            var productIds = incoming.Select(x => x.ProductId).Distinct().Order().ToArray();
-            var products = db.MProducts.Where(x => productIds.Contains(x.PrId) && x.PrFlag == ActiveFlag
-                && x.MaId == purchase.MaId && x.Ma.MaFlag == ActiveFlag).ToDictionary(x => x.PrId);
-            if (products.Count != productIds.Length)
-                return Denied("商品またはメーカー情報を確認できません。");
-
-            var quantities = incoming.GroupBy(x => x.ProductId)
-                .ToDictionary(x => x.Key, x => x.Sum(line => (long)line.Quantity));
-            foreach (var productId in productIds)
-            {
-                var stockRows = db.TStocks.FromSqlInterpolated(
-                    $"SELECT * FROM dbo.T_Stock WITH (UPDLOCK, HOLDLOCK) WHERE PrID = {productId}").ToList();
-                var activeStocks = stockRows.Where(x => x.StFlag == ActiveFlag).ToArray();
-                if (activeStocks.Length == 0 && stockRows.Count == 0)
-                {
-                    BusinessService.EnsureStock(products[productId], db);
-                    db.SaveChanges();
-                    stockRows = db.TStocks.FromSqlInterpolated(
-                        $"SELECT * FROM dbo.T_Stock WITH (UPDLOCK, HOLDLOCK) WHERE PrID = {productId}").ToList();
-                    activeStocks = stockRows.Where(x => x.StFlag == ActiveFlag).ToArray();
-                }
-                if (activeStocks.Length != 1)
-                    return Denied("商品在庫が未登録または重複しています。データを確認してください。");
-                var stock = activeStocks[0];
-                var nextQuantity = (long)stock.StQuantity + quantities[productId];
-                if (stock.StQuantity < 0 || nextQuantity > int.MaxValue)
-                    return Denied("在庫数量が保存可能な範囲を超えるため棚入れできません。");
-                stock.StQuantity = (int)nextQuantity;
-            }
+            if (IncreaseStock(db, purchase, incoming) is { } stockError) return Denied(stockError);
 
             receipt.WaShelfFlag = ConfirmedState;
             db.SaveChanges();
@@ -383,6 +462,62 @@ public static class WarehousingService
             System.Diagnostics.Debug.WriteLine($"Warehousing confirmation failed: {ex}");
             return Denied("棚入れと在庫更新を保存できませんでした。データベースの状態を確認してください。");
         }
+    }
+
+    private static string? IncreaseStock(SalesManagementContext db, THattyu purchase,
+        IReadOnlyCollection<WarehouseMovementLineInput> incoming)
+    {
+        var quantities = incoming.GroupBy(line => line.ProductId)
+            .ToDictionary(group => group.Key, group => group.Sum(line => (long)line.Quantity));
+        var productIds = quantities.Keys.Order().ToArray();
+        var products = db.MProducts.AsNoTracking().Where(product => productIds.Contains(product.PrId))
+            .ToDictionary(product => product.PrId);
+        var makerIds = products.Values.Select(product => product.MaId).Append(purchase.MaId).Distinct().ToArray();
+        var makers = db.MMakers.AsNoTracking().Where(maker => makerIds.Contains(maker.MaId))
+            .Select(maker => new { maker.MaId, maker.MaName, maker.MaFlag }).ToDictionary(maker => maker.MaId);
+
+        foreach (var productId in productIds)
+        {
+            var code = $"P-{productId:0000}";
+            if (!products.TryGetValue(productId, out var product))
+                return $"商品 {code} が商品マスタに見つかりません。入庫明細の商品を確認してください。";
+
+            var productLabel = $"商品 {code}「{product.PrName}」";
+            if (product.PrFlag != ActiveFlag)
+                return $"{productLabel} は有効ではありません。商品マスタの状態を確認してください。";
+            if (!makers.TryGetValue(product.MaId, out var maker))
+                return $"{productLabel} のメーカー（ID {product.MaId}）がメーカー情報に見つかりません。";
+
+            var orderCode = PurchaseOrderService.FormatCode(purchase.HaId);
+            if (!makers.TryGetValue(purchase.MaId, out var supplier))
+                return $"{productLabel} の関連発注 {orderCode} の仕入先（メーカーID {purchase.MaId}）が見つかりません。";
+            if (product.MaId != purchase.MaId)
+                return $"{productLabel} のメーカー {maker.MaName}（ID {maker.MaId}）が、発注 {orderCode} の仕入先 {supplier.MaName}（ID {supplier.MaId}）と一致しません。発注書と入庫明細を確認してください。";
+            if (maker.MaFlag != ActiveFlag)
+                return $"{productLabel} のメーカー {maker.MaName}（ID {maker.MaId}）は有効ではありません。メーカー情報の状態を確認してください。";
+        }
+
+        foreach (var productId in productIds)
+        {
+            var stocks = db.TStocks.FromSqlInterpolated(
+                $"SELECT * FROM dbo.T_Stock WITH (UPDLOCK, HOLDLOCK) WHERE PrID = {productId}").ToList();
+            if (stocks.Count == 0)
+            {
+                BusinessService.EnsureStock(products[productId], db);
+                db.SaveChanges();
+                stocks = db.TStocks.FromSqlInterpolated(
+                    $"SELECT * FROM dbo.T_Stock WITH (UPDLOCK, HOLDLOCK) WHERE PrID = {productId}").ToList();
+            }
+            var activeStocks = stocks.Where(stock => stock.StFlag == ActiveFlag).ToArray();
+            if (activeStocks.Length != 1)
+                return "商品在庫が未登録または重複しています。データを確認してください。";
+            var stock = activeStocks[0];
+            var nextQuantity = (long)stock.StQuantity + quantities[productId];
+            if (stock.StQuantity < 0 || nextQuantity > int.MaxValue)
+                return "在庫数量が保存可能な範囲を超えるため棚入れできません。";
+            stock.StQuantity = (int)nextQuantity;
+        }
+        return null;
     }
 
     public static WarehouseMovementOperationResult Hide(int actorId, int warehousingId, string? reason)

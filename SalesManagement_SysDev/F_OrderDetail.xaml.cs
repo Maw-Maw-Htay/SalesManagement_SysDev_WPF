@@ -23,8 +23,6 @@ public partial class F_OrderDetail : Window
         Owner = owner;
         viewModel = new OrderDetailViewModel(data, EditOrder, ConfirmOrder, HideOrder, PrintSlip, Close, readOnly);
         DataContext = viewModel;
-        if (readOnly)
-            ConfirmOrderButton.Visibility = EditOrderButton.Visibility = HideOrderButton.Visibility = PrintOrderButton.Visibility = Visibility.Collapsed;
         Title = $"受注詳細 - ORD-{data.OrderId:000000}";
         _ = new RegistrationWindowPlacement(this, preferredWidth: 900, preferredHeight: 640, minimumWidth: 760, minimumHeight: 460);
         Loaded += async (_, _) =>
@@ -42,7 +40,7 @@ public partial class F_OrderDetail : Window
 
     public void OpenUpdateEditor() => EditOrder();
 
-    private void EditOrder()
+    private async void EditOrder()
     {
         if (readOnly) return;
         if (!AppSession.CanManageOrders || AppSession.Employee == null)
@@ -57,7 +55,7 @@ public partial class F_OrderDetail : Window
         }
         if ((Owner ?? this) is F_Main shell)
         {
-            if (shell.ShowOrderUpdate(data) && IsVisible) Close();
+            if (await shell.ShowOrderUpdateAsync(data) && IsVisible) Close();
             return;
         }
         var dialog = new F_OrderUpdate(data) { Owner = Owner ?? this };
