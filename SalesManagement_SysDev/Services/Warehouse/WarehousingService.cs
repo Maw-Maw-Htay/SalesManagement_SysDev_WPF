@@ -163,7 +163,8 @@ public static class WarehousingService
                 return Denied("入庫明細に発注明細にない商品が含まれています。");
 
             var productIds = incoming.Select(x => x.ProductId).Distinct().Order().ToArray();
-            var products = db.MProducts.Where(x => productIds.Contains(x.PrId) && x.PrFlag == ActiveFlag
+            var products = db.MProducts.Where(x => productIds.Contains(x.PrId)
+                && (x.PrFlag == ActiveFlag || x.PrFlag == HiddenFlag)
                 && x.MaId == purchase.MaId && x.Ma.MaFlag == ActiveFlag).ToDictionary(x => x.PrId);
             if (products.Count != productIds.Length)
                 return Denied("商品またはメーカー情報を確認できません。");

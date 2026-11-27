@@ -387,12 +387,38 @@ internal static class Program
                 db.SaveChanges();
             }
 
+            int inboundId;
+            using (var db = TestContext())
+            {
+                var product = db.MProducts.Single();
+                var receipt = new TWarehousing
+                {
+                    Ha = new THattyu
+                    {
+                        MaId = product.MaId,
+                        EmId = 1,
+                        RegisteredOfficeId = customerOffice,
+                        HaDate = DateTime.Today,
+                        WaWarehouseFlag = 1,
+                        THattyuDetails = [new THattyuDetail { PrId = product.PrId, HaQuantity = 5 }]
+                    },
+                    WaShelfFlag = 0,
+                    TWarehousingDetails = [new TWarehousingDetail { PrId = product.PrId, WaQuantity = 5 }]
+                };
+                db.TWarehousings.Add(receipt);
+                db.SaveChanges();
+                inboundId = receipt.WaId;
+            }
+
             int outboundId;
             using (var db = TestContext())
             {
                 var productId = db.MProducts.Single().PrId;
                 var hidden = ProductService.Hide(db, 1, productId, "新規受注での使用を停止");
-                Check(hidden.Succeeded, "hide a product after order acceptance: " + hidden.Message);
+                Check(hidden.Succeeded, "hide a product after order acceptance and warehouse arrival: " + hidden.Message);
+                var customerId = db.MClients.Single().ClId;
+                var hiddenCustomer = CustomerService.Hide(db, 1, customerId, "新規受注での使用を停止");
+                Check(hiddenCustomer.Succeeded, "hide a customer after order acceptance: " + hiddenCustomer.Message);
             }
             using (var db = TestContext())
             {
@@ -406,7 +432,20 @@ internal static class Program
                 var confirmed = OutboundService.ConfirmInContext(db, 1, outboundId);
                 Check(confirmed.Succeeded && db.TStocks.Single().StQuantity == 48
                     && db.TArrivals.Count(x => x.OrId == orderId) == 1,
-                    "hidden product completes outbound without deducting stock twice: " + confirmed.Message);
+                    "hidden product and customer complete outbound without deducting stock twice: " + confirmed.Message);
+            }
+            using (var db = TestContext())
+            {
+                var received = WarehousingService.ConfirmShelfInContext(db, 1, inboundId, expected: null);
+                Check(received.Succeeded && db.TStocks.Single().StQuantity == 53
+                    && db.TWarehousings.Single(x => x.WaId == inboundId).WaShelfFlag == 1,
+                    "hidden product is added to stock when the arrived receipt is shelved: " + received.Message);
+            }
+            using (var db = TestContext())
+            {
+                Check(!WarehousingService.ConfirmShelfInContext(db, 1, inboundId, expected: null).Succeeded
+                    && db.TStocks.Single().StQuantity == 53,
+                    "repeating shelf confirmation does not add stock again");
             }
         }
         finally
