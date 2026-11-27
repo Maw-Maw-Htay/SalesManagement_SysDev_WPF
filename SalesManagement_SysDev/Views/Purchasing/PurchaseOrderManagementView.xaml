@@ -205,7 +205,7 @@
                     <WrapPanel DockPanel.Dock="Right" HorizontalAlignment="Right">
                         <TextBlock Text="{Binding SelectionText}" Foreground="{StaticResource OrderSecondaryText}" VerticalAlignment="Center" FontSize="12" />
                         <Button Content="旧発注の営業所を設定" Click="AssignOffice_Click" Style="{StaticResource PurchaseButton}" Visibility="{Binding CanAssignOffice, Converter={StaticResource OrderBooleanVisibility}}" Height="28" />
-                        <Button Content="発注確定" Click="ConfirmSelected_Click" Style="{StaticResource PurchaseButton}" IsEnabled="{Binding CanHide}" Height="28" />
+                        <Button Content="発注確定" Click="ConfirmSelected_Click" Style="{StaticResource PurchaseButton}" IsEnabled="{Binding CanConfirmSelected}" Height="28" />
                         <Button Content="非表示" Click="HideSelected_Click" Style="{StaticResource PurchaseButton}" IsEnabled="{Binding CanHide}" Height="28" />
                     </WrapPanel>
                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">

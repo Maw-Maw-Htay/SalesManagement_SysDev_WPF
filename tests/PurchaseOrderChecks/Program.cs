@@ -152,7 +152,7 @@ internal static class Program
     {
         AppSession.Employee = new MEmployee { EmId = 1, EmFlag = 0, Po = new MPosition { PoName = "管理者" }, EmName = "検証担当者" };
         var app = CreateApplication();
-        var orders = Enumerable.Range(1, 51).Select(i => Order(i, 0, 6, (i % 3) * 3) with { MakerName = "仕入先テスト" }).ToArray();
+        var orders = Enumerable.Range(1, 51).Select(i => Order(i, 0, 6, (i % 3) * 3) with { MakerName = "仕入先テスト", HasLinkedReceipt = i == 3 }).ToArray();
         var model = (PurchaseOrderManagementViewModel)New(typeof(PurchaseOrderManagementViewModel), false);
         SetField(model, "source", orders);
         var view = (PurchaseOrderManagementView)New(typeof(PurchaseOrderManagementView), model);
@@ -166,6 +166,17 @@ internal static class Program
             Check(grid.Columns.Count == 10 && model.Rows.Count == 20 && model.PageCount == 3, "Purchase list has ten columns and defaults to 20 rows per page");
             var scroll = Descendants<ScrollViewer>(grid).First();
             Check(scroll.ScrollableHeight > 0 && scroll.ScrollableWidth < 2, "Purchase list scrolls vertically inside its card");
+            var confirmButton = Descendants<Button>(view).Single(x => Equals(x.Content, "発注確定"));
+            model.SelectOnly(model.Rows.First(x => x.Data.WarehouseFlag == 0 && !x.Data.HasLinkedReceipt));
+            Pump();
+            Check(confirmButton.IsEnabled, "pending purchase can be confirmed");
+            model.SelectOnly(model.Rows.First(x => x.Data.WarehouseFlag == 1));
+            Pump();
+            Check(!confirmButton.IsEnabled && model.CanHide, "confirmed purchase can be hidden but cannot be confirmed again");
+            model.SelectOnly(model.Rows.Single(x => x.Data.HasLinkedReceipt));
+            Pump();
+            Check(!confirmButton.IsEnabled, "legacy purchase with a linked receipt cannot be confirmed again");
+            model.ClearSelection();
             model.GoToPage(2);
             Check(model.Rows[0].Data.Id == 21 && model.Page == 2, "Page two starts at the correct purchase order");
             var tab = (MenuItem)view.FindName("PartialTab");

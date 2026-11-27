@@ -108,8 +108,11 @@ public sealed class PurchaseOrderManagementViewModel : ViewModelBase, IDisposabl
     public bool CanReload => !IsLoading && !IsBusy;
     public bool CanRegister => PurchaseOrderService.CanRegister && !IsLoading && !IsBusy;
     public bool CanAssignOffice => PurchaseOrderService.CanAssignOffice;
-    public bool CanHide => PurchaseOrderService.CanHide && !IsLoading && !IsBusy
-        && !searchPending && ActiveTab != PurchaseManagementTab.Hidden && SelectedRow is { IsSelectable: true };
+    private bool CanOperateOnSelectedOrder => !IsLoading && !IsBusy && !searchPending
+        && ActiveTab != PurchaseManagementTab.Hidden && SelectedRow is { IsSelectable: true };
+    public bool CanHide => PurchaseOrderService.CanHide && CanOperateOnSelectedOrder;
+    public bool CanConfirmSelected => PurchaseOrderService.CanView && CanOperateOnSelectedOrder
+        && SelectedRow?.Data is { WarehouseFlag: 0, HasLinkedReceipt: false };
     public bool CanClearSelection => SelectedRow != null;
     public string SelectionText => SelectedRow == null ? "選択なし" : "選択 1 件";
     public bool CanViewHidden => PurchaseOrderService.CanViewHidden;
@@ -363,7 +366,7 @@ public sealed class PurchaseOrderManagementViewModel : ViewModelBase, IDisposabl
     {
         Notify(nameof(Page)); Notify(nameof(PageCount)); Notify(nameof(PageText));
         Notify(nameof(CanNext)); Notify(nameof(CanPrevious)); Notify(nameof(CanExport));
-        Notify(nameof(CanHide));
+        Notify(nameof(CanHide)); Notify(nameof(CanConfirmSelected));
     }
 
     private async Task ReloadCoreAsync()
@@ -407,18 +410,18 @@ public sealed class PurchaseOrderManagementViewModel : ViewModelBase, IDisposabl
         Notify(nameof(TotalCount)); Notify(nameof(VisibleCount)); Notify(nameof(HiddenCount));
         Notify(nameof(WaitingCount)); Notify(nameof(PartialCount)); Notify(nameof(ReceivedCount));
         Notify(nameof(AllTabText)); Notify(nameof(VisibleTabText)); Notify(nameof(HiddenTabText));
-        Notify(nameof(CountText)); Notify(nameof(CanHide)); NotifyEmptyState();
+        Notify(nameof(CountText)); Notify(nameof(CanHide)); Notify(nameof(CanConfirmSelected)); NotifyEmptyState();
     }
 
     private void NotifyCounts() { Notify(nameof(CountText)); Notify(nameof(IsEmpty)); }
     private void NotifyEmptyState() { Notify(nameof(EmptyTitle)); Notify(nameof(EmptyDescription)); Notify(nameof(ShowEmptyState)); }
     private void NotifySelection()
     {
-        Notify(nameof(SelectedRow)); Notify(nameof(CanHide)); Notify(nameof(CanClearSelection)); Notify(nameof(SelectionText));
+        Notify(nameof(SelectedRow)); Notify(nameof(CanHide)); Notify(nameof(CanConfirmSelected)); Notify(nameof(CanClearSelection)); Notify(nameof(SelectionText));
     }
     private void NotifyActions()
     {
-        Notify(nameof(CanReload)); Notify(nameof(CanRegister)); Notify(nameof(CanHide));
+        Notify(nameof(CanReload)); Notify(nameof(CanRegister)); Notify(nameof(CanHide)); Notify(nameof(CanConfirmSelected));
         NotifyPaging();
     }
 

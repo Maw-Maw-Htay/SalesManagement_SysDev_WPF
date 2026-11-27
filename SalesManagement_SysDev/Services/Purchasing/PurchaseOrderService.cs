@@ -24,6 +24,7 @@ public sealed record PurchaseOrderRecord(
 {
     public string Code => $"PO-{Id:000000}";
     public int? WarehouseFlag { get; init; }
+    public bool HasLinkedReceipt { get; init; }
     public int? RegisteredOfficeId { get; init; }
     public PurchaseReceiptStatus? RecordedProgress { get; init; }
     public int? RecordedRemaining { get; init; }
@@ -186,6 +187,7 @@ public static partial class PurchaseOrderService
     {
         EnsureCanView();
         using var db = new SalesManagementContext();
+        using var transaction = db.Database.BeginTransaction(IsolationLevel.Serializable);
         var actor = ResolveActor(db, AppSession.Employee!.EmId);
         EnsureCanView(actor);
 
@@ -193,7 +195,8 @@ public static partial class PurchaseOrderService
         if (!actor!.IsAdministrator) headerQuery = headerQuery.Where(x => x.HaFlag == ActiveFlag && x.RegisteredOfficeId == actor.OfficeId);
         var headers = headerQuery.Select(x => new HeaderRow(
             x.HaId, x.HaDate, x.MaId, x.Ma.MaName, x.EmId, x.Em.EmName, x.HaFlag, x.HaHidden,
-            x.THattyuDetails.Count(), x.RegisteredOfficeId, x.WaWarehouseFlag)).ToList();
+            x.THattyuDetails.Count(), x.RegisteredOfficeId, x.WaWarehouseFlag,
+                db.TWarehousings.Any(receipt => receipt.HaId == x.HaId))).ToList();
         var orderIds = headers.Select(x => x.Id).ToArray();
 
         var orderedLines = orderIds.Length == 0
@@ -224,6 +227,7 @@ public static partial class PurchaseOrderService
                 header.ProductLineCount, quantities.Sum(x => x.Ordered), quantities.Sum(x => x.Received))
             {
                 WarehouseFlag = header.WarehouseFlag,
+                HasLinkedReceipt = header.HasLinkedReceipt,
                 RegisteredOfficeId = header.RegisteredOfficeId,
                 RecordedProgress = hasUnexpectedProduct ? PurchaseReceiptStatus.Unknown : PurchaseProgress.Classify(quantities, header.ProductLineCount),
                 RecordedRemaining = quantities.Sum(x => Math.Max(0, x.Ordered - x.Received))
@@ -234,6 +238,7 @@ public static partial class PurchaseOrderService
             .OrderBy(x => x.MaName).Select(x => new PurchaseMakerOption(x.MaId, x.MaName)).ToList();
         var employees = db.MEmployees.AsNoTracking().Where(x => x.EmFlag == ActiveFlag)
             .OrderBy(x => x.EmId).Select(x => new PurchaseEmployeeOption(x.EmId, x.EmName)).ToList();
+        transaction.Commit();
         return new(rows, makers, employees, PurchaseProgress.Summarize(rows));
     }
 
@@ -272,12 +277,14 @@ public static partial class PurchaseOrderService
     {
         EnsureCanView();
         using var db = new SalesManagementContext();
+        using var transaction = db.Database.BeginTransaction(IsolationLevel.Serializable);
         var actor = ResolveActor(db, AppSession.Employee!.EmId);
         EnsureCanView(actor);
         var header = db.THattyus.AsNoTracking()
             .Where(x => x.HaId == orderId && (actor!.IsAdministrator || (x.HaFlag == ActiveFlag && x.RegisteredOfficeId == actor.OfficeId)))
             .Select(x => new HeaderRow(x.HaId, x.HaDate, x.MaId, x.Ma.MaName, x.EmId, x.Em.EmName,
-                x.HaFlag, x.HaHidden, x.THattyuDetails.Count(), x.RegisteredOfficeId, x.WaWarehouseFlag))
+                x.HaFlag, x.HaHidden, x.THattyuDetails.Count(), x.RegisteredOfficeId, x.WaWarehouseFlag,
+                db.TWarehousings.Any(receipt => receipt.HaId == x.HaId)))
             .FirstOrDefault();
         if (header == null) return null;
 
@@ -306,6 +313,7 @@ public static partial class PurchaseOrderService
             header.ProductLineCount, lines.Sum(x => x.OrderedQuantity), lines.Sum(x => x.ReceivedQuantity))
         {
             WarehouseFlag = header.WarehouseFlag,
+            HasLinkedReceipt = header.HasLinkedReceipt,
             RegisteredOfficeId = header.RegisteredOfficeId,
             RecordedProgress = receivedByProduct.Keys.Except(lines.Select(x => x.ProductId)).Any() ? PurchaseReceiptStatus.Unknown
                 : PurchaseProgress.Classify(lines.Select(x => (x.OrderedQuantity, x.ReceivedQuantity)).ToArray(), header.ProductLineCount),
@@ -320,13 +328,15 @@ public static partial class PurchaseOrderService
                 SoPhone = db.MSalesOffices.Where(office => office.SoId == x.RegisteredOfficeId)
                     .Select(office => office.SoPhone).FirstOrDefault()
             }).FirstOrDefault();
-        return new(order, lines)
+        var detail = new PurchaseOrderDetail(order, lines)
         {
             Receipts = QueryReceipts(db, actor!.IsAdministrator, actor.OfficeId, orderId).ToArray(),
             SupplierPhone = contact?.MaPhone ?? "",
             OfficeName = contact?.SoName ?? "",
             OfficePhone = contact?.SoPhone ?? ""
         };
+        transaction.Commit();
+        return detail;
     }
 
     public static IReadOnlyList<PurchaseReceiptRecord> LoadReceipts()
@@ -413,7 +423,7 @@ public static partial class PurchaseOrderService
     private static PurchaseOperationResult Denied(string message) => new(false, null, message);
 
     private sealed record HeaderRow(int Id, DateTime OrderDate, int MakerId, string MakerName,
-        int EmployeeId, string EmployeeName, int ManagementFlag, string? HiddenReason, int ProductLineCount, int? RegisteredOfficeId, int? WarehouseFlag);
+        int EmployeeId, string EmployeeName, int ManagementFlag, string? HiddenReason, int ProductLineCount, int? RegisteredOfficeId, int? WarehouseFlag, bool HasLinkedReceipt);
     private sealed record LineAggregate(int OrderId, int ProductId, int Quantity);
     private sealed record DetailLineRow(int DetailId, int ProductId, string ProductCode, string ProductName,
         int OrderedQuantity, int CurrentStock, int SafetyStock);

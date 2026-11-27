@@ -225,7 +225,7 @@ public partial class PurchaseOrderManagementView : UserControl
 
     private async void ConfirmSelected_Click(object sender, RoutedEventArgs e)
     {
-        if (isOpeningDetail || !viewModel.CanHide || viewModel.SelectedRow is not { } row
+        if (isOpeningDetail || !viewModel.CanConfirmSelected || viewModel.SelectedRow is not { } row
             || AppSession.Employee is not { } actor) return;
         var owner = Window.GetWindow(this);
         if (!F_OrderNotice.Confirm(owner, "発注確定", "選択した発注を確定し、入庫情報を作成しますか？", "確定する"))
