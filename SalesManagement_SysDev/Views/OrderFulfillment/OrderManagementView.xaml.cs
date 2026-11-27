@@ -252,7 +252,7 @@ internal sealed class OrderDetailDialog : Window
         detailHeading.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         detailHeading.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         detailHeading.Children.Add(new TextBlock { Text = "注文明細", FontSize = 16, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
-        var stockNote = new TextBlock { Text = "現在庫は参考値です。確定時に再確認します。", FontSize = 11, Foreground = AppTheme.Secondary, VerticalAlignment = VerticalAlignment.Center };
+        var stockNote = new TextBlock { Text = "在庫は商品ごとの合計数量で判定し、確定時に再確認します。", FontSize = 11, Foreground = AppTheme.Secondary, VerticalAlignment = VerticalAlignment.Center };
         Grid.SetColumn(stockNote, 1); detailHeading.Children.Add(stockNote); body.Children.Add(detailHeading);
 
         var lines = new DataGrid
@@ -260,21 +260,22 @@ internal sealed class OrderDetailDialog : Window
             ItemsSource = detail.Lines, AutoGenerateColumns = false, IsReadOnly = true, CanUserAddRows = false,
             CanUserDeleteRows = false, CanUserSortColumns = false, CanUserReorderColumns = false, CanUserResizeRows = false,
             EnableRowVirtualization = true, HeadersVisibility = DataGridHeadersVisibility.Column,
-            GridLinesVisibility = DataGridGridLinesVisibility.Horizontal, RowHeight = 38, ColumnHeaderHeight = 32, MinHeight = 100,
-            Height = Math.Clamp(detail.Lines.Count * 38 + 34, 104, 258),
+            GridLinesVisibility = DataGridGridLinesVisibility.Horizontal, RowHeight = double.NaN, MinRowHeight = 38, ColumnHeaderHeight = 32,
+            MinHeight = 104, MaxHeight = 258,
             Background = AppTheme.Surface, BorderBrush = AppTheme.Border, BorderThickness = new Thickness(1),
             HorizontalGridLinesBrush = AppTheme.Border
         };
         lines.SetValue(ScrollViewer.CanContentScrollProperty, true);
-        lines.SetValue(ScrollViewer.HorizontalScrollBarVisibilityProperty, ScrollBarVisibility.Disabled);
+        VirtualizingPanel.SetScrollUnit(lines, ScrollUnit.Pixel);
+        lines.SetValue(ScrollViewer.HorizontalScrollBarVisibilityProperty, ScrollBarVisibility.Auto);
         lines.SetValue(ScrollViewer.VerticalScrollBarVisibilityProperty, ScrollBarVisibility.Auto);
-        lines.Columns.Add(new DataGridTextColumn { Header = "No.", Binding = new System.Windows.Data.Binding(nameof(OrderLineView.Number)), Width = new DataGridLength(46), ElementStyle = NumericCellStyle() });
+        lines.Columns.Add(new DataGridTextColumn { Header = "No.", Binding = new System.Windows.Data.Binding(nameof(OrderLineView.Number)), Width = new DataGridLength(46), MinWidth = 46, ElementStyle = NumericCellStyle() });
         lines.Columns.Add(new DataGridTextColumn { Header = "商品コード / 商品名", Binding = new System.Windows.Data.Binding(nameof(OrderLineView.ProductLabel)), Width = new DataGridLength(1, DataGridLengthUnitType.Star), MinWidth = 170, ElementStyle = ProductCellStyle() });
-        lines.Columns.Add(new DataGridTextColumn { Header = "単価", Binding = new System.Windows.Data.Binding(nameof(OrderLineView.UnitPrice)) { StringFormat = "¥#,##0.##", TargetNullValue = "未記録" }, Width = new DataGridLength(104), ElementStyle = NumericCellStyle() });
-        lines.Columns.Add(new DataGridTextColumn { Header = "数量", Binding = new System.Windows.Data.Binding(nameof(OrderLineView.Quantity)) { StringFormat = "N0" }, Width = new DataGridLength(64), ElementStyle = NumericCellStyle() });
-        lines.Columns.Add(new DataGridTextColumn { Header = "行合計", Binding = new System.Windows.Data.Binding(nameof(OrderLineView.LineTotal)) { StringFormat = "¥#,##0", TargetNullValue = "未記録" }, Width = new DataGridLength(106), ElementStyle = NumericCellStyle() });
-        lines.Columns.Add(new DataGridTextColumn { Header = "現在庫", Binding = new System.Windows.Data.Binding(nameof(OrderLineView.CurrentStockText)), Width = new DataGridLength(86), ElementStyle = NumericCellStyle() });
-        lines.Columns.Add(new DataGridTextColumn { Header = "在庫確認", Binding = new System.Windows.Data.Binding(nameof(OrderLineView.Availability)), Width = new DataGridLength(94) });
+        lines.Columns.Add(new DataGridTextColumn { Header = "単価", Binding = new System.Windows.Data.Binding(nameof(OrderLineView.UnitPrice)) { StringFormat = "¥#,##0.##", TargetNullValue = "未記録" }, Width = new DataGridLength(126), MinWidth = 126, ElementStyle = NumericCellStyle() });
+        lines.Columns.Add(new DataGridTextColumn { Header = "数量", Binding = new System.Windows.Data.Binding(nameof(OrderLineView.Quantity)) { StringFormat = "N0" }, Width = new DataGridLength(108), MinWidth = 108, ElementStyle = NumericCellStyle() });
+        lines.Columns.Add(new DataGridTextColumn { Header = "行合計", Binding = new System.Windows.Data.Binding(nameof(OrderLineView.LineTotal)) { StringFormat = "¥#,##0", TargetNullValue = "未記録" }, Width = new DataGridLength(118), MinWidth = 118, ElementStyle = NumericCellStyle() });
+        lines.Columns.Add(new DataGridTextColumn { Header = "現在庫", Binding = new System.Windows.Data.Binding(nameof(OrderLineView.CurrentStockText)), Width = new DataGridLength(108), MinWidth = 108, ElementStyle = NumericCellStyle() });
+        lines.Columns.Add(new DataGridTextColumn { Header = "在庫確認", Binding = new System.Windows.Data.Binding(nameof(OrderLineView.Availability)), Width = new DataGridLength(114), MinWidth = 114 });
         body.Children.Add(lines);
         var total = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 12, 0, 0) };
         total.Children.Add(new TextBlock { Text = "注文合計", Foreground = AppTheme.Secondary, FontSize = 13, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 14, 0) });
