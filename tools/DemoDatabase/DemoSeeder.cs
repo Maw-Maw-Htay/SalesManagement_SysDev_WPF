@@ -4,7 +4,7 @@ using static SalesManagement.Demo.Program;
 
 namespace SalesManagement.Demo;
 
-internal sealed class DemoSeeder(SalesManagementContext db, DateTime anchor, IReadOnlyDictionary<int, string> credentials)
+internal sealed partial class DemoSeeder(SalesManagementContext db, DateTime anchor, IReadOnlyDictionary<int, string> credentials)
 {
     private const string HiddenReason = "【デモ】契約終了による参照専用データ";
     private static readonly TimeSpan JapanOffset = TimeSpan.FromHours(9);
@@ -103,45 +103,6 @@ internal sealed class DemoSeeder(SalesManagementContext db, DateTime anchor, IRe
             if (employee.OfficeId == officeId && employee.PositionId == roleId) return;
             var result = EmployeeService.Update(DemoData.Admin, EmployeeService.Snapshot(employee), employee.Name, employee.Phone, officeId, roleId);
             Require(result.Succeeded, $"Preparing demo assignment for {id} failed. {result.Message}");
-        }
-    }
-
-    private void SeedPurchase(PurchaseSeed plan)
-    {
-        var actor = DemoData.Logistics(plan.Office);
-        ActAs(actor);
-        var maker = keys.Makers[plan.Supplier];
-        var purchase = db.THattyus.AsNoTracking().SingleOrDefault(row => row.MaId == maker && row.HaDate == plan.Date && row.EmId == actor);
-        var purchaseId = purchase?.HaId;
-        if (purchaseId == null)
-        {
-            var lines = plan.Lines.Select(line => new PurchaseLineInput(keys.Products[line.Product].PrId, line.Quantity)).ToArray();
-            var result = PurchaseOrderService.Register(actor, maker, plan.Date, lines);
-            Require(result.Succeeded && result.OrderId.HasValue, $"Purchase {plan.Number} failed. {result.Message}");
-            purchaseId = result.OrderId;
-        }
-
-        foreach (var planned in plan.Receipts)
-        {
-            var lines = planned.Lines.Select(line => new WarehouseMovementLineInput(keys.Products[line.Product].PrId, line.Quantity)).ToArray();
-            var receipt = db.TWarehousings.AsNoTracking().SingleOrDefault(row => row.HaId == purchaseId && row.WaDate == planned.Date);
-            if (receipt == null)
-            {
-                // The current application confirms existing receipts. The fixture stages the inbound documents.
-                receipt = new TWarehousing
-                {
-                    HaId = purchaseId!.Value, EmId = actor, WaDate = planned.Date, WaFlag = 0, WaShelfFlag = 0,
-                    TWarehousingDetails = lines.Select(line => new TWarehousingDetail { PrId = line.ProductId, WaQuantity = line.Quantity }).ToList()
-                };
-                db.TWarehousings.Add(receipt);
-                db.SaveChanges();
-                db.ChangeTracker.Clear();
-            }
-            if (planned.Confirmed && receipt.WaShelfFlag == 0)
-            {
-                var result = WarehousingService.ConfirmShelf(actor, receipt.WaId, lines);
-                Require(result.Succeeded, $"Receipt {receipt.WaId} failed. {result.Message}");
-            }
         }
     }
 

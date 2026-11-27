@@ -10,6 +10,15 @@ internal static class Program
             CheckRecordFormattingAndFilters();
             CheckStateTransitionsAndQuantities();
             CheckSalesAndArrivalGuards();
+            var product = new MProduct { PrId = 2, Price = 1200m };
+            var orderLine = new TOrderDetail { Pr = product, PrId = 2, OrQuantity = 2, OrTotalPrice = 2000m };
+            var detail = ShipmentOperationRules.CreateSaleDetail(new TSale(), orderLine);
+            Check(detail.PrId == 2 && detail.SaQuantity == 2 && detail.SaPrTotalPrice == 2000m,
+                "new sale uses the order amount after a catalogue price change");
+            var legacy = new TSaleDetail { PrId = 2, SaQuantity = 2, SaPrTotalPrice = 2400m };
+            Check(legacy.SaPrTotalPrice != detail.SaPrTotalPrice &&
+                ShipmentOperationRules.ValidateExistingSale(true, [new(2, 2)], [new(legacy.PrId, legacy.SaQuantity)]) == null,
+                "legacy sale with matching quantities can be reused despite a different recorded amount");
             CheckPermissionsAndHideReason();
             Console.WriteLine($"PASS: {checks} shipment-management checks.");
             return 0;
@@ -53,7 +62,7 @@ internal static class Program
         Check(ShipmentOperationRules.ValidateConfirmState(ShipmentService.HiddenFlag, ShipmentService.UnconfirmedState) != null, "hidden shipment cannot be confirmed");
         Check(ShipmentOperationRules.ValidateConfirmState(0, null) != null, "unknown shipment state is rejected");
         Check(ShipmentOperationRules.ValidateHideState(ShipmentService.ActiveFlag, ShipmentService.ConfirmedState) == null, "confirmed visible shipment can be hidden");
-        Check(ShipmentOperationRules.ValidateHideState(ShipmentService.ActiveFlag, ShipmentService.UnconfirmedState) != null, "unconfirmed shipment cannot be hidden");
+        Check(ShipmentOperationRules.ValidateHideState(ShipmentService.ActiveFlag, ShipmentService.UnconfirmedState) == null, "unconfirmed shipment can be hidden");
         Check(ShipmentOperationRules.ValidateHideState(ShipmentService.HiddenFlag, ShipmentService.ConfirmedState) != null, "hidden shipment cannot be hidden twice");
         Check(ShipmentOperationRules.ValidateLines([new(2, 1), new(3, 8)]) == null, "positive shipment lines are accepted");
         Check(ShipmentOperationRules.ValidateLines([]) != null && ShipmentOperationRules.ValidateLines([new(0, 1)]) != null
@@ -71,6 +80,11 @@ internal static class Program
             "duplicate shipment keys are rejected");
         Check(ShipmentOperationRules.ValidateExistingSaleCount(0) == null && ShipmentOperationRules.ValidateExistingSaleCount(1) == null
             && ShipmentOperationRules.ValidateExistingSaleCount(2) != null, "sale reuse is allowed only when there is at most one sale per order");
+        Check(ShipmentOperationRules.SaleAmountsMatch([(2, 100m), (2, 200m)], [(2, 300m)]),
+            "split lines with the same product total can reuse a sale");
+        Check(!ShipmentOperationRules.SaleAmountsMatch([(2, 300m), (3, 100m)], [(2, 250m), (3, 150m)]),
+            "equal grand totals do not mask different product totals");
+
         var shipmentLines = new[] { new ShipmentQuantityInput(2, 4), new ShipmentQuantityInput(3, 1) };
         Check(ShipmentOperationRules.ValidateExistingSale(true, shipmentLines, shipmentLines) == null, "matching sale can be reused without duplication");
         Check(ShipmentOperationRules.ValidateExistingSale(false, shipmentLines, shipmentLines) != null, "sale with different customer or office is rejected");
@@ -80,9 +94,9 @@ internal static class Program
     private static void CheckPermissionsAndHideReason()
     {
         AppSession.Employee = Employee("営業");
-        Check(ShipmentService.CanView && ShipmentService.CanConfirm && !ShipmentService.CanHide && !ShipmentService.CanViewHidden,
-            "active sales user can view and confirm but cannot hide or view hidden shipments");
-        Check(!ShipmentService.Hide(10, 42, "理由").Succeeded, "unauthorized hide is denied before database access");
+        Check(ShipmentService.CanView && ShipmentService.CanConfirm && ShipmentService.CanHide && !ShipmentService.CanViewHidden,
+            "active sales user can view, confirm and hide shipments in scope");
+        Check(!ShipmentService.Hide(10, 999, "理由").Succeeded, "unauthorized hide is denied before database access");
         AppSession.Employee = Employee("物流");
         Check(!ShipmentService.CanView && !ShipmentService.CanConfirm && !ShipmentService.CanHide,
             "logistics role is denied by the existing shipment permission matrix");

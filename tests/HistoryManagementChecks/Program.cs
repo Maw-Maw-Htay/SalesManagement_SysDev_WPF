@@ -112,9 +112,8 @@ internal static class Program
         fMain.UpdateLayout();
 
         var historyButton = Descendants<Button>(fMain).Single(button => ReferenceEquals(button.DataContext, entry));
-        var productEntry = model.MenuItems.Single(x => x.Label == "商品管理");
+        Check(!model.MenuItems.Any(x => x.Label == "商品管理"), "sales sidebar hides product management");
         var shipmentEntry = model.MenuItems.Single(x => x.Label == "出荷管理");
-        var productButton = Descendants<Button>(fMain).Single(button => ReferenceEquals(button.DataContext, productEntry));
         var shipmentButton = Descendants<Button>(fMain).Single(button => ReferenceEquals(button.DataContext, shipmentEntry));
         var historyIcon = Descendants<LucideIcon>(historyButton).Single();
         var badge = Descendants<Border>(historyButton).Single(border => AutomationProperties.GetName(border) == "未読履歴件数");
@@ -123,16 +122,15 @@ internal static class Program
         var sidebar = (FrameworkElement)fMain.FindName("mainSidebar")!;
         var navigationStyle = (Style)fMain.Resources["NavigationButton"];
 
-        Check(historyButton.ActualHeight == productButton.ActualHeight
-            && historyButton.ActualHeight == shipmentButton.ActualHeight
+        Check(historyButton.ActualHeight == shipmentButton.ActualHeight
             && historyButton.ActualHeight == 36,
-            "history uses the same compact row height as product and shipment navigation");
+            "history uses the same compact row height as shipment navigation");
         Check(historyIcon.ActualWidth == 18 && historyIcon.ActualHeight == 18,
             "history uses the standard 18-pixel sidebar icon size");
         Check(ReferenceEquals(historyButton.Style.BasedOn, navigationStyle),
             "history inherits the shared sidebar hover, selected, spacing and foreground styles");
         Check(historyButton.ToolTip as string == "履歴管理"
-            && productButton.ToolTip as string == "商品管理",
+            && shipmentButton.ToolTip as string == "出荷管理",
             "history and other management rows use the same label tooltip behavior");
 
         entry.UnreadCount = 1;
@@ -424,14 +422,14 @@ internal static class Program
         var applicationProject = Path.Combine(projectRoot, "SalesManagement_SysDev");
         var menuTabFiles = new Dictionary<string, int>
         {
-            ["OrderManagementView.xaml"] = 4, // 注文管理: this view uses ChumonManagementViewModel.
-            ["PurchaseOrderManagementView.xaml"] = 6,
-            ["WarehouseMovementManagementView.xaml"] = 4,
-            ["ArrivalManagementView.xaml"] = 3,
-            ["OutboundManagementView.xaml"] = 4,
-            ["ShipmentManagementView.xaml"] = 3,
-            ["InventoryManagementView.xaml"] = 4,
-            ["SalesManagementView.xaml"] = 3
+            ["Views/OrderFulfillment/OrderManagementView.xaml"] = 4, // 注文管理: this view uses ChumonManagementViewModel.
+            ["Views/Purchasing/PurchaseOrderManagementView.xaml"] = 6,
+            ["Views/Warehouse/WarehouseMovementManagementView.xaml"] = 4,
+            ["Views/Arrival/ArrivalManagementView.xaml"] = 3,
+            ["Views/Outbound/OutboundManagementView.xaml"] = 4,
+            ["Views/Shipping/ShipmentManagementView.xaml"] = 3,
+            ["Views/Inventory/InventoryManagementView.xaml"] = 4,
+            ["Views/Sales/SalesManagementView.xaml"] = 3
         };
 
         var totalMenuTabs = 0;
@@ -470,7 +468,7 @@ internal static class Program
 
         var buttonTabFiles = new[]
         {
-            "CustomerManagementView.xaml", "ProductManagementView.xaml", "EmployeeManagementView.xaml"
+            "Views/Customers/CustomerManagementView.xaml", "Views/Products/ProductManagementView.xaml", "Views/Employees/EmployeeManagementView.xaml"
         };
         foreach (var file in buttonTabFiles)
         {
@@ -485,10 +483,10 @@ internal static class Program
                 $"{file} keeps its three filter commands on the shared status-button style");
         }
 
-        Check(File.ReadAllText(Path.Combine(applicationProject, "OrderManagementView.xaml.cs"))
+        Check(File.ReadAllText(Path.Combine(applicationProject, "Views/OrderFulfillment/OrderManagementView.xaml.cs"))
                 .Contains("new ChumonManagementViewModel()", StringComparison.Ordinal),
             "the styled OrderManagementView is 注文管理, not the excluded 受注管理 screen");
-        var orderManagementMarkup = File.ReadAllText(Path.Combine(applicationProject, "F_OrderManagement.xaml"));
+        var orderManagementMarkup = File.ReadAllText(Path.Combine(applicationProject, "Views/Orders/F_OrderManagement.xaml"));
         Check(!orderManagementMarkup.Contains("StatusTabIcon", StringComparison.Ordinal)
             && !orderManagementMarkup.Contains("StatusFilterButton", StringComparison.Ordinal),
             "受注管理 keeps its existing status-tab markup unchanged");

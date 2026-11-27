@@ -49,15 +49,24 @@ internal static class Program
         var orders = new[]
         {
             Order(1, 0, ordered: 10, received: 3),
+            Order(5, 0, ordered: 2, received: 0),
             Order(2, 0, ordered: 4, received: 4),
             Order(3, 2, ordered: 8, received: 0),
             Order(4, 0, ordered: 5, received: 7)
         };
         var summary = PurchaseProgress.Summarize(orders);
-        Check(summary == new PurchaseOrderSummary(3, 1, 1), "summary uses visible orders and excludes hidden orders from progress counts");
-        Check(!orders[3].IsFullyReceived, "over-receipt is not counted as a normal completed purchase");
+        Check(summary == new PurchaseOrderSummary(4, 1, 1), "summary uses visible orders and excludes hidden orders from progress counts");
+        Check(!orders[4].IsFullyReceived, "over-receipt is not counted as a normal completed purchase");
         Check(orders[0].RemainingQuantity == 7, "remaining quantity is the nonnegative difference");
         Check(Order(4, 0, ordered: 5, received: 7).RemainingQuantity == 0, "excess received quantity never creates negative remainder");
+        var beforeArrival = Order(6, 0, 4, 0);
+        var atWarehouse = beforeArrival with { WarehouseFlag = 1 };
+        Check(PurchaseOrderFilter.MatchesProgress(beforeArrival, PurchaseProgressFilter.Waiting)
+            && !PurchaseOrderFilter.MatchesProgress(atWarehouse, PurchaseProgressFilter.Waiting)
+            && !PurchaseOrderFilter.MatchesProgress(beforeArrival with { WarehouseFlag = null }, PurchaseProgressFilter.Waiting),
+            "only warehouse flag zero appears in the outstanding list");
+        Check(atWarehouse.ProgressLabel == "棚入れ待ち" && atWarehouse.ReceivedQuantity == 0,
+            "warehouse arrival precedes shelf confirmation");
         Check(PurchaseOrderService.FormatCode(8) == "PO-000008", "database identity is formatted as a purchase code");
         Check(PurchaseProgress.Classify([(5, 7), (5, 3)], 2) == PurchaseReceiptStatus.Excess,
             "An over-receipt cannot offset a shortage on another product");
@@ -116,8 +125,11 @@ internal static class Program
     {
         AppSession.Employee = Employee("物流");
         Check(PurchaseOrderService.CanView && PurchaseOrderService.CanRegister, "logistics can view and register purchases");
-        Check(!PurchaseOrderService.CanHide && !PurchaseOrderService.CanViewHidden, "logistics cannot view hidden records or hide orders");
-        Check(!PurchaseOrderService.Hide(10, 1, "理由").Succeeded, "unauthorized hide is denied before database access");
+        Check(PurchaseOrderService.CanHide && !PurchaseOrderService.CanViewHidden, "logistics can hide orders in their office");
+        Check(!PurchaseOrderService.Hide(999, 1, "理由").Succeeded, "unauthorized hide is denied before database access");
+        var hiddenPending = Order(1, PurchaseOrderService.HiddenFlag, 5, 0);
+        Check(!PurchaseOrderService.Restore(AppSession.Employee!.EmId, hiddenPending).Succeeded,
+            "logistics cannot restore a hidden purchase");
 
         AppSession.Employee = Employee("営業");
         Check(!PurchaseOrderService.CanView && !PurchaseOrderService.CanRegister, "sales role is denied purchase management");
@@ -143,7 +155,7 @@ internal static class Program
     {
         AppSession.Employee = new MEmployee { EmId = 1, EmFlag = 0, Po = new MPosition { PoName = "管理者" }, EmName = "検証担当者" };
         var app = CreateApplication();
-        var orders = Enumerable.Range(1, 51).Select(i => Order(i, 0, 6, (i % 3) * 3) with { MakerName = "仕入先テスト" }).ToArray();
+        var orders = Enumerable.Range(1, 51).Select(i => Order(i, 0, 6, (i % 3) * 3) with { MakerName = "仕入先テスト", HasLinkedReceipt = i == 3 }).ToArray();
         var model = (PurchaseOrderManagementViewModel)New(typeof(PurchaseOrderManagementViewModel), false);
         SetField(model, "source", orders);
         var view = (PurchaseOrderManagementView)New(typeof(PurchaseOrderManagementView), model);
@@ -157,6 +169,17 @@ internal static class Program
             Check(grid.Columns.Count == 10 && model.Rows.Count == 20 && model.PageCount == 3, "Purchase list has ten columns and defaults to 20 rows per page");
             var scroll = Descendants<ScrollViewer>(grid).First();
             Check(scroll.ScrollableHeight > 0 && scroll.ScrollableWidth < 2, "Purchase list scrolls vertically inside its card");
+            var confirmButton = Descendants<Button>(view).Single(x => Equals(x.Content, "発注確定"));
+            model.SelectOnly(model.Rows.First(x => x.Data.WarehouseFlag == 0 && !x.Data.HasLinkedReceipt));
+            Pump();
+            Check(confirmButton.IsEnabled, "pending purchase can be confirmed");
+            model.SelectOnly(model.Rows.First(x => x.Data.WarehouseFlag == 1));
+            Pump();
+            Check(!confirmButton.IsEnabled && model.CanHide, "confirmed purchase can be hidden but cannot be confirmed again");
+            model.SelectOnly(model.Rows.Single(x => x.Data.HasLinkedReceipt));
+            Pump();
+            Check(!confirmButton.IsEnabled, "legacy purchase with a linked receipt cannot be confirmed again");
+            model.ClearSelection();
             model.GoToPage(2);
             Check(model.Rows[0].Data.Id == 21 && model.Page == 2, "Page two starts at the correct purchase order");
             var tab = (MenuItem)view.FindName("PartialTab");
@@ -178,6 +201,13 @@ internal static class Program
             var registerModel = (PurchaseOrderRegisterViewModel)New(typeof(PurchaseOrderRegisterViewModel), false);
             var item = new PurchaseProductOption(1, 1, "", "商品", "仕入先", 5, 3, 0);
             registerModel.SelectedMaker = new PurchaseMakerOption(1, "仕入先");
+            registerModel.SelectedProduct = item with { OutstandingPurchaseQuantity = 3, PendingShelvingQuantity = 7 };
+            Check(registerModel.InventoryReferenceText.Contains("倉庫到着待ち 3")
+                && registerModel.InventoryReferenceText.Contains("棚入れ待ち 7"),
+                "registration shows warehouse and shelving quantities separately");
+            registerModel.SelectedProduct = item with { PendingShelvingQuantity = 7 };
+            Check(registerModel.InventoryWarning.Contains("重複"),
+                "shelving-only pending quantities still show the duplicate order warning");
             registerModel.SelectedProduct = item;
             registerModel.AddSelectedLine();
             registerModel.Lines[0].QuantityText = "0";
@@ -205,6 +235,18 @@ internal static class Program
             Pump();
             Check(Descendants<DataGrid>(detail).Count(g => g.IsReadOnly) == 2, "Detail displays read-only order lines and linked receipts");
             detail.Close();
+
+            var pending = new PurchaseOrderDetail(Order(2, PurchaseOrderService.HiddenFlag, 5, 0), []);
+            var restoreDetail = new F_HattyuDetail(pending) { Owner = host };
+            restoreDetail.Show();
+            Pump();
+            Check(Descendants<Button>(restoreDetail).Single(x => Equals(x.Content, "発注を復元")).IsVisible,
+                "administrator can recover a hidden purchase awaiting arrival from its detail");
+            restoreDetail.Close();
+            var receivedHidden = pending with { Order = pending.Order with { WarehouseFlag = 1, HasLinkedReceipt = true } };
+            Check(!new PurchaseOrderDetailViewModel(receivedHidden, canHide: false, canRestore: true).CanRestore,
+                "an already received purchase is outside the pending restore workflow");
+
             var history = new PurchaseReceiptHistoryWindow(purchase.Receipts) { Owner = host };
             history.Show();
             Pump();
@@ -298,7 +340,7 @@ internal static class Program
     }
 
     private static PurchaseOrderRecord Order(int id, int flag, int ordered, int received) =>
-        new(id, new DateTime(2026, 10, 20), 1, "メーカー", 10, "物流担当者", flag, null, 1, ordered, received);
+        new(id, new DateTime(2026, 10, 20), 1, "メーカー", 10, "物流担当者", flag, null, 1, ordered, received) { WarehouseFlag = received == 0 ? 0 : 1 };
 
     private static MEmployee Employee(string role) => new()
     {

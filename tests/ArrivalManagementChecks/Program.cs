@@ -74,7 +74,7 @@ internal static class Program
         Check(ArrivalOperationRules.ValidateHideState(ArrivalService.ActiveFlag,
             ArrivalService.ConfirmedState) == null, "confirmed visible arrival can be hidden");
         Check(ArrivalOperationRules.ValidateHideState(ArrivalService.ActiveFlag,
-            ArrivalService.UnconfirmedState) != null, "unconfirmed arrival cannot be hidden");
+            ArrivalService.UnconfirmedState) == null, "unconfirmed arrival can be hidden");
         Check(ArrivalOperationRules.ValidateHideState(ArrivalService.HiddenFlag,
             ArrivalService.ConfirmedState) != null, "already hidden arrival cannot be hidden again");
         Check(ArrivalOperationRules.ValidateHideState(9, ArrivalService.ConfirmedState) != null,
@@ -105,8 +105,8 @@ internal static class Program
     {
         AppSession.Employee = Employee("営業");
         Check(ArrivalService.CanView && ArrivalService.CanConfirm, "active sales user can view and confirm arrivals");
-        Check(!ArrivalService.CanHide && !ArrivalService.CanViewHidden, "sales cannot hide or view hidden arrivals");
-        Check(!ArrivalService.Hide(10, 42, "理由").Succeeded, "unauthorized hide is denied before database access");
+        Check(ArrivalService.CanHide && !ArrivalService.CanViewHidden, "sales may hide arrivals in their office");
+        Check(!ArrivalService.Hide(10, 999, "理由").Succeeded, "unauthorized hide is denied before database access");
 
         AppSession.Employee = Employee("物流");
         Check(!ArrivalService.CanView && !ArrivalService.CanConfirm && !ArrivalService.CanHide,

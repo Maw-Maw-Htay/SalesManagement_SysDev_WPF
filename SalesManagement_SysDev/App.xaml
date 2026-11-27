@@ -1,7 +1,7 @@
 <Application x:Class="SalesManagement_SysDev.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             StartupUri="F_login.xaml">
+             StartupUri="Views/Authentication/F_login.xaml">
     <Application.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>

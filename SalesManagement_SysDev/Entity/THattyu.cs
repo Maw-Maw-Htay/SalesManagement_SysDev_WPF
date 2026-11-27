@@ -11,6 +11,8 @@ public partial class THattyu
 
     public int EmId { get; set; }
 
+    public int? RegisteredOfficeId { get; set; }
+
     public DateTime HaDate { get; set; }
 
     public int? WaWarehouseFlag { get; set; }
