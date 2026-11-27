@@ -234,7 +234,7 @@ public partial class PurchaseOrderManagementView : UserControl
         try
         {
             var result = await Task.Run(() => PurchaseOrderService.Confirm(row.Data.Id, actor.EmId));
-            if (result.Succeeded) await viewModel.LoadAsync();
+            await viewModel.LoadAsync();
             F_OrderNotice.Show(owner, "発注確定", result.Message,
                 result.Succeeded ? OrderNoticeKind.Success : OrderNoticeKind.Error);
         }

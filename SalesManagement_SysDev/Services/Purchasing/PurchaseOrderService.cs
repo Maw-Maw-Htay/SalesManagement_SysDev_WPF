@@ -236,8 +236,8 @@ public static partial class PurchaseOrderService
 
         var makers = db.MMakers.AsNoTracking().Where(x => x.MaFlag == ActiveFlag)
             .OrderBy(x => x.MaName).Select(x => new PurchaseMakerOption(x.MaId, x.MaName)).ToList();
-        var employees = db.MEmployees.AsNoTracking().Where(x => x.EmFlag == ActiveFlag)
-            .OrderBy(x => x.EmId).Select(x => new PurchaseEmployeeOption(x.EmId, x.EmName)).ToList();
+        var employees = headers.Select(x => new PurchaseEmployeeOption(x.EmployeeId, x.EmployeeName))
+            .Distinct().OrderBy(x => x.Id).ToArray();
         transaction.Commit();
         return new(rows, makers, employees, PurchaseProgress.Summarize(rows));
     }
