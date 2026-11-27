@@ -238,3 +238,31 @@
 履歴画面、権限別フィルター、既存受注履歴のベースライン表示をDB接続なしで確認するには、`dotnet run --project ../tests/HistoryManagementChecks -p:UseAppHost=false` を実行してください。チェック項目は [../tests/HistoryManagementChecks/README.md](../tests/HistoryManagementChecks/README.md) に記載しています。
 
 サイドバーでは「履歴管理」を「システム管理」セクションに置き、他の管理メニューと同じ行形式で表示します。履歴通知バッジは、ログイン中に保存に成功した受注更新および社員の所属/権限変更の監査記録を数え、中央の履歴管理が正常に読み込まれると0に戻します。0件では隠し、100件以上は「99+」で表示します。ログアウト時にも0へ戻し、再起動後や他ユーザーによる更新は含みません。利用者ごとの既読状態・未読件数の永続化は未実装で、監査履歴がない他モジュールの更新は数えません。DBスキーマや永続保存処理は追加していません。
+
+### 共通倉庫の出庫先を指定する
+
+同じ倉庫所属の物流担当に許可する出庫先営業所を、接続先DBで管理します。
+DB管理者が以下の定義を一度実行し、実際の営業所IDで許可の組を登録してください。
+既存の定義がある場合は INSERT / DELETE で許可の組だけを調整します。
+
+```sql
+CREATE TABLE dbo.T_OutboundOfficeScope
+(
+    WarehouseOfficeId int NOT NULL REFERENCES dbo.M_SalesOffice(SoID),
+    DestinationOfficeId int NOT NULL REFERENCES dbo.M_SalesOffice(SoID),
+    PRIMARY KEY (WarehouseOfficeId, DestinationOfficeId)
+);
+-- 例のIDは環境の実際のIDに置き換えてから実行してください。
+-- INSERT dbo.T_OutboundOfficeScope (WarehouseOfficeId, DestinationOfficeId)
+-- VALUES (90, 1), (90, 2);
+```
+
+物流担当の出庫一覧・詳細・確定・非表示には、倉庫所属IDに登録した出庫先だけが適用されます。
+倉庫所属IDの設定がない場合は、従来の所属営業所だけが対象です。
+配置時は、アプリ利用者には設定テーブルの参照権限を与え、変更権限をDB管理者に限ってください。
+
+### 既存売上と在庫非表示理由
+
+出荷確定で数量・金額が一致した表示中の既存売上を再利用する場合は、出荷確定日と確定者で売上ヘッダーを更新します。
+非表示または無効の売上が同じ受注に存在する場合は出荷確定を拒否します。
+在庫の非表示には理由が必須です。初回の非表示時に `dbo.T_StockHideHistory` を準備し、在庫ID・商品ID・社員ID・理由・UTC記録日時を非表示更新と同じトランザクションで保存します。

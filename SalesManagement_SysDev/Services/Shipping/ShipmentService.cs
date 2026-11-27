@@ -282,13 +282,15 @@ public static class ShipmentService
             // sale if one already exists. This prevents retries or legacy seed data from duplicating sales.
             var existingSales = db.TSales.FromSqlInterpolated(
                     $"SELECT * FROM dbo.T_Sale WITH (UPDLOCK, HOLDLOCK) WHERE OrID = {shipment.OrId}")
-                .AsNoTracking().ToList();
-            var reuseSale = false;
+                .ToList();
+            TSale? saleToReuse = null;
             if (ShipmentOperationRules.ValidateExistingSaleCount(existingSales.Count) is { } salesCountError)
                 return Denied(salesCountError);
             if (existingSales.Count == 1)
             {
                 var existingSale = existingSales[0];
+                if (existingSale.SaFlag != ActiveFlag)
+                    return Denied("同じ受注に非表示または無効の売上があります。売上の状態を確認してください。");
                 var saleLines = db.TSaleDetails.AsNoTracking().Where(x => x.SaId == existingSale.SaId)
                     .Select(x => new { x.PrId, x.SaQuantity, x.SaPrTotalPrice }).ToArray();
                 if (ShipmentOperationRules.ValidateExistingSale(existingSale.ClId == shipment.ClId
@@ -298,13 +300,14 @@ public static class ShipmentService
                     orderLines.Select(x => (x.PrId, x.OrTotalPrice)),
                     saleLines.Select(x => (x.PrId, x.SaPrTotalPrice))))
                     return Denied("既存売上の金額が受注時の金額と一致しません。売上明細を確認してください。");
-                reuseSale = true;
+                saleToReuse = existingSale;
             }
 
             shipment.ShStateFlag = ConfirmedState;
-            shipment.ShFinishDate = DateTime.Today;
+            var confirmedDate = DateTime.Today;
+            shipment.ShFinishDate = confirmedDate;
             shipment.EmId = actor!.EmployeeId;
-            if (!reuseSale)
+            if (saleToReuse == null)
             {
                 var sale = new TSale
                 {
@@ -312,12 +315,18 @@ public static class ShipmentService
                     SoId = shipment.SoId,
                     OrId = shipment.OrId,
                     EmId = actor.EmployeeId,
-                    SaDate = DateTime.Today,
+                    SaDate = confirmedDate,
                     SaFlag = ActiveFlag
                 };
                 db.TSaleDetails.AddRange(orderLines.Select(line => ShipmentOperationRules.CreateSaleDetail(sale, line)));
                 db.TSales.Add(sale);
             }
+            else
+            {
+                saleToReuse.SaDate = confirmedDate;
+                saleToReuse.EmId = actor.EmployeeId;
+            }
+            var reuseSale = saleToReuse != null;
             db.SaveChanges();
             transaction.Commit();
             return new(true, reuseSale

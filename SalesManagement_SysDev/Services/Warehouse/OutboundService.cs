@@ -16,6 +16,22 @@ public static partial class OutboundService
     public static bool CanViewHidden => WarehouseActorResolver.CanAdmin;
     public static bool CanHide => CanView;
 
+    private static int[] GetAllowedDestinations(SalesManagementContext db, WarehouseActor actor)
+    {
+        if (actor.IsAdministrator) return [];
+
+        var scopeExists = db.Database.SqlQueryRaw<int>(
+            "SELECT CASE WHEN OBJECT_ID(N'dbo.T_OutboundOfficeScope', N'U') IS NULL THEN 0 ELSE 1 END AS [Value]").Single() == 1;
+        if (!scopeExists) return [actor.OfficeId];
+
+        var configured = db.Database.SqlQuery<int>($"""
+            SELECT DestinationOfficeId AS [Value]
+            FROM dbo.T_OutboundOfficeScope
+            WHERE WarehouseOfficeId = {actor.OfficeId}
+            """).ToArray();
+        return configured.Length == 0 ? [actor.OfficeId] : configured;
+    }
+
     public static WarehouseMovementDirectory Load()
     {
         WarehouseActorResolver.EnsureCanUse();
@@ -23,7 +39,8 @@ public static partial class OutboundService
         var actor = WarehouseActorResolver.Resolve(db, AppSession.Employee!.EmId);
         WarehouseActorResolver.EnsureCanUse(actor);
         var query = db.TSyukkos.AsNoTracking();
-        if (!actor!.IsAdministrator) query = query.Where(x => x.SoId == actor.OfficeId && x.SyFlag == ActiveFlag);
+        var destinations = GetAllowedDestinations(db, actor!);
+        if (!actor!.IsAdministrator) query = query.Where(x => destinations.Contains(x.SoId) && x.SyFlag == ActiveFlag);
         var headers = query.OrderByDescending(x => x.SyDate).ThenByDescending(x => x.SyId)
             .Select(x => new
             {
@@ -42,7 +59,7 @@ public static partial class OutboundService
         var employeesQuery = db.MEmployees.AsNoTracking().Where(x => x.EmFlag == ActiveFlag && x.Po.PoFlag == ActiveFlag);
         if (!actor.IsAdministrator)
         {
-            officesQuery = officesQuery.Where(x => x.SoId == actor.OfficeId);
+            officesQuery = officesQuery.Where(x => destinations.Contains(x.SoId));
             employeesQuery = employeesQuery.Where(x => x.SoId == actor.OfficeId);
         }
         var offices = officesQuery.OrderBy(x => x.SoName)
@@ -60,7 +77,8 @@ public static partial class OutboundService
         var actor = WarehouseActorResolver.Resolve(db, AppSession.Employee!.EmId);
         WarehouseActorResolver.EnsureCanUse(actor);
         var query = db.TSyukkos.AsNoTracking().Where(x => x.SyId == id);
-        if (!actor!.IsAdministrator) query = query.Where(x => x.SoId == actor.OfficeId && x.SyFlag == ActiveFlag);
+        var destinations = GetAllowedDestinations(db, actor!);
+        if (!actor!.IsAdministrator) query = query.Where(x => destinations.Contains(x.SoId) && x.SyFlag == ActiveFlag);
         var header = query.Select(x => new
         {
             x.SyId, x.OrId, x.ClId, CustomerName = x.Cl.ClName, x.SoId, OfficeName = x.So.SoName,
@@ -107,8 +125,8 @@ public static partial class OutboundService
             if (outbound == null) return Denied("対象の出庫が見つかりません。");
             if (WarehouseMovementRules.ValidateConfirmation(outbound.SyFlag, outbound.SyStateFlag) is { } stateError)
                 return Denied(stateError);
-            if (!actor!.IsAdministrator && outbound.SoId != actor.OfficeId)
-                return Denied("所属営業所以外の出庫は確定できません。");
+            if (!actor!.IsAdministrator && !GetAllowedDestinations(db, actor).Contains(outbound.SoId))
+                return Denied("許可された営業所の出庫だけ確定できます。");
 
             var officeIsActive = db.MSalesOffices.AsNoTracking().Any(x => x.SoId == outbound.SoId && x.SoFlag == ActiveFlag);
             // Validate the office against the saved order below, even if the customer has since moved.
@@ -188,7 +206,7 @@ public static partial class OutboundService
                 $"SELECT * FROM dbo.T_Syukko WITH (UPDLOCK, HOLDLOCK) WHERE SyID = {syukkoId}")
                 .SingleOrDefault();
             if (outbound == null) return Denied("対象の出庫が見つかりません。");
-            if (!actor.IsAdministrator && outbound.SoId != actor.OfficeId)
+            if (!actor.IsAdministrator && !GetAllowedDestinations(db, actor).Contains(outbound.SoId))
                 return Denied("自営業所の出庫だけ非表示にできます。");
             if (WarehouseMovementRules.ValidateHide(outbound.SyFlag, outbound.SyStateFlag) is { } stateError)
                 return Denied(stateError);

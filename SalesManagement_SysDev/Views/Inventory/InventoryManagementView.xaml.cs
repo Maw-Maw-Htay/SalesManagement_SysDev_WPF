@@ -243,8 +243,8 @@ internal sealed class InventoryDetailDialog : Window
         };
         hide.Click += async (_, _) =>
         {
-            if (F_OrderNotice.Confirm(this, "在庫の非表示", $"{row.DisplayCode} の在庫を非表示にしますか？\n\n復元するまで、この商品の注文確定と棚入れ確定ができなくなります。復元は管理者が行えます。", "非表示にする"))
-                await ApplyAsync(() => InventoryService.Hide(row));
+            var reason = RequestHideReason(row.DisplayCode);
+            if (reason != null) await ApplyAsync(() => InventoryService.Hide(row, reason));
         };
 
         Closing += (_, e) => e.Cancel = !footer.IsEnabled;
@@ -257,6 +257,34 @@ internal sealed class InventoryDetailDialog : Window
             finally { footer.IsEnabled = true; }
             ShowResult(result);
         }
+    }
+
+    private string? RequestHideReason(string productCode)
+    {
+        var input = new TextBox { MaxLength = InventoryService.MaximumHideReasonLength, Height = 104, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 12) };
+        System.Windows.Automation.AutomationProperties.SetName(input, "非表示理由");
+        var confirm = new Button { Content = "非表示にする", IsDefault = true, IsEnabled = false, Margin = new Thickness(8, 0, 0, 0) };
+        var cancel = new Button { Content = "キャンセル", IsCancel = true };
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+        actions.Children.Add(cancel);
+        actions.Children.Add(confirm);
+        var content = new StackPanel { Margin = new Thickness(20) };
+        content.Children.Add(new TextBlock
+        {
+            Text = $"{productCode} の在庫を非表示にします。復元まで、この商品の注文確定と棚入れ確定は停止します。",
+            TextWrapping = TextWrapping.Wrap
+        });
+        content.Children.Add(new Label { Content = "非表示理由（必須）", Target = input, Padding = new Thickness(0, 8, 0, 0) });
+        content.Children.Add(input);
+        content.Children.Add(actions);
+        var dialog = new Window { Owner = this, Title = "在庫の非表示", Width = 480,
+            SizeToContent = SizeToContent.Height, WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            ResizeMode = ResizeMode.NoResize, ShowInTaskbar = false, Content = content };
+        input.TextChanged += (_, _) => confirm.IsEnabled = !string.IsNullOrWhiteSpace(input.Text);
+        confirm.Click += (_, _) => dialog.DialogResult = true;
+        dialog.Loaded += (_, _) => input.Focus();
+        return dialog.ShowDialog() == true ? input.Text.Trim() : null;
     }
 
     private void ShowResult((bool Succeeded, string Message) result)
