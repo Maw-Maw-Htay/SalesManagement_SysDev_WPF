@@ -111,11 +111,12 @@ public static partial class OutboundService
                 return Denied("所属営業所以外の出庫は確定できません。");
 
             var officeIsActive = db.MSalesOffices.AsNoTracking().Any(x => x.SoId == outbound.SoId && x.SoFlag == ActiveFlag);
-            var customerMatches = db.MClients.AsNoTracking().Any(x => x.ClId == outbound.ClId
-                && x.SoId == outbound.SoId && (x.ClFlag == ActiveFlag || x.ClFlag == HiddenFlag));
+            // Validate the office against the saved order below, even if the customer has since moved.
+            var customerExists = db.MClients.AsNoTracking().Any(x => x.ClId == outbound.ClId
+                && (x.ClFlag == ActiveFlag || x.ClFlag == HiddenFlag));
             var orderIsActive = db.TOrders.AsNoTracking().Any(x => x.OrId == outbound.OrId
                 && x.ClId == outbound.ClId && x.SoId == outbound.SoId && x.OrStateFlag == 1);
-            if (!officeIsActive || !customerMatches || !orderIsActive)
+            if (!officeIsActive || !customerExists || !orderIsActive)
                 return Denied("注文・顧客・営業所の有効状態または関連を確認できません。");
 
             var sourceOrders = db.TChumons.AsNoTracking().Include(x => x.TChumonDetails)

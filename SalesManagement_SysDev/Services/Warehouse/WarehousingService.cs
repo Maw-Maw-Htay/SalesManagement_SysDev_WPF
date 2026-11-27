@@ -164,9 +164,11 @@ public static class WarehousingService
 
             var productIds = incoming.Select(x => x.ProductId).Distinct().Order().ToArray();
             var products = db.MProducts.Where(x => productIds.Contains(x.PrId)
-                && (x.PrFlag == ActiveFlag || x.PrFlag == HiddenFlag)
-                && x.MaId == purchase.MaId && x.Ma.MaFlag == ActiveFlag).ToDictionary(x => x.PrId);
-            if (products.Count != productIds.Length)
+                && (x.PrFlag == ActiveFlag || x.PrFlag == HiddenFlag)).ToDictionary(x => x.PrId);
+            // The purchase header records the maker that supplied these lines.
+            var purchaseMakerIsActive = db.MMakers.AsNoTracking()
+                .Any(x => x.MaId == purchase.MaId && x.MaFlag == ActiveFlag);
+            if (!purchaseMakerIsActive || products.Count != productIds.Length)
                 return Denied("商品またはメーカー情報を確認できません。");
 
             var quantities = incoming.GroupBy(x => x.ProductId)

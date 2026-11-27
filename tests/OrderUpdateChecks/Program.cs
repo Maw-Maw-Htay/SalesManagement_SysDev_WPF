@@ -410,6 +410,23 @@ internal static class Program
                 inboundId = receipt.WaId;
             }
 
+            using (var db = TestContext())
+            {
+                var client = db.MClients.Single();
+                client.SoId = AppSession.Employee!.SoId;
+                var product = db.MProducts.Include(x => x.Ma).Single();
+                var originalMaker = product.Ma;
+                product.Ma = new MMaker
+                {
+                    MaName = "変更後メーカー",
+                    MaAddress = originalMaker.MaAddress,
+                    MaPhone = originalMaker.MaPhone,
+                    MaPostal = originalMaker.MaPostal,
+                    MaFax = originalMaker.MaFax
+                };
+                db.SaveChanges();
+            }
+
             int outboundId;
             using (var db = TestContext())
             {
@@ -431,15 +448,16 @@ internal static class Program
             {
                 var confirmed = OutboundService.ConfirmInContext(db, 1, outboundId);
                 Check(confirmed.Succeeded && db.TStocks.Single().StQuantity == 48
-                    && db.TArrivals.Count(x => x.OrId == orderId) == 1,
-                    "hidden product and customer complete outbound without deducting stock twice: " + confirmed.Message);
+                    && db.TArrivals.Count(x => x.OrId == orderId && x.SoId == customerOffice) == 1,
+                    "outbound retains the order office after the customer moves without deducting stock twice: " + confirmed.Message);
             }
             using (var db = TestContext())
             {
                 var received = WarehousingService.ConfirmShelfInContext(db, 1, inboundId, expected: null);
                 Check(received.Succeeded && db.TStocks.Single().StQuantity == 53
-                    && db.TWarehousings.Single(x => x.WaId == inboundId).WaShelfFlag == 1,
-                    "hidden product is added to stock when the arrived receipt is shelved: " + received.Message);
+                    && db.TWarehousings.Any(x => x.WaId == inboundId && x.WaShelfFlag == 1
+                        && x.Ha.MaId != db.MProducts.Select(product => product.MaId).First()),
+                    "shelving uses the purchase maker after the product maker changes: " + received.Message);
             }
             using (var db = TestContext())
             {
