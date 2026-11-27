@@ -81,11 +81,22 @@ public sealed partial class BusinessService
         using var tx = db.Database.BeginTransaction(IsolationLevel.Serializable);
         try
         {
+            var session = AppSession.Employee;
+            var actor = db.MEmployees.AsNoTracking()
+                .Where(x => x.EmId == employeeId && x.EmFlag == 0 && x.Po.PoFlag == 0 && x.So.SoFlag == 0)
+                .Select(x => new { x.SoId, Role = x.Po.PoName }).SingleOrDefault();
+            if (actor == null || session?.EmId != employeeId || actor.SoId != session.SoId
+                || actor.Role != session.Po?.PoName || actor.Role is not ("管理者" or "営業"))
+            {
+                message = "注文の確定権限を確認できません。再ログインしてください。";
+                return false;
+            }
+
             var order = db.TChumons.Include(x => x.TChumonDetails)
                 .FirstOrDefault(x => x.ChId == id && x.ChFlag == 0);
             if (order == null) { message = "対象の注文は通常表示ではないか、存在しません。"; return false; }
             if ((order.ChStateFlag ?? 0) != 0) { message = "すでに確定済みの注文です。"; return false; }
-            if (!AppSession.IsAdmin && order.SoId != AppSession.Employee!.SoId)
+            if (actor.Role != "管理者" && order.SoId != actor.SoId)
             { message = "所属営業所以外の注文は確定できません。"; return false; }
             if (order.TChumonDetails.Count == 0 || order.TChumonDetails.Any(x => x.ChQuantity <= 0))
             { message = "注文に有効な明細がありません。"; return false; }

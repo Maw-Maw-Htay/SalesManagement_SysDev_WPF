@@ -114,7 +114,7 @@ public static partial class OutboundService
             var customerIsActive = db.MClients.AsNoTracking().Any(x => x.ClId == outbound.ClId
                 && x.SoId == outbound.SoId && x.ClFlag == ActiveFlag);
             var orderIsActive = db.TOrders.AsNoTracking().Any(x => x.OrId == outbound.OrId
-                && x.ClId == outbound.ClId && x.SoId == outbound.SoId && x.OrFlag == 0 && x.OrStateFlag == 1);
+                && x.ClId == outbound.ClId && x.SoId == outbound.SoId && x.OrStateFlag == 1);
             if (!officeIsActive || !customerIsActive || !orderIsActive)
                 return Denied("注文・顧客・営業所の有効状態または関連を確認できません。");
 

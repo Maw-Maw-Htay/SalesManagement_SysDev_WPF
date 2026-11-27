@@ -95,6 +95,18 @@ public static class ShipmentOperationRules
         _ => "同じ注文・顧客・営業所に複数の出荷があります。重複を確認してください。"
     };
 
+    public static bool SaleAmountsMatch(IEnumerable<(int ProductId, decimal Amount)> order,
+        IEnumerable<(int ProductId, decimal Amount)> sale)
+    {
+        var saleLines = sale.ToArray();
+        if (saleLines.Any(line => line.Amount < 0)) return false;
+
+        return order.GroupBy(line => line.ProductId).OrderBy(group => group.Key)
+            .Select(group => (group.Key, group.Sum(line => line.Amount)))
+            .SequenceEqual(saleLines.GroupBy(line => line.ProductId).OrderBy(group => group.Key)
+                .Select(group => (group.Key, group.Sum(line => line.Amount))));
+    }
+
     public static string? ValidateExistingSaleCount(int count) => count switch
     {
         0 or 1 => null,
@@ -259,6 +271,13 @@ public static class ShipmentService
             if (ShipmentOperationRules.ValidateArrivalMatchCount(matchingArrivals.Length) is { } arrivalError)
                 return Denied(arrivalError);
 
+            var orderLines = db.TOrderDetails.AsNoTracking()
+                .Where(x => x.OrId == shipment.OrId && (x.OrQuantity != 0 || x.OrTotalPrice != 0))
+                .OrderBy(x => x.OrDetailId).ToList();
+            var quantities = orderLines.Select(x => new ShipmentQuantityInput(x.PrId, x.OrQuantity)).ToArray();
+            if (orderLines.Any(x => x.OrTotalPrice < 0) || !ShipmentOperationRules.LinesMatch(storedLines, quantities))
+                return Denied("受注明細の金額または数量が出荷内容と一致しません。受注を確認してください。");
+
             // Preserve the approved existing sales flow but lock the order range and reuse a matching
             // sale if one already exists. This prevents retries or legacy seed data from duplicating sales.
             var existingSales = db.TSales.FromSqlInterpolated(
@@ -271,10 +290,14 @@ public static class ShipmentService
             {
                 var existingSale = existingSales[0];
                 var saleLines = db.TSaleDetails.AsNoTracking().Where(x => x.SaId == existingSale.SaId)
-                    .Select(x => new ShipmentQuantityInput(x.PrId, x.SaQuantity)).ToArray();
+                    .Select(x => new { x.PrId, x.SaQuantity, x.SaPrTotalPrice }).ToArray();
                 if (ShipmentOperationRules.ValidateExistingSale(existingSale.ClId == shipment.ClId
-                    && existingSale.SoId == shipment.SoId, storedLines, saleLines) is { } saleError)
+                    && existingSale.SoId == shipment.SoId, storedLines, saleLines.Select(x => new ShipmentQuantityInput(x.PrId, x.SaQuantity)).ToArray()) is { } saleError)
                     return Denied(saleError);
+                if (!ShipmentOperationRules.SaleAmountsMatch(
+                    orderLines.Select(x => (x.PrId, x.OrTotalPrice)),
+                    saleLines.Select(x => (x.PrId, x.SaPrTotalPrice))))
+                    return Denied("既存売上の金額が受注時の金額と一致しません。売上明細を確認してください。");
                 reuseSale = true;
             }
 
@@ -292,20 +315,13 @@ public static class ShipmentService
                     SaDate = DateTime.Today,
                     SaFlag = ActiveFlag
                 };
-                var orderLines = db.TOrderDetails.AsNoTracking()
-                    .Where(x => x.OrId == shipment.OrId && (x.OrQuantity != 0 || x.OrTotalPrice != 0))
-                    .OrderBy(x => x.OrDetailId).ToList();
-                var quantities = orderLines.Select(x => new ShipmentQuantityInput(x.PrId, x.OrQuantity)).ToArray();
-                if (orderLines.Any(x => x.OrTotalPrice < 0) || !ShipmentOperationRules.LinesMatch(storedLines, quantities))
-                    return Denied("受注明細の金額または数量が出荷内容と一致しません。受注を確認してください。");
-
                 db.TSaleDetails.AddRange(orderLines.Select(line => ShipmentOperationRules.CreateSaleDetail(sale, line)));
                 db.TSales.Add(sale);
             }
             db.SaveChanges();
             transaction.Commit();
             return new(true, reuseSale
-                ? "出荷を確定しました。数量が一致する既存売上を再利用し、重複作成していません。"
+                ? "出荷を確定しました。数量と金額が一致する既存売上を再利用し、重複作成していません。"
                 : "出荷を確定し、既存の売上連携を同一トランザクションで1件だけ登録しました。", reuseSale);
         }
         catch (UnauthorizedAccessException ex) { return Denied(ex.Message); }

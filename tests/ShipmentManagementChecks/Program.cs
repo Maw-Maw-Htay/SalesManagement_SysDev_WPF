@@ -80,6 +80,11 @@ internal static class Program
             "duplicate shipment keys are rejected");
         Check(ShipmentOperationRules.ValidateExistingSaleCount(0) == null && ShipmentOperationRules.ValidateExistingSaleCount(1) == null
             && ShipmentOperationRules.ValidateExistingSaleCount(2) != null, "sale reuse is allowed only when there is at most one sale per order");
+        Check(ShipmentOperationRules.SaleAmountsMatch([(2, 100m), (2, 200m)], [(2, 300m)]),
+            "split lines with the same product total can reuse a sale");
+        Check(!ShipmentOperationRules.SaleAmountsMatch([(2, 300m), (3, 100m)], [(2, 250m), (3, 150m)]),
+            "equal grand totals do not mask different product totals");
+
         var shipmentLines = new[] { new ShipmentQuantityInput(2, 4), new ShipmentQuantityInput(3, 1) };
         Check(ShipmentOperationRules.ValidateExistingSale(true, shipmentLines, shipmentLines) == null, "matching sale can be reused without duplication");
         Check(ShipmentOperationRules.ValidateExistingSale(false, shipmentLines, shipmentLines) != null, "sale with different customer or office is rejected");
