@@ -16,7 +16,8 @@ public partial class F_HattyuDetail : Window
     {
         InitializeComponent();
         this.detail = detail;
-        viewModel = new PurchaseOrderDetailViewModel(detail, !readOnly && PurchaseOrderService.CanHide);
+        viewModel = new PurchaseOrderDetailViewModel(detail, !readOnly && PurchaseOrderService.CanHide,
+            !readOnly && PurchaseOrderService.CanRestore);
         DataContext = viewModel;
         _ = new RegistrationWindowPlacement(this, 880, 680, 670, 440);
         Closing += (_, e) => e.Cancel = processing;
@@ -44,6 +45,25 @@ public partial class F_HattyuDetail : Window
         processing = true;
         try { await PurchaseReceiptHistoryWindow.OpenReceiptAsync(this, row); }
         finally { processing = false; }
+    }
+
+    private async void Restore_Click(object sender, RoutedEventArgs e)
+    {
+        if (processing || !viewModel.CanRestore || AppSession.Employee is not { } actor) return;
+        if (!F_OrderNotice.Confirm(this, "発注を復元", $"発注 {viewModel.Order.Code} を表示中に戻しますか？", "復元する"))
+            return;
+
+        processing = true;
+        PurchaseOperationResult result;
+        try
+        {
+            result = await Task.Run(() => PurchaseOrderService.Restore(actor.EmId, viewModel.Order));
+        }
+        finally { processing = false; }
+
+        F_OrderNotice.Show(this, "発注を復元", result.Message,
+            result.Succeeded ? OrderNoticeKind.Success : OrderNoticeKind.Error);
+        if (result.Succeeded) DialogResult = true;
     }
 
     private async void Hide_Click(object sender, RoutedEventArgs e)

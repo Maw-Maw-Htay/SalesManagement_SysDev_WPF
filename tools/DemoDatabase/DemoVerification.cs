@@ -144,7 +144,7 @@ internal static class DemoVerification
                     DetailId = line.OrDetailId, ProductId = line.PrId, Quantity = line.OrQuantity,
                     Subtotal = line.OrTotalPrice, UnitPrice = line.OrTotalPrice / line.OrQuantity
                 }).ToList()
-            }, () => { }, () => { }, () => { }, () => { }, () => { }, readOnly: true);
+            }, () => { }, () => { }, () => { }, () => { }, readOnly: true);
             var expectedSubtotal = amounts.Values.Sum();
             var expectedTax = decimal.Round(expectedSubtotal / 10, 0, MidpointRounding.AwayFromZero);
             Require(display.Subtotal == expectedSubtotal && display.Tax == expectedTax && display.Total == expectedSubtotal + expectedTax,

@@ -127,6 +127,9 @@ internal static class Program
         Check(PurchaseOrderService.CanView && PurchaseOrderService.CanRegister, "logistics can view and register purchases");
         Check(PurchaseOrderService.CanHide && !PurchaseOrderService.CanViewHidden, "logistics can hide orders in their office");
         Check(!PurchaseOrderService.Hide(999, 1, "理由").Succeeded, "unauthorized hide is denied before database access");
+        var hiddenPending = Order(1, PurchaseOrderService.HiddenFlag, 5, 0);
+        Check(!PurchaseOrderService.Restore(AppSession.Employee!.EmId, hiddenPending).Succeeded,
+            "logistics cannot restore a hidden purchase");
 
         AppSession.Employee = Employee("営業");
         Check(!PurchaseOrderService.CanView && !PurchaseOrderService.CanRegister, "sales role is denied purchase management");
@@ -232,6 +235,18 @@ internal static class Program
             Pump();
             Check(Descendants<DataGrid>(detail).Count(g => g.IsReadOnly) == 2, "Detail displays read-only order lines and linked receipts");
             detail.Close();
+
+            var pending = new PurchaseOrderDetail(Order(2, PurchaseOrderService.HiddenFlag, 5, 0), []);
+            var restoreDetail = new F_HattyuDetail(pending) { Owner = host };
+            restoreDetail.Show();
+            Pump();
+            Check(Descendants<Button>(restoreDetail).Single(x => Equals(x.Content, "発注を復元")).IsVisible,
+                "administrator can recover a hidden purchase awaiting arrival from its detail");
+            restoreDetail.Close();
+            var receivedHidden = pending with { Order = pending.Order with { WarehouseFlag = 1, HasLinkedReceipt = true } };
+            Check(!new PurchaseOrderDetailViewModel(receivedHidden, canHide: false, canRestore: true).CanRestore,
+                "an already received purchase is outside the pending restore workflow");
+
             var history = new PurchaseReceiptHistoryWindow(purchase.Receipts) { Owner = host };
             history.Show();
             Pump();

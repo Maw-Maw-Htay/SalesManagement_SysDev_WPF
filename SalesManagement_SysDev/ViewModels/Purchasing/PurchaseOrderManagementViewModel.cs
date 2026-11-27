@@ -441,19 +441,22 @@ public sealed class PurchaseOrderDetailViewModel
     public IReadOnlyList<PurchaseReceiptRecord> Receipts { get; }
     public string OfficeName { get; }
     public bool CanHide { get; }
+    public bool CanRestore { get; }
     public bool IsHidden => Order.ManagementFlag == PurchaseOrderService.HiddenFlag;
     public bool HasHiddenReason => IsHidden && !string.IsNullOrWhiteSpace(Order.HiddenReason);
     public string OrderedQuantityText => $"{Order.OrderedQuantity:N0}";
     public string ReceivedQuantityText => $"{Order.ReceivedQuantity:N0}";
     public string RemainingQuantityText => $"{Order.RemainingQuantity:N0}";
 
-    public PurchaseOrderDetailViewModel(PurchaseOrderDetail detail, bool canHide)
+    public PurchaseOrderDetailViewModel(PurchaseOrderDetail detail, bool canHide, bool canRestore = false)
     {
         Order = detail.Order;
         Lines = detail.Lines;
         Receipts = detail.Receipts;
         OfficeName = string.IsNullOrWhiteSpace(detail.OfficeName) ? "未記録" : detail.OfficeName;
         CanHide = canHide && !IsHidden;
+        CanRestore = canRestore && PurchaseOrderService.IsRestorablePendingPurchase(
+            Order.ManagementFlag, Order.WarehouseFlag, Order.HasLinkedReceipt);
     }
 }
 

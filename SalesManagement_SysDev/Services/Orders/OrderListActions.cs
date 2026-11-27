@@ -232,10 +232,14 @@ public static class CsvOrderImportService
     public static int ImportApproved(IReadOnlyCollection<CsvOrderImportOrder> orders)
     {
         if (orders.Count == 0) throw new InvalidOperationException("取込対象がありません。");
-        if (!AppSession.IsAdmin && !AppSession.IsSales) throw new UnauthorizedAccessException("CSV取込は管理者または営業担当者のみ実行できます。");
+        if (!AppSession.CanManageOrders || AppSession.Employee is not { } session)
+            throw new UnauthorizedAccessException("CSV取込は管理者または営業担当者のみ実行できます。");
 
         using var db = new SalesManagementContext();
         using var transaction = db.Database.BeginTransaction(IsolationLevel.Serializable);
+        if (BusinessService.ResolveOrderActor(db, session.EmId) is not { } actor)
+            throw new UnauthorizedAccessException("CSV取込の権限を確認できません。再ログインしてください。");
+
         var officeIds = db.MSalesOffices.Where(x => x.SoFlag == 0).Select(x => x.SoId).ToHashSet();
         var employees = db.MEmployees.Where(x => x.EmFlag == 0).ToDictionary(x => x.EmId, x => x.SoId);
         var clients = db.MClients.Where(x => x.ClFlag == 0).ToDictionary(x => x.ClId, x => x.SoId);
@@ -246,7 +250,7 @@ public static class CsvOrderImportService
             if (!officeIds.Contains(order.SalesOfficeId)) errors.Add($"{order.ExternalOrderNumber}: 営業所が利用できません。");
             if (!employees.TryGetValue(order.EmployeeId, out var employeeOffice) || employeeOffice != order.SalesOfficeId) errors.Add($"{order.ExternalOrderNumber}: 担当者が利用できないか、営業所が一致しません。");
             if (!clients.TryGetValue(order.ClientId, out var clientOffice) || clientOffice != order.SalesOfficeId) errors.Add($"{order.ExternalOrderNumber}: 顧客が利用できないか、営業所と一致しません。");
-            if (!AppSession.IsAdmin && order.SalesOfficeId != AppSession.Employee?.SoId) errors.Add($"{order.ExternalOrderNumber}: 許可営業所外です。");
+            if (actor.Role != "管理者" && order.SalesOfficeId != actor.SoId) errors.Add($"{order.ExternalOrderNumber}: 許可営業所外です。");
             if (order.Lines.Count == 0 || order.Lines.Any(x => !productIds.Contains(x.ProductId) || x.Quantity <= 0 || x.LineTotal < 0 || x.LineTotal > 9999999999m)) errors.Add($"{order.ExternalOrderNumber}: 明細商品・数量・金額を再確認してください。");
         }
 

@@ -20,15 +20,17 @@ public sealed partial class BusinessService
         message = "";
         if (!AppSession.CanManageOrders || AppSession.Employee?.EmId != employeeId)
         { message = "受注の登録権限がありません。"; return false; }
-        if (!AppSession.IsAdmin && AppSession.Employee.SoId != officeId)
-        { message = "所属営業所以外の受注は登録できません。"; return false; }
         if (customerContact?.Trim().Length > OrderUpdateRules.RemarksMaxLength)
         { message = "顧客担当者名は50文字以内で入力してください。"; return false; }
         if (lines.Count == 0 || lines.Any(x => !OrderUpdateRules.TrySubtotal(x.Quantity, x.UnitPrice, out _)))
         { message = "明細を1行以上指定し、数量と単価を確認してください。"; return false; }
-        using var transaction = db.Database.BeginTransaction();
+        using var transaction = db.Database.BeginTransaction(System.Data.IsolationLevel.Serializable);
         try
         {
+            if (ResolveOrderActor(db, employeeId) is not { } actor)
+            { message = "受注を登録する権限を確認できません。再ログインしてください。"; return false; }
+            if (actor.Role != "管理者" && actor.SoId != officeId)
+            { message = "所属営業所以外の受注は登録できません。"; return false; }
             if (!db.MClients.Any(x => x.ClId == customerId && x.SoId == officeId && x.ClFlag == 0)
                 || !db.MSalesOffices.Any(x => x.SoId == officeId && x.SoFlag == 0))
             { message = "顧客と営業所の組み合わせを確認してください。"; return false; }

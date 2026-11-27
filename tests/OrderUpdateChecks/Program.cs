@@ -370,6 +370,44 @@ internal static class Program
                 Check(saved.EmId == 1 && saved.OrStateFlag == 1 && next.SoId == customerOffice && next.EmId == null
                     && next.TChumonDetails.Single().ChQuantity == 2, "one pending order retains registered office and lines");
             }
+            using (var db = TestContext())
+            {
+                var employee = db.MEmployees.Single();
+                employee.EmFlag = 2;
+                db.SaveChanges();
+            }
+            using (var db = TestContext())
+            {
+                var customer = db.MClients.Single();
+                var line = new OrderDetailUpdate(null, db.MProducts.Single().PrId, 1, 30);
+                Check(!BusinessService.CreateOrderCore(db, 1, customer.ClId, customer.SoId, DateTime.Today,
+                    null, [line], out _, out var reason) && reason.Contains("権限"),
+                    "deactivated employee cannot register an order using their existing session");
+                db.MEmployees.Single().EmFlag = 0;
+                db.SaveChanges();
+            }
+
+            int outboundId;
+            using (var db = TestContext())
+            {
+                var productId = db.MProducts.Single().PrId;
+                var hidden = ProductService.Hide(db, 1, productId, "新規受注での使用を停止");
+                Check(hidden.Succeeded, "hide a product after order acceptance: " + hidden.Message);
+            }
+            using (var db = TestContext())
+            {
+                var order = db.TChumons.Single(x => x.OrId == orderId);
+                Check(BusinessService.ConfirmChumonCore(db, order.ChId, 1, out var reason, out var generatedId),
+                    "confirm a linked order after product visibility changes: " + reason);
+                outboundId = generatedId!.Value;
+            }
+            using (var db = TestContext())
+            {
+                var confirmed = OutboundService.ConfirmInContext(db, 1, outboundId);
+                Check(confirmed.Succeeded && db.TStocks.Single().StQuantity == 48
+                    && db.TArrivals.Count(x => x.OrId == orderId) == 1,
+                    "hidden product completes outbound without deducting stock twice: " + confirmed.Message);
+            }
         }
         finally
         {
@@ -393,7 +431,7 @@ internal static class Program
         var small = new MSmallClassification { ScName="入力機器", Mc=major };
         var maker = new MMaker { MaName="テストメーカー" };
         var product = new MProduct { PrName="キーボード", Price=9999, Sc=small, Ma=maker, PrReleaseDate=DateTime.Today };
-        var order = new TOrder { So=office, Em=employee, Cl=customer, OrDate=DateTime.Today, OrStateFlag=0,
+        var order = new TOrder { So=office, Em=employee, Cl=customer, OrDate=DateTime.Today, OrStateFlag=1,
             TOrderDetails=[new TOrderDetail { Pr=product, OrQuantity=3, OrTotalPrice=100 }] };
         db.Add(order); db.Add(new TStock { Pr=product, StQuantity=50 });
         foreach (var entry in db.ChangeTracker.Entries())

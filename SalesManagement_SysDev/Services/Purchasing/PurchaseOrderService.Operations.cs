@@ -6,6 +6,7 @@ namespace SalesManagement_SysDev;
 public static partial class PurchaseOrderService
 {
     public static bool CanAssignOffice => CanView && AppSession.IsAdmin;
+    public static bool CanRestore => CanViewHidden;
 
     public sealed record OfficeOption(int Id, string Name);
 
@@ -115,6 +116,40 @@ public static partial class PurchaseOrderService
         db.SaveChanges();
         transaction.Commit();
         return new(true, order.HaId, "発注を非表示にしました。入庫記録と在庫情報は変更していません。");
+    }
+
+    internal static bool IsRestorablePendingPurchase(int managementFlag, int? warehouseFlag, bool hasLinkedReceipt) =>
+        managementFlag == HiddenFlag && warehouseFlag == 0 && !hasLinkedReceipt;
+
+    public static PurchaseOperationResult Restore(int actorId, PurchaseOrderRecord expected)
+    {
+        const string permissionError = "発注の復元は管理者のみ実行できます。";
+        if (!CanRestore || AppSession.Employee?.EmId != actorId) return Denied(permissionError);
+        if (!IsRestorablePendingPurchase(expected.ManagementFlag, expected.WarehouseFlag, expected.HasLinkedReceipt))
+            return Denied("倉庫到着前で、入庫が紐づいていない非表示の発注だけ復元できます。");
+
+        try
+        {
+            using var db = new SalesManagementContext();
+            using var transaction = db.Database.BeginTransaction(IsolationLevel.Serializable);
+            if (ResolveActor(db, actorId) is not { IsAdministrator: true }) return Denied(permissionError);
+            var order = db.THattyus.FromSqlInterpolated(
+                $"SELECT * FROM dbo.T_Hattyu WITH (UPDLOCK, HOLDLOCK) WHERE HaID = {expected.Id}").SingleOrDefault();
+            if (order == null || order.HaHidden != expected.HiddenReason
+                || !IsRestorablePendingPurchase(order.HaFlag, order.WaWarehouseFlag,
+                    db.TWarehousings.Any(x => x.HaId == expected.Id)))
+                return Denied("発注の状態が変更されました。一覧を再読込して確認してください。");
+
+            order.HaFlag = ActiveFlag;
+            db.SaveChanges();
+            transaction.Commit();
+            return new(true, order.HaId, "発注を表示中に戻しました。倉庫に到着したら発注を確定できます。");
+        }
+        catch (Exception error)
+        {
+            System.Diagnostics.Trace.TraceError("発注の復元に失敗しました: {0}", error);
+            return Denied("発注を復元できませんでした。一覧を再読込してからお試しください。");
+        }
     }
 
     public static string? ValidateRegistration(int makerId, DateTime? orderDate, IReadOnlyList<PurchaseLineInput> lines)

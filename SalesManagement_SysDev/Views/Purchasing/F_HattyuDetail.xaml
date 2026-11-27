@@ -107,6 +107,8 @@
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Right">
                     <Button Content="非表示にする" Click="Hide_Click" IsEnabled="{Binding CanHide}" Visibility="{Binding CanHide, Converter={StaticResource BooleanVisibility}}"
                             Background="{StaticResource ThemeDanger}" Foreground="White" BorderBrush="{StaticResource ThemeDanger}" Height="38" Margin="0,0,8,0" />
+                    <Button Content="発注を復元" Click="Restore_Click" Height="38" Margin="0,0,8,0"
+                            Visibility="{Binding CanRestore, Converter={StaticResource BooleanVisibility}}" />
                     <Button Content="発注書印刷" Click="Print_Click" Height="38" Margin="0,0,8,0" />
                     <Button Content="閉じる" Click="Close_Click" IsCancel="True" MinWidth="100" Height="38" />
                 </StackPanel>

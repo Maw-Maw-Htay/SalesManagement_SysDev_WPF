@@ -129,7 +129,9 @@ public static partial class OutboundService
             if (WarehouseMovementRules.ValidateUniqueSourceCount(matchingOrders.Length) is { } sourceError)
                 return Denied(sourceError);
             var productIds = lines.Select(x => x.ProductId).Distinct().ToArray();
-            if (db.MProducts.Count(x => productIds.Contains(x.PrId) && x.PrFlag == ActiveFlag) != productIds.Length)
+            // Product visibility governs selection for new orders. Confirmed source lines remain valid.
+            if (db.MProducts.Count(x => productIds.Contains(x.PrId)
+                && (x.PrFlag == ActiveFlag || x.PrFlag == HiddenFlag)) != productIds.Length)
                 return Denied("出庫明細に無効または未登録の商品が含まれています。");
 
             // T_Arrival has no SyID. Lock and check the existing order/customer/office key to make

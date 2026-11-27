@@ -81,7 +81,7 @@ public sealed partial class BusinessService
         using var tx = db.Database.BeginTransaction(IsolationLevel.Serializable);
         try
         {
-            if (ResolveChumonActor(db, employeeId) is not { } actor)
+            if (ResolveOrderActor(db, employeeId) is not { } actor)
             {
                 message = "注文の確定権限を確認できません。再ログインしてください。";
                 return false;
@@ -137,7 +137,7 @@ public sealed partial class BusinessService
         }
     }
 
-    private static (int SoId, string Role)? ResolveChumonActor(SalesManagementContext db, int employeeId)
+    internal static (int SoId, string Role)? ResolveOrderActor(SalesManagementContext db, int employeeId)
     {
         var session = AppSession.Employee;
         if (session == null || session.EmId != employeeId) return null;
@@ -165,7 +165,7 @@ public sealed partial class BusinessService
         using var tx = db.Database.BeginTransaction(IsolationLevel.Serializable);
         try
         {
-            if (ResolveChumonActor(db, employeeId) is not { } actor)
+            if (ResolveOrderActor(db, employeeId) is not { } actor)
             {
                 message = "注文を非表示にする権限を確認できません。再ログインしてください。";
                 return false;
