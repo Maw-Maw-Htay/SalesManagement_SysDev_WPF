@@ -605,7 +605,7 @@ public sealed class OrderRegistrationViewModel : ViewModelBase, IDisposable
     }
 
     private static OrderDetailViewModel CreatePreview(OrderDetailSnapshot snapshot) =>
-        new(snapshot, () => { }, () => { }, () => { }, () => { }, () => { });
+        new(snapshot, () => { }, () => { }, () => { }, () => { }, readOnly: true);
     private void RefreshPreview()
     {
         // Compose the existing read-only detail model; its tax and rounding rule remains authoritative.

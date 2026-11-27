@@ -98,7 +98,7 @@ public static class OrderHistoryService
                 ActorName = "システム（初期記録）",
                 Details = "履歴記録の開始時点で保存されていた状態です。過去の操作日時・実行者・変更前の値は未記録です。\n"
                     + Summary(snapshot) + "\n" + LinesText(snapshot)
-                    + (snapshot.Contact.Length > 0 ? "\n備考・担当連絡先：" + snapshot.Contact : "")
+                    + (snapshot.Contact.Length > 0 ? "\n顧客担当者名：" + snapshot.Contact : "")
                     + (snapshot.HiddenReason.Length > 0 ? "\n非表示理由：" + snapshot.HiddenReason : "")
             });
         }
@@ -155,7 +155,7 @@ public static class OrderHistoryService
                 changes.Add("変更前明細：" + LinesText(before));
         }
         changes.Add("明細：" + LinesText(after));
-        if (after.Contact.Length > 0) changes.Add("備考・担当連絡先：" + after.Contact);
+        if (after.Contact.Length > 0) changes.Add("顧客担当者名：" + after.Contact);
         if (after.HiddenReason.Length > 0) changes.Add("非表示理由：" + after.HiddenReason);
         if (!string.IsNullOrWhiteSpace(note)) changes.Add(note);
         db.OrderOperationHistories.Add(new OrderOperationHistory
